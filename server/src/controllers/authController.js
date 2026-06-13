@@ -117,6 +117,13 @@ export const loginUser = async (req, res) => {
         token
       });
     } else {
+      console.log('LOGIN DEBUG', {
+        email,
+        origin: req.headers.origin,
+        host: req.headers.host,
+        hostname: req.hostname,
+        reason: 'Invalid email or password'
+      });
       res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error) {

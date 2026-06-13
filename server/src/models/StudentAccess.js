@@ -52,7 +52,27 @@ const studentAccessSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  instituteId: {
+    type: String,
+    index: true,
+    default: ''
   }
+});
+
+studentAccessSchema.pre('save', async function (next) {
+  if (this.institute && !this.instituteId) {
+    try {
+      const InstituteModel = mongoose.model('Institute');
+      const inst = await InstituteModel.findById(this.institute);
+      if (inst) {
+        this.instituteId = inst.instituteId;
+      }
+    } catch (err) {
+      console.error('Error populating instituteId in student access pre-save:', err);
+    }
+  }
+  next();
 });
 
 // Compound index to ensure uniqueness for individual Student access rules

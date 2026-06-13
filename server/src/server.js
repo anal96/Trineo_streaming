@@ -23,6 +23,7 @@ import studentAccountRoutes from './routes/studentAccountRoutes.js';
 import studentNotificationRoutes from './routes/studentNotificationRoutes.js';
 import liveClassRoutes from './routes/liveClassRoutes.js';
 import accessRoutes from './routes/accessRoutes.js';
+import integrationRoutes from './routes/integrationRoutes.js';
 
 // Seed model imports
 import { User } from './models/User.js';
@@ -39,7 +40,22 @@ dotenv.config();
 const app = express();
 
 app.use(helmet({ contentSecurityPolicy: false })); // Harden headers against XSS and clickjacking
-app.use(cors());
+const allowedOrigins = [
+  'https://trineo-streaming.vercel.app',
+  'https://stream.trineo.in',
+  'http://localhost:5173'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '3000mb' }));
 app.use(express.urlencoded({ limit: '3000mb', extended: true }));
 
@@ -61,6 +77,7 @@ app.use('/api/student-account', studentAccountRoutes);
 app.use('/api/student-notifications', studentNotificationRoutes);
 app.use('/api/live-classes', liveClassRoutes);
 app.use('/api/access', accessRoutes);
+app.use('/api/integration', integrationRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
@@ -78,6 +95,8 @@ const seedData = async () => {
     if (!defaultInstitute) {
       defaultInstitute = new Institute({
         name: 'GFI Institute',
+        instituteId: 'inst_gfi',
+        apiKey: 'trn_gfi_9a8c7d6e5f4a',
         email: 'info@gfi.edu',
         contactPerson: 'Sarah Manager',
         phone: '1234567890',
@@ -96,6 +115,13 @@ const seedData = async () => {
       });
       await defaultInstitute.save();
       console.log('Seeded default Institute: GFI Institute');
+    } else if (!defaultInstitute.instituteId || !defaultInstitute.apiKeyHash) {
+      defaultInstitute.instituteId = defaultInstitute.instituteId || 'inst_gfi';
+      if (!defaultInstitute.apiKeyHash) {
+        defaultInstitute.apiKey = 'trn_gfi_9a8c7d6e5f4a';
+      }
+      await defaultInstitute.save();
+      console.log('Updated existing GFI Institute with instituteId and apiKeyHash');
     }
 
     // 1. Seed Users

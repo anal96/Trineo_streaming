@@ -1,10 +1,28 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const instituteSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
     trim: true
+  },
+  instituteId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
+  apiKeyHash: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
+  apiKey: {
+    type: String,
+    select: false
   },
   email: {
     type: String,
@@ -151,6 +169,31 @@ const instituteSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+});
+
+instituteSchema.pre('save', async function (next) {
+  if (!this.instituteId) {
+    const prefix = (this.name || 'inst').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 3).padEnd(3, 'x');
+    const randomHex = crypto.randomBytes(4).toString('hex');
+    this.instituteId = `inst_${prefix}_${randomHex}`;
+  }
+  
+  if (this.isModified('apiKey') && this.apiKey) {
+    const salt = await bcrypt.genSalt(10);
+    this.apiKeyHash = await bcrypt.hash(this.apiKey, salt);
+    this.plainApiKey = this.apiKey;
+    this.apiKey = undefined;
+  } else if (!this.apiKeyHash) {
+    const prefix = (this.name || 'inst').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 3).padEnd(3, 'x');
+    const randomHex = crypto.randomBytes(12).toString('hex');
+    const plainKey = `trn_${prefix}_${randomHex}`;
+    
+    const salt = await bcrypt.genSalt(10);
+    this.apiKeyHash = await bcrypt.hash(plainKey, salt);
+    this.plainApiKey = plainKey;
+    this.apiKey = undefined;
+  }
+  next();
 });
 
 export const Institute = mongoose.model('Institute', instituteSchema);

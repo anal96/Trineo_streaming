@@ -13,6 +13,9 @@ import { Notification } from '../models/Notification.js';
 import { Announcement } from '../models/Announcement.js';
 import { OwnerActionLog } from '../models/OwnerActionLog.js';
 import { BackupJob } from '../models/BackupJob.js';
+import { CourseAssignment } from '../models/CourseAssignment.js';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import os from 'os';
 import mongoose from 'mongoose';
 
@@ -651,7 +654,7 @@ export const getInstituteDetails = async (req, res) => {
   try {
     const inst = await Institute.findById(req.params.id).lean();
     if (!inst || inst.status === 'deleted') return res.status(404).json({ message: 'Institute not found' });
-    const [students, courses, lessons, videos, materials, watchRows, sessions, admins, uploads, logins, securityEvents, announcements] = await Promise.all([
+    const [students, courses, lessons, videos, materials, watchRows, sessions, admins, uploads, logins, securityEvents, announcements, courseAssignmentsCount, apiLogs, lastApiUsage] = await Promise.all([
       User.countDocuments({ institute: inst._id, role: 'student' }),
       Course.countDocuments({ institute: inst._id }),
       Lesson.countDocuments({ institute: inst._id }),
@@ -662,14 +665,30 @@ export const getInstituteDetails = async (req, res) => {
       User.find({ institute: inst._id, role: 'admin' }).select('name email phone createdAt'),
       VideoUploadJob.find({ institute: inst._id }).sort({ createdAt: -1 }).limit(10),
       AuditLog.find({ institute: inst._id, eventType: 'login' }).sort({ createdAt: -1 }).limit(10),
-      AuditLog.find({ institute: inst._id, eventType: { $nin: ['login', 'logout'] } }).sort({ createdAt: -1 }).limit(10),
-      Announcement.find({ institute: inst._id }).sort({ createdAt: -1 }).limit(10)
+      AuditLog.find({ institute: inst._id, eventType: { $nin: ['login', 'logout', 'API_ACCESS'] } }).sort({ createdAt: -1 }).limit(10),
+      Announcement.find({ institute: inst._id }).sort({ createdAt: -1 }).limit(10),
+      CourseAssignment.countDocuments({ institute: inst._id }),
+      AuditLog.find({ institute: inst._id, eventType: 'API_ACCESS' }).sort({ createdAt: -1 }).limit(50),
+      AuditLog.findOne({ institute: inst._id, eventType: 'API_ACCESS' }).sort({ createdAt: -1 }).select('createdAt')
     ]);
     const watchHours = Math.round(watchRows.reduce((sum, row) => sum + ((row.progress || 0) * 0.6), 0) / 3600 * 10) / 10;
     const recentUploads = uploads.map((u) => ({ id: u._id, status: u.status, createdAt: u.createdAt, videoId: u.youtubeVideoId || null }));
     res.json({
-      profile: inst,
-      stats: { students, courses, lessons, videos, materials, watchHours, activeSessions: sessions },
+      profile: {
+        ...inst,
+        apiKeyConfigured: !!inst.apiKeyHash
+      },
+      stats: {
+        students,
+        courses,
+        lessons,
+        videos,
+        materials,
+        watchHours,
+        activeSessions: sessions,
+        courseAssignmentsCount,
+        lastApiUsage: lastApiUsage?.createdAt || null
+      },
       admins,
       support: {
         supportEmail: inst.supportEmail || '',
@@ -680,8 +699,87 @@ export const getInstituteDetails = async (req, res) => {
         uploads: recentUploads,
         logins,
         securityEvents,
-        announcements
+        announcements,
+        apiLogs
       }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const updateInstitute = async (req, res) => {
+  const { name, instituteId, status, contactPerson, phone, domain, subscription } = req.body;
+  try {
+    const inst = await Institute.findById(req.params.id);
+    if (!inst || inst.status === 'deleted') {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    if (instituteId && instituteId !== inst.instituteId) {
+      const existing = await Institute.findOne({ instituteId, status: { $ne: 'deleted' } });
+      if (existing) {
+        return res.status(409).json({ message: 'Institute ID is already in use by another tenant.' });
+      }
+      inst.instituteId = instituteId;
+    }
+
+    inst.name = name || inst.name;
+    inst.status = status || inst.status;
+    inst.contactPerson = contactPerson !== undefined ? contactPerson : inst.contactPerson;
+    inst.phone = phone !== undefined ? phone : inst.phone;
+    inst.domain = domain !== undefined ? domain : inst.domain;
+    inst.subscription = subscription || inst.subscription;
+
+    await inst.save();
+    await logOwnerAction(req, 'update_institute', { targetInstitute: inst._id, details: `Updated institute metadata` });
+    res.json(inst);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const generateApiKey = async (req, res) => {
+  try {
+    const inst = await Institute.findById(req.params.id);
+    if (!inst || inst.status === 'deleted') {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    const prefix = (inst.name || 'inst').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 3).padEnd(3, 'x');
+    const randomHex = crypto.randomBytes(12).toString('hex');
+    const plainApiKey = `trn_${prefix}_${randomHex}`;
+
+    const salt = await bcrypt.genSalt(10);
+    inst.apiKeyHash = await bcrypt.hash(plainApiKey, salt);
+    await inst.save();
+
+    await logOwnerAction(req, 'generate_api_key', { targetInstitute: inst._id, details: `Generated new API key for ${inst.name}` });
+
+    return res.json({
+      success: true,
+      apiKey: plainApiKey,
+      message: 'API Key generated successfully. Copy it now as it will not be shown again.'
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const disableApiKey = async (req, res) => {
+  try {
+    const inst = await Institute.findById(req.params.id);
+    if (!inst || inst.status === 'deleted') {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    inst.apiKeyHash = null;
+    await inst.save();
+
+    await logOwnerAction(req, 'disable_api_key', { targetInstitute: inst._id, details: `Disabled API key for ${inst.name}` });
+    return res.json({
+      success: true,
+      message: 'API key disabled successfully.'
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

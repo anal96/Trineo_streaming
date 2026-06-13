@@ -33,7 +33,27 @@ const watchHistorySchema = new mongoose.Schema({
   watchedAt: {
     type: Date,
     default: Date.now
+  },
+  instituteId: {
+    type: String,
+    index: true,
+    default: ''
   }
+});
+
+watchHistorySchema.pre('save', async function (next) {
+  if (this.institute && !this.instituteId) {
+    try {
+      const InstituteModel = mongoose.model('Institute');
+      const inst = await InstituteModel.findById(this.institute);
+      if (inst) {
+        this.instituteId = inst.instituteId;
+      }
+    } catch (err) {
+      console.error('Error populating instituteId in watch history pre-save:', err);
+    }
+  }
+  next();
 });
 
 watchHistorySchema.index({ institute: 1, studentId: 1, lessonId: 1 }, { unique: true });

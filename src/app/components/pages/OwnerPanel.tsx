@@ -45,6 +45,7 @@ import {
   Database,
   Lock,
   Unlock,
+  Key,
   AlertCircle,
   ChevronDown,
   BarChart3,
@@ -525,6 +526,7 @@ export default function OwnerPanel() {
     { id: 'institutes', icon: Building2,        label: 'Institute Management',       badge: stats?.totalInstitutes ?? null },
     { id: 'usage',      icon: Database,         label: 'Usage & Quotas',             badge: null },
     { id: 'instituteDetail', icon: Eye,         label: 'Institute Detail',            badge: null },
+    { id: 'crm_keys',        icon: Key,         label: 'CRM Key Management',          badge: null },
     { id: 'revenue',    icon: DollarSign,       label: 'Revenue',                   badge: stats?.pendingPayments ? `${stats.pendingPayments} pending` : null },
     { id: 'users',      icon: Users,            label: 'User Management',           badge: null },
     { id: 'streaming',  icon: Radio,            label: 'Streaming Infrastructure',  badge: stats?.processingJobs ?? null },
@@ -596,7 +598,15 @@ export default function OwnerPanel() {
             return (
               <button
                 key={item.id}
-                onClick={() => { setActiveSection(item.id); setSearch(''); setActiveSubTab(''); }}
+                onClick={() => {
+                  if (item.id === 'crm_keys') {
+                    navigate('/admin/institutes');
+                    return;
+                  }
+                  setActiveSection(item.id);
+                  setSearch('');
+                  setActiveSubTab('');
+                }}
                 className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative ${
                   active
                     ? isDark
@@ -670,7 +680,15 @@ export default function OwnerPanel() {
               subtitle="Platform Control"
               items={navItems}
               activeId={activeSection}
-              onSelect={(id) => { setActiveSection(id); setSearch(''); setActiveSubTab(''); }}
+              onSelect={(id) => {
+                if (id === 'crm_keys') {
+                  navigate('/admin/institutes');
+                  return;
+                }
+                setActiveSection(id);
+                setSearch('');
+                setActiveSubTab('');
+              }}
               footer={
                 <button
                   type="button"

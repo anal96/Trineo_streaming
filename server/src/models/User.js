@@ -13,8 +13,7 @@ const userSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   password: {
     type: String,
@@ -76,11 +75,48 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  studentId: {
+    type: String,
+    default: ''
+  },
+  crmStudentId: {
+    type: String,
+    default: ''
+  },
+  crmSource: {
+    type: String,
+    default: ''
+  },
+  instituteId: {
+    type: String,
+    default: '',
+    index: true
+  },
+  lastSyncedAt: {
+    type: Date,
+    default: null
+  },
+  syncStatus: {
+    type: String,
+    enum: ['pending', 'success', 'failed', ''],
+    default: ''
+  },
   createdAt: {
     type: Date,
     default: Date.now
   }
 });
+
+userSchema.index({ email: 1, instituteId: 1 }, { unique: true });
+userSchema.index(
+  { studentId: 1, instituteId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      studentId: { $gt: "" }
+    }
+  }
+);
 
 // Pre-save hook to generate user_id and hash password
 userSchema.pre('save', async function (next) {
@@ -100,6 +136,18 @@ userSchema.pre('save', async function (next) {
         break;
       }
       attempts++;
+    }
+  }
+
+  if (this.institute && !this.instituteId) {
+    try {
+      const InstituteModel = mongoose.model('Institute');
+      const inst = await InstituteModel.findById(this.institute);
+      if (inst) {
+        this.instituteId = inst.instituteId;
+      }
+    } catch (err) {
+      console.error('Error populating instituteId in user pre-save:', err);
     }
   }
   next();

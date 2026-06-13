@@ -26,7 +26,10 @@ import {
   verifyBackupIntegrity,
   downloadBackupReport,
   getPlatformHealth,
-  getInstituteDetails
+  getInstituteDetails,
+  updateInstitute,
+  generateApiKey,
+  disableApiKey
 } from '../controllers/ownerController.js';
 
 const router = express.Router();
@@ -41,6 +44,7 @@ router.get('/stats', getPlatformStats);
 // ─── Institute Management ─────────────────────────────────────────────────────
 router.get('/institutes', getInstitutes);
 router.post('/institutes', createInstitute);
+router.put('/institutes/:id', updateInstitute);
 router.put('/institutes/:id/suspend', toggleSuspendInstitute);
 router.delete('/institutes/:id', deleteInstitute);
 router.put('/institutes/:id/subscription', updateInstituteSubscription);
@@ -48,6 +52,11 @@ router.put('/institutes/:id/quotas', updateInstituteQuotas);
 router.post('/institutes/:id/reset-usage-warnings', resetInstituteUsageWarnings);
 router.post('/institutes/:id/lock-access', lockInstituteAccess);
 router.get('/institutes/:id/details', getInstituteDetails);
+
+// ─── CRM Key Management ───────────────────────────────────────────────────────
+router.post('/institutes/:id/api-key', generateApiKey);
+router.post('/institutes/:id/api-key/regenerate', generateApiKey);
+router.delete('/institutes/:id/api-key', disableApiKey);
 
 // ─── User Management ──────────────────────────────────────────────────────────
 router.get('/users', getAllUsers);

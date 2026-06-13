@@ -53,6 +53,11 @@ const courseSchema = new mongoose.Schema({
     ref: 'Institute',
     default: null
   },
+  instituteId: {
+    type: String,
+    index: true,
+    default: ''
+  },
   slug: {
     type: String,
     required: true,
@@ -69,6 +74,21 @@ courseSchema.pre('validate', async function nextSlug() {
   if (!this.isModified('title') && this.slug) return;
   const baseSlug = slugify(this.title);
   this.slug = await uniqueSlug(mongoose.models.Course, baseSlug, {}, this._id);
+});
+
+courseSchema.pre('save', async function (next) {
+  if (this.institute && !this.instituteId) {
+    try {
+      const InstituteModel = mongoose.model('Institute');
+      const inst = await InstituteModel.findById(this.institute);
+      if (inst) {
+        this.instituteId = inst.instituteId;
+      }
+    } catch (err) {
+      console.error('Error populating instituteId in course pre-save:', err);
+    }
+  }
+  next();
 });
 
 export const Course = mongoose.model('Course', courseSchema);

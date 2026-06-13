@@ -10,6 +10,7 @@ import VideoPlayer from './components/pages/VideoPlayer';
 import AdminDashboard from './components/pages/AdminDashboard';
 import CoursesPage from './components/pages/CoursesPage';
 import OwnerPanel from './components/pages/OwnerPanel';
+import InstitutesManagementPage from './components/pages/InstitutesManagementPage';
 import { BrandingManager } from './components/BrandingManager';
 import { apiFetch, decodeShortId } from './utils/api';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router';
@@ -71,6 +72,7 @@ export default function App() {
             <Route path="/watch/v/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/owner" element={<OwnerPanel />} />
+            <Route path="/admin/institutes" element={<InstitutesManagementPage />} />
           </Routes>
           <ThemeToggle />
           <Toaster />

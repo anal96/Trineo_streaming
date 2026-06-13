@@ -3,6 +3,7 @@ import { StudentAccess } from '../models/StudentAccess.js';
 import { AccessPackage } from '../models/AccessPackage.js';
 import { BatchAccess } from '../models/BatchAccess.js';
 import { Purchase } from '../models/Purchase.js';
+import { CourseAssignment } from '../models/CourseAssignment.js';
 
 export const verifyStudentAccess = async ({ user, courseId, subjectTitle, moduleTitle, lessonId }) => {
   if (!user) {
@@ -22,6 +23,21 @@ export const verifyStudentAccess = async ({ user, courseId, subjectTitle, module
   const studentId = user._id;
   const instituteId = user.institute;
   const now = new Date();
+
+  // Primary Integration Access Check (CourseAssignment)
+  if (mongoose.Types.ObjectId.isValid(studentId) && mongoose.Types.ObjectId.isValid(courseId)) {
+    try {
+      const assignment = await CourseAssignment.findOne({
+        student: studentId,
+        courseId
+      });
+      if (assignment) {
+        return { granted: true, source: 'assignment' };
+      }
+    } catch (err) {
+      console.error('Error in primary integration access check:', err);
+    }
+  }
 
   // Fetch all direct accesses for this student in this institute and course
   const directAccesses = await StudentAccess.find({
