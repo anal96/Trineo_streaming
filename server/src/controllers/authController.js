@@ -330,10 +330,35 @@ export const ssoLogin = async (req, res) => {
   console.log('SSO request received');
   console.log('Token present:', !!token);
   console.log('TRINEO_SSO_SECRET configured:', !!process.env.TRINEO_SSO_SECRET);
+  
+  const sha256 = (val) => crypto.createHash('sha256').update(val || '').digest('hex');
+  const secretToUse = process.env.TRINEO_SSO_SECRET;
+
+  console.log('ENV HASH:', sha256(process.env.TRINEO_SSO_SECRET).substring(0, 16));
+  console.log('VERIFY HASH:', sha256(secretToUse).substring(0, 16));
+  console.log(
+    'SECRET SOURCE IS ENV:',
+    secretToUse === process.env.TRINEO_SSO_SECRET
+  );
+
+  console.log('TOKEN PREVIEW:', token.substring(0, 50) + '...');
+
+  const decodedWithoutVerify = jwt.decode(token, { complete: true });
+
+  console.log(
+    'UNVERIFIED JWT HEADER:',
+    JSON.stringify(decodedWithoutVerify?.header, null, 2)
+  );
+
+  console.log(
+    'UNVERIFIED JWT PAYLOAD:',
+    JSON.stringify(decodedWithoutVerify?.payload, null, 2)
+  );
+
   try {
     decoded = jwt.verify(
       token,
-      process.env.TRINEO_SSO_SECRET || 'trineo_sso_shared_secret_key_2026',
+      secretToUse,
       {
         issuer: 'gfi-crm',
         audience: 'trineo-stream'

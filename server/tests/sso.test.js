@@ -46,6 +46,7 @@ const withMocks = async (mocks, fn) => {
 };
 
 const TEST_SECRET = 'trineo_sso_shared_secret_key_2026';
+process.env.TRINEO_SSO_SECRET = TEST_SECRET;
 
 /** Build a valid SSO token with all required fields. */
 const makeToken = (overrides = {}) => jwt.sign(

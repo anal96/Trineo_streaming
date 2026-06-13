@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { exec } from 'child_process';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
@@ -413,6 +414,14 @@ const server = app.listen(PORT, async () => {
   console.log(`\n=== Trineo Stream Server Started ===`);
   console.log(`Port        : ${PORT}`);
   console.log(`Environment : ${process.env.NODE_ENV || 'development'}`);
+  console.log('TRINEO_SSO_SECRET exists:', !!process.env.TRINEO_SSO_SECRET);
+  console.log(
+    'TRINEO_SSO_SECRET hash:',
+    crypto.createHash('sha256')
+      .update(process.env.TRINEO_SSO_SECRET || '')
+      .digest('hex')
+      .substring(0, 16)
+  );
   console.log(`\nRegistered API routes:`);
   app._router.stack
     .filter(r => r.route || (r.name === 'router' && r.handle.stack))
