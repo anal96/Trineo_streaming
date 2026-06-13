@@ -1,6 +1,6 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { registerUser, loginUser, getUserProfile, heartbeatUser, getSecurityLogs, getActiveSession, logoutUser, ssoLogin, debugSsoSecret, debugSsoLogs, clearSsoLogs } from '../controllers/authController.js';
+import { registerUser, loginUser, getUserProfile, heartbeatUser, getSecurityLogs, getActiveSession, logoutUser, ssoLogin, debugSsoSecret, debugSsoLogs, clearSsoLogs, debugInstitutes } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -29,5 +29,6 @@ router.get('/sso', ssoLogin);
 router.get('/debug-sso-secret', debugSsoSecret);
 router.get('/debug-sso-logs', debugSsoLogs);
 router.get('/clear-sso-logs', clearSsoLogs);
+router.get('/debug-institutes', debugInstitutes);
 
 export default router;

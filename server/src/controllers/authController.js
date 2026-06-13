@@ -811,3 +811,68 @@ export const clearSsoLogs = (req, res) => {
   res.json({ message: 'Logs cleared' });
 };
 
+export const debugInstitutes = async (req, res) => {
+  try {
+    let institutes = await Institute.find({}).select('+apiKey').lean();
+
+    const targetId = '6a2d10978f77d510c879f5aa';
+    
+    // Check if targetId exists anywhere (as _id, instituteId, or crmInstituteId)
+    const targetExists = institutes.some(inst => 
+      String(inst._id) === targetId || 
+      inst.instituteId === targetId || 
+      inst.crmInstituteId === targetId
+    );
+
+    let actionTaken = 'none';
+
+    if (!targetExists) {
+      // Look for GFI institute
+      let gfiInst = await Institute.findOne({
+        $or: [
+          { name: /gfi/i },
+          { instituteId: /gfi/i }
+        ]
+      });
+
+      if (gfiInst) {
+        gfiInst.crmInstituteId = targetId;
+        gfiInst.instituteId = targetId; // Set instituteId as well to allow findOne({ instituteId }) to match targetId
+        await gfiInst.save();
+        actionTaken = 'updated GFI institute';
+      } else {
+        // Create new GFI Institute
+        gfiInst = new Institute({
+          name: 'GFI Institute',
+          instituteId: targetId,
+          crmInstituteId: targetId,
+          status: 'active',
+          email: 'admin@gfi-institute.edu',
+          apiKey: 'trn_gfi_' + crypto.randomBytes(12).toString('hex')
+        });
+        await gfiInst.save();
+        actionTaken = 'created new GFI institute';
+      }
+      
+      // Refresh institutes list
+      institutes = await Institute.find({}).select('+apiKey').lean();
+    }
+
+    res.json({
+      targetExists,
+      actionTaken,
+      institutes: institutes.map(inst => ({
+        _id: inst._id,
+        name: inst.name,
+        slug: inst.slug || 'N/A', // no slug in schema
+        apiKey: inst.apiKey || inst.plainApiKey || 'N/A',
+        crmInstituteId: inst.crmInstituteId,
+        instituteId: inst.instituteId,
+        status: inst.status
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message, stack: error.stack });
+  }
+};
+

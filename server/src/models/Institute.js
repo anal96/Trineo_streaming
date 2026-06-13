@@ -14,6 +14,11 @@ const instituteSchema = new mongoose.Schema({
     sparse: true,
     index: true
   },
+  crmInstituteId: {
+    type: String,
+    sparse: true,
+    index: true
+  },
   apiKeyHash: {
     type: String,
     unique: true,
