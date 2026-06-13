@@ -686,3 +686,13 @@ export const logoutUser = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const debugSsoSecret = (req, res) => {
+  const hash = crypto.createHash('sha256').update(process.env.TRINEO_SSO_SECRET || '').digest('hex');
+  const length = (process.env.TRINEO_SSO_SECRET || '').length;
+  res.json({
+    stream_full_hash: hash,
+    secret_length: length
+  });
+};
+
