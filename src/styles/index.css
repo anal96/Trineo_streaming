@@ -1,0 +1,10 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+@import './studiova-scoped.css';
+
+@media print {
+  html, body {
+    display: none !important;
+  }
+}

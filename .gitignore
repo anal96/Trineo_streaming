@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+/server/node_modules/
+
+# Production build outputs
+/dist/
+/build/
+/out/
+
+# Environment configurations
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+/server/.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Local development / Scratch directories
+/scratch/
+/uploads/
+/streams/
+/server/uploads/
+/server/streams/
+
+# Python Virtual Environments & Caches
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
