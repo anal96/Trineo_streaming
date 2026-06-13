@@ -1,6 +1,6 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { registerUser, loginUser, getUserProfile, heartbeatUser, getSecurityLogs, getActiveSession, logoutUser, ssoLogin, debugSsoSecret } from '../controllers/authController.js';
+import { registerUser, loginUser, getUserProfile, heartbeatUser, getSecurityLogs, getActiveSession, logoutUser, ssoLogin, debugSsoSecret, debugSsoLogs, clearSsoLogs } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -27,5 +27,7 @@ router.post('/logout', logoutUser);
 // No rate-limit: this endpoint is called only by the CRM with a one-time token
 router.get('/sso', ssoLogin);
 router.get('/debug-sso-secret', debugSsoSecret);
+router.get('/debug-sso-logs', debugSsoLogs);
+router.get('/clear-sso-logs', clearSsoLogs);
 
 export default router;

@@ -11,6 +11,22 @@ import { upsertSecuritySessionFromRequest } from './securityCenterController.js'
 // module-level monkey-patching (ES module bindings are read-only).
 export const _deps = { upsertSecuritySessionFromRequest, UsedSSOToken, SecuritySession };
 
+const ssoLogsBuffer = [];
+const originalLog = console.log;
+const originalError = console.error;
+
+console.log = (...args) => {
+  const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+  ssoLogsBuffer.push({ type: 'log', message, timestamp: new Date() });
+  originalLog.apply(console, args);
+};
+
+console.error = (...args) => {
+  const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+  ssoLogsBuffer.push({ type: 'error', message, timestamp: new Date() });
+  originalError.apply(console, args);
+};
+
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'trineo_stream_premium_saas_crm_lms_secret_key_2026_xyz', {
     expiresIn: '30d'
@@ -782,5 +798,16 @@ export const debugSsoSecret = (req, res) => {
     stream_full_hash: hash,
     secret_length: length
   });
+};
+
+export const debugSsoLogs = (req, res) => {
+  res.json({
+    logs: ssoLogsBuffer
+  });
+};
+
+export const clearSsoLogs = (req, res) => {
+  ssoLogsBuffer.length = 0;
+  res.json({ message: 'Logs cleared' });
 };
 
