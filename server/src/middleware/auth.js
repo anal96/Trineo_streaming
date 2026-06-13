@@ -29,15 +29,13 @@ export const protect = async (req, res, next) => {
         return res.status(403).json({ message: 'User account is deactivated' });
       }
 
-      // One-device login check: check if token matches the active session token in DB (only for students)
-      if (user.role === 'student') {
-        const expectedSessionToken = decoded.isPlaybackToken ? decoded.sessionToken : token;
-        if (user.activeSessionToken && user.activeSessionToken !== expectedSessionToken) {
-          return res.status(401).json({
-            message: 'Session invalidated: You have been logged in from another device',
-            oneDeviceViolation: true
-          });
-        }
+      // One-device login check: check if token matches the active session token in DB (applies to student, admin, owner)
+      const expectedSessionToken = decoded.isPlaybackToken ? decoded.sessionToken : token;
+      if (!user.activeSessionToken || user.activeSessionToken !== expectedSessionToken) {
+        return res.status(401).json({
+          message: 'Session expired. Logged in from another device.',
+          oneDeviceViolation: true
+        });
       }
 
       req.user = user;

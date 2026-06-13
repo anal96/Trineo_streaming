@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
-import { ssoLogin, getActiveSession, logoutUser, _deps } from '../src/controllers/authController.js';
+import { ssoLogin, loginUser, getActiveSession, logoutUser, _deps } from '../src/controllers/authController.js';
+import { protect } from '../src/middleware/auth.js';
 import { Institute } from '../src/models/Institute.js';
 import { User } from '../src/models/User.js';
 import { AuditLog } from '../src/models/AuditLog.js';
+import { SecuritySession } from '../src/models/SecuritySession.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -487,5 +489,109 @@ test('SSO Login Controller Verification', async (t) => {
     assert.equal(state.body.email, mockUser.email);
     assert.equal(state.body.role, mockUser.role);
     assert.equal(state.body.token, undefined); // Token MUST not be present
+  });
+
+  // ── Single Active Session enforcement ─────────────────────────────────────
+  await t.test('loginUser - enforces single active session and logs SESSION_REPLACED', async () => {
+    const mockUserInstance = {
+      _id: new mongoose.Types.ObjectId(),
+      email: 'active_session@gfi.edu',
+      status: 'active',
+      activeSessionToken: 'existing-session-token',
+      matchPassword: () => Promise.resolve(true),
+      save: function () { return Promise.resolve(this); }
+    };
+
+    const req = {
+      body: { email: 'active_session@gfi.edu', password: 'password123' },
+      headers: { 'user-agent': 'Mozilla' },
+      socket: {}
+    };
+    const { res, state } = makeResponse();
+
+    let sessionReplacedLogged = false;
+    let loginSuccessLogged = false;
+    let securitySessionsTerminated = false;
+
+    await withMocks([
+      { target: User, method: 'findOne', impl: () => Promise.resolve(mockUserInstance) },
+      {
+        target: User,
+        method: 'findById',
+        impl: (id) => ({
+          populate: () => ({ select: () => Promise.resolve(mockUserInstance) })
+        })
+      },
+      { target: _deps, method: 'upsertSecuritySessionFromRequest', impl: () => Promise.resolve({}) },
+      {
+        target: SecuritySession,
+        method: 'updateMany',
+        impl: (filter, update) => {
+          assert.equal(filter.userId, mockUserInstance._id);
+          assert.equal(update.$set.status, 'terminated');
+          securitySessionsTerminated = true;
+          return Promise.resolve({});
+        }
+      },
+      {
+        target: AuditLog,
+        method: 'create',
+        impl: (payload) => {
+          if (payload.eventType === 'SESSION_REPLACED') {
+            sessionReplacedLogged = true;
+          } else if (payload.eventType === 'LOGIN_SUCCESS') {
+            loginSuccessLogged = true;
+          }
+          return Promise.resolve({});
+        }
+      }
+    ], async () => {
+      await loginUser(req, res);
+    });
+
+    assert.equal(securitySessionsTerminated, true);
+    assert.equal(sessionReplacedLogged, true);
+    assert.equal(loginSuccessLogged, true);
+    assert.ok(mockUserInstance.activeSessionToken);
+    assert.notEqual(mockUserInstance.activeSessionToken, 'existing-session-token');
+  });
+
+  await t.test('protect middleware - blocks access when activeSessionToken does not match', async () => {
+    const mockUserInstance = {
+      _id: new mongoose.Types.ObjectId(),
+      role: 'student',
+      status: 'active',
+      activeSessionToken: 'new-active-session-token'
+    };
+
+    const oldToken = jwt.sign({ id: mockUserInstance._id }, process.env.JWT_SECRET || 'trineo_stream_premium_saas_crm_lms_secret_key_2026_xyz');
+    
+    const req = {
+      cookies: { token: oldToken },
+      headers: {},
+      query: {}
+    };
+
+    let responseStatus = null;
+    let responseBody = null;
+
+    const res = {
+      status(code) { responseStatus = code; return res; },
+      json(body) { responseBody = body; return res; }
+    };
+
+    let nextCalled = false;
+    const next = () => { nextCalled = true; };
+
+    await withMocks([
+      { target: User, method: 'findById', impl: () => ({ select: () => Promise.resolve(mockUserInstance) }) }
+    ], async () => {
+      await protect(req, res, next);
+    });
+
+    assert.equal(responseStatus, 401);
+    assert.equal(responseBody.message, 'Session expired. Logged in from another device.');
+    assert.equal(responseBody.oneDeviceViolation, true);
+    assert.equal(nextCalled, false);
   });
 });

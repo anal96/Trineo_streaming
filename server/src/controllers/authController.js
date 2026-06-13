@@ -4,11 +4,12 @@ import { User } from '../models/User.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { Institute } from '../models/Institute.js';
 import { UsedSSOToken } from '../models/UsedSSOToken.js';
+import { SecuritySession } from '../models/SecuritySession.js';
 import { upsertSecuritySessionFromRequest } from './securityCenterController.js';
 
 // Exported dependency wrapper — allows tests to inject mocks without needing
 // module-level monkey-patching (ES module bindings are read-only).
-export const _deps = { upsertSecuritySessionFromRequest, UsedSSOToken };
+export const _deps = { upsertSecuritySessionFromRequest, UsedSSOToken, SecuritySession };
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'trineo_stream_premium_saas_crm_lms_secret_key_2026_xyz', {
@@ -45,6 +46,15 @@ export const registerUser = async (req, res) => {
       userId: user._id,
       institute: user.institute || null,
       eventType: 'login',
+      details: `Successful registration & login via ${userAgent}`,
+      ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress,
+      userAgent
+    });
+
+    await AuditLog.create({
+      userId: user._id,
+      institute: user.institute || null,
+      eventType: 'LOGIN_SUCCESS',
       details: `Successful registration & login via ${userAgent}`,
       ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress,
       userAgent
@@ -92,20 +102,46 @@ export const loginUser = async (req, res) => {
         return res.status(403).json({ message: 'Your account is deactivated' });
       }
 
+      const hasPreviousSession = !!user.activeSessionToken;
       const token = generateToken(user._id);
+      const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'Unknown Browser';
+      const normalizedIp = ipAddress === '::1' ? '127.0.0.1' : ipAddress;
+
+      if (hasPreviousSession) {
+        // Invalidate all previous security sessions
+        await SecuritySession.updateMany({ userId: user._id, status: 'active' }, { $set: { status: 'terminated' } });
+
+        await AuditLog.create({
+          userId: user._id,
+          institute: user.institute || null,
+          eventType: 'SESSION_REPLACED',
+          details: `Session replaced by new login from ${userAgent}`,
+          ipAddress: normalizedIp,
+          userAgent
+        });
+      }
+
       // Enforce one-device login
       user.activeSessionToken = token;
       await user.save();
 
       // Create Audit Log for successful login
-      const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'Unknown Browser';
       await AuditLog.create({
         userId: user._id,
         institute: user.institute || null,
         eventType: 'login',
         details: `Successful login via ${userAgent}`,
-        ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress,
+        ipAddress: normalizedIp,
+        userAgent
+      });
+
+      await AuditLog.create({
+        userId: user._id,
+        institute: user.institute || null,
+        eventType: 'LOGIN_SUCCESS',
+        details: `Successful login via ${userAgent}`,
+        ipAddress: normalizedIp,
         userAgent
       });
 
@@ -291,6 +327,9 @@ export const ssoLogin = async (req, res) => {
 
   // ── 2. Signature + expiry verification ───────────────────────────────────
   let decoded;
+  console.log('SSO request received');
+  console.log('Token present:', !!token);
+  console.log('TRINEO_SSO_SECRET configured:', !!process.env.TRINEO_SSO_SECRET);
   try {
     decoded = jwt.verify(
       token,
@@ -300,8 +339,13 @@ export const ssoLogin = async (req, res) => {
         audience: 'trineo-stream'
       }
     );
-  } catch (err) {
-    const details = `SSO token verification failed: ${err.message}`;
+    console.log('JWT verified successfully');
+    console.log(decoded);
+  } catch (error) {
+    console.error('JWT VERIFY FAILED');
+    console.error(error.name);
+    console.error(error.message);
+    const details = `SSO token verification failed: ${error.message}`;
     let decodedPayload = null;
     try { decodedPayload = jwt.decode(token); } catch (e) {}
 
@@ -416,9 +460,46 @@ export const ssoLogin = async (req, res) => {
     }
 
     // ── 8. Create session ─────────────────────────────────────────────────────
+    const hasPreviousSession = !!user.activeSessionToken;
     const sessionToken = generateToken(user._id);
+
+    if (hasPreviousSession) {
+      // Invalidate all previous security sessions
+      await SecuritySession.updateMany({ userId: user._id, status: 'active' }, { $set: { status: 'terminated' } });
+
+      await AuditLog.create({
+        institute: inst._id,
+        instituteId,
+        userId: user._id,
+        eventType: 'SESSION_REPLACED',
+        details: `SSO session replaced by new login from ${userAgent}`,
+        ipAddress: normalizedIp,
+        userAgent
+      });
+    }
+
     user.activeSessionToken = sessionToken;
     await user.save();
+
+    await AuditLog.create({
+      institute: inst._id,
+      instituteId,
+      userId: user._id,
+      eventType: 'login',
+      details: `Successful login via SSO (${userAgent}) — jti: ${jti}`,
+      ipAddress: normalizedIp,
+      userAgent
+    });
+
+    await AuditLog.create({
+      institute: inst._id,
+      instituteId,
+      userId: user._id,
+      eventType: 'LOGIN_SUCCESS',
+      details: `Successful login via SSO (${userAgent}) — jti: ${jti}`,
+      ipAddress: normalizedIp,
+      userAgent
+    });
 
     await AuditLog.create({
       institute: inst._id,
@@ -482,6 +563,94 @@ export const getActiveSession = async (req, res) => {
 
 export const logoutUser = async (req, res) => {
   try {
+    let token = null;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    }
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'trineo_stream_premium_saas_crm_lms_secret_key_2026_xyz');
+        if (decoded && decoded.id) {
+          const user = await User.findById(decoded.id);
+          if (user) {
+            // Only clear activeSessionToken if it matches the current token (avoid clearing a newly established session from another device!)
+            if (user.activeSessionToken === token) {
+              user.activeSessionToken = '';
+              await user.save();
+            }
+
+            // Terminate the active SecuritySession for this token suffix
+            const suffix = token.slice(-12);
+            await SecuritySession.updateMany({ userId: user._id, tokenSuffix: suffix }, { $set: { status: 'terminated' } });
+
+            // Create LOGOUT / logout audit log
+            const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+            const userAgent = req.headers['user-agent'] || 'Unknown Browser';
+            const normalizedIp = ipAddress === '::1' ? '127.0.0.1' : ipAddress;
+
+            await AuditLog.create({
+              userId: user._id,
+              institute: user.institute || null,
+              eventType: 'logout',
+              details: `User logged out via ${userAgent}`,
+              ipAddress: normalizedIp,
+              userAgent
+            });
+
+            await AuditLog.create({
+              userId: user._id,
+              institute: user.institute || null,
+              eventType: 'LOGOUT',
+              details: `User logged out via ${userAgent}`,
+              ipAddress: normalizedIp,
+              userAgent
+            });
+          }
+        }
+      } catch (jwtErr) {
+        // If JWT verification fails (e.g. expired or invalid), we still want to log it if we can decode it
+        try {
+          const decoded = jwt.decode(token);
+          if (decoded && decoded.id) {
+            const user = await User.findById(decoded.id);
+            if (user) {
+              if (user.activeSessionToken === token) {
+                user.activeSessionToken = '';
+                await user.save();
+              }
+              const suffix = token.slice(-12);
+              await SecuritySession.updateMany({ userId: user._id, tokenSuffix: suffix }, { $set: { status: 'terminated' } });
+
+              const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+              const userAgent = req.headers['user-agent'] || 'Unknown Browser';
+              const normalizedIp = ipAddress === '::1' ? '127.0.0.1' : ipAddress;
+
+              await AuditLog.create({
+                userId: user._id,
+                institute: user.institute || null,
+                eventType: 'logout',
+                details: `User logged out (expired/invalid token) via ${userAgent}`,
+                ipAddress: normalizedIp,
+                userAgent
+              });
+
+              await AuditLog.create({
+                userId: user._id,
+                institute: user.institute || null,
+                eventType: 'LOGOUT',
+                details: `User logged out (expired/invalid token) via ${userAgent}`,
+                ipAddress: normalizedIp,
+                userAgent
+              });
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
     res.clearCookie('token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
