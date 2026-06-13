@@ -410,7 +410,7 @@ test('SSO Login Controller Verification', async (t) => {
     assert.equal(state.redirectUrl, 'http://localhost:5173/student');
     assert.ok(state.cookies['token']);
     assert.equal(state.cookies['token'].options.httpOnly, true);
-    assert.equal(state.cookies['token'].options.sameSite, 'lax');
+    assert.equal(state.cookies['token'].options.sameSite, 'none');
   });
 
   await t.test('ssoLogin - redirects admins to /admin', async () => {

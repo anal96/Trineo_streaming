@@ -70,9 +70,9 @@ export const registerUser = async (req, res) => {
 
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      sameSite: 'lax'
+      sameSite: 'none'
     });
 
     res.status(201).json({
@@ -155,9 +155,9 @@ export const loginUser = async (req, res) => {
 
       res.cookie('token', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        sameSite: 'lax'
+        sameSite: 'none'
       });
 
       res.json({
@@ -521,9 +521,9 @@ export const ssoLogin = async (req, res) => {
 
     res.cookie('token', sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true,
       maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: 'lax'
+      sameSite: 'none'
     });
 
     let redirectPath = '/student';
@@ -653,8 +653,8 @@ export const logoutUser = async (req, res) => {
 
     res.clearCookie('token', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
+      secure: true,
+      sameSite: 'none'
     });
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
