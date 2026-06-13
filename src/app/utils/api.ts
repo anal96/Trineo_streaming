@@ -1,14 +1,16 @@
 const normalizeBase = (value: string) => value.replace(/\/+$/, '');
 
-const resolveApiBaseUrl = () => {
+export const getApiUrl = (path: string) => {
   const envBase = import.meta.env.VITE_API_BASE_URL;
-  if (envBase && envBase.trim()) return normalizeBase(envBase.trim());
-  return '/api';
+  const rawBase = envBase && envBase.trim() ? envBase.trim() : '';
+  const cleanBase = normalizeBase(rawBase).replace(/\/api$/, '');
+
+  const normalizedPath = path.startsWith('/api')
+    ? path
+    : `/api${path.startsWith('/') ? path : '/' + path}`;
+
+  return `${cleanBase}${normalizedPath}`;
 };
-
-const API_BASE_URL = resolveApiBaseUrl();
-
-const ensureLeadingSlash = (value: string) => (value.startsWith('/') ? value : `/${value}`);
 
 export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const token = localStorage.getItem('token');
@@ -55,22 +57,10 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   }
 }
 
-
-export const getApiUrl = (path: string) => {
-  const normalizedPath = ensureLeadingSlash(path);
-  const normalizedBase = normalizeBase(API_BASE_URL);
-  const root = normalizedBase.replace(/\/api$/, '');
-  if (path.startsWith('/api/')) {
-    if (normalizedBase.startsWith('/')) return path;
-    return `${root}${path}`;
-  }
-  if (normalizedBase.startsWith('/')) return `/api${normalizedPath}`;
-  return `${normalizedBase}${normalizedPath}`;
-};
-
 export const decodeShortId = (shortId: string) => {
   if (!shortId || shortId.length !== 16) return shortId;
   const base64 = shortId.replace(/-/g, '+').replace(/_/g, '/');
   const binary = atob(base64);
   return Array.from(binary).map(char => char.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 };
+
