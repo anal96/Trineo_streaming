@@ -15,7 +15,7 @@ const auditLogSchema = new mongoose.Schema({
   eventType: {
     type: String,
     required: true,
-    enum: ['screenshot', 'devtools_open', 'screen_recording', 'playback_anomaly', 'multiple_login', 'suspicious_ip', 'invalid_token', 'session_takeover', 'video_security_event', 'login', 'logout', 'user_report', 'API_ACCESS', 'STUDENT_SYNC', 'COURSE_ASSIGNED', 'COURSE_UNASSIGNED']
+    enum: ['screenshot', 'devtools_open', 'screen_recording', 'playback_anomaly', 'multiple_login', 'suspicious_ip', 'invalid_token', 'session_takeover', 'video_security_event', 'login', 'logout', 'user_report', 'API_ACCESS', 'STUDENT_SYNC', 'COURSE_ASSIGNED', 'COURSE_UNASSIGNED', 'SSO_LOGIN_SUCCESS', 'SSO_LOGIN_FAILED', 'SSO_TOKEN_REUSED']
   },
   details: {
     type: String,

@@ -257,7 +257,12 @@ export default function StudentDashboard() {
     loadDashboardData();
   }, [user]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/');

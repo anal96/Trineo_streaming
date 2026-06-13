@@ -1,4 +1,5 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -7,6 +8,7 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
+import { ssoLogin } from './controllers/authController.js';
 import courseRoutes from './routes/courseRoutes.js';
 import progressRoutes from './routes/progressRoutes.js';
 import purchaseRoutes from './routes/purchaseRoutes.js';
@@ -57,7 +59,10 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '3000mb' }));
+app.use(cookieParser());
 app.use(express.urlencoded({ limit: '3000mb', extended: true }));
+
+app.get('/sso', ssoLogin);
 
 // API Routes
 app.use('/api/auth', authRoutes);

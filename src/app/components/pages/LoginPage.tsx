@@ -32,7 +32,7 @@ export default function LoginPage() {
   const [resetToken, setResetToken] = useState('');
   const [resetTokenValid, setResetTokenValid] = useState(false);
 
-  // Auth guard: redirect authenticated users
+  // Auth guard: redirect authenticated users or check active session cookies
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
@@ -43,10 +43,26 @@ export default function LoginPage() {
         if (user.role === 'admin') { navigate('/admin', { replace: true }); return; }
         navigate('/student', { replace: true });
       } catch { /* ignore parse errors */ }
+    } else {
+      const checkSession = async () => {
+        try {
+          const freshUser = await apiFetch('/auth/session', { ignoreAuthError: true });
+          if (freshUser) {
+            localStorage.setItem('token', 'session_active');
+            localStorage.setItem('user', JSON.stringify(freshUser));
+            if (freshUser.role === 'owner') { navigate('/owner', { replace: true }); return; }
+            if (freshUser.role === 'admin') { navigate('/admin', { replace: true }); return; }
+            navigate('/student', { replace: true });
+          }
+        } catch (err) {
+          // Silent catch: not logged in via cookie
+        }
+      };
+      checkSession();
     }
   }, [navigate]);
 
-  // Handle URL params for violation and resetToken
+  // Handle URL params for violation, resetToken, and errors (including SSO)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const violation = params.get('violation');
@@ -57,6 +73,13 @@ export default function LoginPage() {
       setSecurityAlert('Security violations exceeded. Session terminated.');
       window.history.replaceState({}, document.title, window.location.pathname);
     }
+
+    const errorParam = params.get('error');
+    if (errorParam) {
+      setError(errorParam);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     const token = params.get('resetToken');
     if (token) {
       setResetToken(token);
@@ -182,7 +205,7 @@ export default function LoginPage() {
             body: JSON.stringify({ email, password })
           });
 
-          localStorage.setItem('token', data.token);
+          localStorage.setItem('token', 'session_active');
           localStorage.setItem('user', JSON.stringify({
             id: data._id,
             user_id: data.user_id,

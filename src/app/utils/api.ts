@@ -12,7 +12,7 @@ export const getApiUrl = (path: string) => {
   return `${cleanBase}${normalizedPath}`;
 };
 
-export async function apiFetch(endpoint: string, options: RequestInit = {}) {
+export async function apiFetch(endpoint: string, options: RequestInit & { ignoreAuthError?: boolean } = {}) {
   const token = localStorage.getItem('token');
   const headers = {
     ...(options.headers || {}),
@@ -23,7 +23,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  if (token) {
+  if (token && token !== 'session_active') {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
@@ -33,16 +33,19 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
     const response = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include',
     });
 
     if (response.status === 401) {
       const data = await response.json().catch(() => ({}));
-      if (data.oneDeviceViolation) {
-        alert('Session invalidated: You have been logged in from another device.');
+      if (!options.ignoreAuthError) {
+        if (data.oneDeviceViolation) {
+          alert('Session invalidated: You have been logged in from another device.');
+        }
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/';
       }
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/';
       throw new Error(data.message || 'Unauthorized');
     }
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { registerUser, loginUser, getUserProfile, heartbeatUser, getSecurityLogs } from '../controllers/authController.js';
+import { registerUser, loginUser, getUserProfile, heartbeatUser, getSecurityLogs, getActiveSession, logoutUser } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -19,5 +19,7 @@ router.post('/login', authLimiter, loginUser);
 router.get('/profile', protect, getUserProfile);
 router.get('/heartbeat', protect, heartbeatUser);
 router.get('/security-logs', protect, getSecurityLogs);
+router.get('/session', protect, getActiveSession);
+router.post('/logout', logoutUser);
 
 export default router;

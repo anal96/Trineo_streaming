@@ -273,7 +273,12 @@ export default function AdminDashboard() {
     { icon: Settings, label: 'YouTube Integration', id: 'youtubeIntegration' }
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/');

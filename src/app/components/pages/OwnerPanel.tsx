@@ -477,6 +477,17 @@ export default function OwnerPanel() {
     }
   }, [selectedInstituteId]);
 
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/');
+  };
+
   // ── Institute Actions ────────────────────────────────────────────────────
   const handleCreateInstitute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -655,7 +666,7 @@ export default function OwnerPanel() {
             <Settings className={`w-3.5 h-3.5 ${isDark ? 'text-white/20' : 'text-slate-400'}`} />
           </div>
           <button
-            onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); }}
+            onClick={handleLogout}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
               isDark 
                 ? 'text-red-400/70 hover:text-red-400 hover:bg-red-500/10'
@@ -692,7 +703,7 @@ export default function OwnerPanel() {
               footer={
                 <button
                   type="button"
-                  onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); }}
+                  onClick={handleLogout}
                   className={`w-full flex items-center gap-3 px-3 py-3 min-h-11 rounded-xl text-sm font-medium ${
                     isDark ? 'text-white/50 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-500 hover:text-red-600 hover:bg-red-50'
                   }`}
