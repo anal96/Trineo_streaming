@@ -1,3 +1,5 @@
+import { apiFetch } from './api';
+
 export type ProtectionType = 'focus_lost' | 'visibility_hidden' | 'fullscreen_interruption' | 'screen_recording' | 'devtools_open' | 'none';
 
 const LOCAL_AUDIT_KEY = 'trineo_security_audit';
@@ -357,15 +359,10 @@ export class ProtectionManager {
     };
 
     try {
-      const response = await fetch('http://localhost:5000/api/security/audit', {
+      await apiFetch('/security/audit', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
         body: JSON.stringify(payload)
       });
-      if (!response.ok) throw new Error(`Audit API returned ${response.status}`);
     } catch (e) {
       console.error('[DRM Audit Fetch Failed]', e);
       persistLocalAudit({
@@ -393,12 +390,8 @@ export class ProtectionManager {
     localStorage.removeItem('trineo_lock_requires_manual_resume');
 
     // Invalidate session on heartbeat server
-    const token = localStorage.getItem('token');
-    fetch('http://localhost:5000/api/auth/logout', {
-      method: 'POST',
-      headers: {
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      }
+    apiFetch('/auth/logout', {
+      method: 'POST'
     }).catch(() => {});
 
     // Notify player
