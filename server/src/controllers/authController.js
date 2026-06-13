@@ -316,12 +316,20 @@ export const ssoLogin = async (req, res) => {
 
   // ── 1. Token presence ────────────────────────────────────────────────────
   if (!token) {
+    const error = new Error('Missing token parameter');
+    console.error('SSO FAILURE REASON:');
+    console.error(error);
+    console.error('SSO FAILURE STACK:');
+    console.error(error?.stack);
+
     await AuditLog.create({
       eventType: 'SSO_LOGIN_FAILED',
       details: 'SSO login failed: Missing token parameter.',
       ipAddress: normalizedIp,
       userAgent
     });
+    console.error('REDIRECTING TO LOGIN WITH ERROR');
+    console.error('Invalid or expired SSO token');
     return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
   }
 
@@ -381,13 +389,27 @@ export const ssoLogin = async (req, res) => {
       userAgent,
       ...(decodedPayload && decodedPayload.instituteId ? { instituteId: decodedPayload.instituteId } : {})
     });
+    console.error('SSO FAILURE REASON:');
+    console.error(error);
+    console.error('SSO FAILURE STACK:');
+    console.error(error?.stack);
+    console.error('REDIRECTING TO LOGIN WITH ERROR');
+    console.error('Invalid or expired SSO token');
     return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
   }
 
   const { jti, userId, email, role, instituteId, exp } = decoded;
 
+  console.log('STEP 1: JWT verified');
+
   // ── 3. Required payload fields ────────────────────────────────────────────
   if (!jti || !userId || !email || !role || !instituteId) {
+    const error = new Error('SSO payload is missing required fields (jti, userId, email, role, instituteId)');
+    console.error('SSO FAILURE REASON:');
+    console.error(error);
+    console.error('SSO FAILURE STACK:');
+    console.error(error?.stack);
+
     await AuditLog.create({
       eventType: 'SSO_LOGIN_FAILED',
       details: 'SSO payload is missing required fields (jti, userId, email, role, instituteId).',
@@ -395,12 +417,23 @@ export const ssoLogin = async (req, res) => {
       userAgent,
       instituteId: instituteId || ''
     });
+    console.error('REDIRECTING TO LOGIN WITH ERROR');
+    console.error('Invalid or expired SSO token');
     return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
   }
+
+  console.log('STEP 2: Checking replay protection');
+  console.log('JTI:', decoded.jti);
 
   // ── 4. Replay check — reject already-used jti ─────────────────────────────
   const existingToken = await _deps.UsedSSOToken.findOne({ jti });
   if (existingToken) {
+    const error = new Error('SSO token already used (replay attack)');
+    console.error('SSO FAILURE REASON:');
+    console.error(error);
+    console.error('SSO FAILURE STACK:');
+    console.error(error?.stack);
+
     await AuditLog.create({
       eventType: 'SSO_TOKEN_REUSED',
       details: `SSO replay attack detected: jti '${jti}' was already used at ${existingToken.usedAt.toISOString()} by userId '${existingToken.userId}'.`,
@@ -408,6 +441,8 @@ export const ssoLogin = async (req, res) => {
       userAgent,
       instituteId
     });
+    console.error('REDIRECTING TO LOGIN WITH ERROR');
+    console.error('SSO token already used');
     return res.redirect(`${frontendUrl}/login?error=SSO token already used`);
   }
 
@@ -415,10 +450,23 @@ export const ssoLogin = async (req, res) => {
   const tokenExpiresAt = exp ? new Date(exp * 1000) : new Date(Date.now() + 5 * 60 * 1000);
   await _deps.UsedSSOToken.create({ jti, userId, usedAt: new Date(), expiresAt: tokenExpiresAt });
 
+  console.log('STEP 3: Looking up institute');
+  console.log('Institute ID:', decoded.instituteId);
+
   try {
     // ── 6. Institute lookup + status guard ───────────────────────────────────
     const inst = await Institute.findOne({ instituteId });
+    const institute = inst;
+    console.log('STEP 4: Institute lookup result');
+    console.log(institute);
+
     if (!inst) {
+      const error = new Error(`Target institute with ID '${instituteId}' not found`);
+      console.error('SSO FAILURE REASON:');
+      console.error(error);
+      console.error('SSO FAILURE STACK:');
+      console.error(error?.stack);
+
       await AuditLog.create({
         eventType: 'SSO_LOGIN_FAILED',
         details: `SSO failed: Target institute with ID '${instituteId}' not found.`,
@@ -426,10 +474,18 @@ export const ssoLogin = async (req, res) => {
         userAgent,
         instituteId
       });
+      console.error('REDIRECTING TO LOGIN WITH ERROR');
+      console.error('Invalid or expired SSO token');
       return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
     }
 
     if (inst.status !== 'active') {
+      const error = new Error(`Target institute '${inst.name}' is inactive`);
+      console.error('SSO FAILURE REASON:');
+      console.error(error);
+      console.error('SSO FAILURE STACK:');
+      console.error(error?.stack);
+
       await AuditLog.create({
         institute: inst._id,
         instituteId,
@@ -438,15 +494,23 @@ export const ssoLogin = async (req, res) => {
         ipAddress: normalizedIp,
         userAgent
       });
+      console.error('REDIRECTING TO LOGIN WITH ERROR');
+      console.error('Invalid or expired SSO token');
       return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
     }
+
+    console.log('STEP 5: Looking up user');
+    console.log('Email:', decoded.email);
 
     // ── 7. JIT user provisioning ──────────────────────────────────────────────
     let user = await User.findOne({
       instituteId,
       $or: [{ email }, { studentId: userId }]
     });
+    console.log('STEP 6: User lookup result');
+    console.log(user ? 'FOUND' : 'NOT FOUND');
 
+    let newUser = null;
     if (!user) {
       const tempPassword = crypto.randomBytes(16).toString('hex');
       user = new User({
@@ -464,6 +528,7 @@ export const ssoLogin = async (req, res) => {
         lastSyncedAt: new Date()
       });
       await user.save();
+      newUser = user;
     } else {
       if (!user.studentId && userId) user.studentId = userId;
       if (!user.crmStudentId && userId) user.crmStudentId = userId;
@@ -471,7 +536,16 @@ export const ssoLogin = async (req, res) => {
       await user.save();
     }
 
+    console.log('STEP 7: JIT provisioning');
+    console.log(newUser);
+
     if (user.status !== 'active') {
+      const error = new Error(`User account ${email} is deactivated`);
+      console.error('SSO FAILURE REASON:');
+      console.error(error);
+      console.error('SSO FAILURE STACK:');
+      console.error(error?.stack);
+
       await AuditLog.create({
         institute: inst._id,
         instituteId,
@@ -481,8 +555,12 @@ export const ssoLogin = async (req, res) => {
         ipAddress: normalizedIp,
         userAgent
       });
+      console.error('REDIRECTING TO LOGIN WITH ERROR');
+      console.error('Your account is deactivated');
       return res.redirect(`${frontendUrl}/login?error=Your account is deactivated`);
     }
+
+    console.log('STEP 8: Creating session');
 
     // ── 8. Create session ─────────────────────────────────────────────────────
     const hasPreviousSession = !!user.activeSessionToken;
@@ -544,6 +622,8 @@ export const ssoLogin = async (req, res) => {
       ipAddress: normalizedIp
     });
 
+    console.log('STEP 9: Setting cookie');
+
     res.cookie('token', sessionToken, {
       httpOnly: true,
       secure: true,
@@ -555,9 +635,17 @@ export const ssoLogin = async (req, res) => {
     if (user.role === 'admin') redirectPath = '/admin';
     else if (user.role === 'owner') redirectPath = '/owner';
 
+    console.log('STEP 10: Redirecting');
+
     return res.redirect(`${frontendUrl}${redirectPath}`);
-  } catch (err) {
-    console.error('SSO endpoint error:', err);
+  } catch (error) {
+    console.error('SSO FAILURE REASON:');
+    console.error(error);
+    console.error('SSO FAILURE STACK:');
+    console.error(error?.stack);
+    console.error('REDIRECTING TO LOGIN WITH ERROR');
+    console.error('Invalid or expired SSO token');
+    console.error('SSO endpoint error:', error);
     return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
   }
 };
