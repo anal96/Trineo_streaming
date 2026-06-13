@@ -8,7 +8,6 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
-import { ssoLogin } from './controllers/authController.js';
 import courseRoutes from './routes/courseRoutes.js';
 import progressRoutes from './routes/progressRoutes.js';
 import purchaseRoutes from './routes/purchaseRoutes.js';
@@ -62,7 +61,6 @@ app.use(express.json({ limit: '3000mb' }));
 app.use(cookieParser());
 app.use(express.urlencoded({ limit: '3000mb', extended: true }));
 
-app.get('/sso', ssoLogin);
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -412,7 +410,30 @@ const seedData = async () => {
 const server = app.listen(PORT, async () => {
   await connectDB();
   await seedData();
-  console.log(`Server running on port ${PORT}`);
+  console.log(`\n=== Trineo Stream Server Started ===`);
+  console.log(`Port        : ${PORT}`);
+  console.log(`Environment : ${process.env.NODE_ENV || 'development'}`);
+  console.log(`\nRegistered API routes:`);
+  app._router.stack
+    .filter(r => r.route || (r.name === 'router' && r.handle.stack))
+    .forEach(layer => {
+      if (layer.route) {
+        // Direct app-level route
+        const methods = Object.keys(layer.route.methods).map(m => m.toUpperCase()).join(',');
+        console.log(`  ${methods.padEnd(6)} ${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        // Mounted sub-router
+        const prefix = layer.regexp.source
+          .replace('^\\\/','/')
+          .replace('(?=\\\/|$)','').replace('\\/?(?=\\\/|$)','').replace('\\','');
+        layer.handle.stack.filter(r => r.route).forEach(r => {
+          const methods = Object.keys(r.route.methods).map(m => m.toUpperCase()).join(',');
+          console.log(`  ${methods.padEnd(6)} /api${r.route.path}`);
+        });
+      }
+    });
+  console.log(`\n✅ SSO endpoint : /api/auth/sso`);
+  console.log(`=====================================\n`);
 });
 
 // Configure limitless timeout for large video processing
