@@ -6,10 +6,11 @@ import { Institute } from '../models/Institute.js';
 import { UsedSSOToken } from '../models/UsedSSOToken.js';
 import { SecuritySession } from '../models/SecuritySession.js';
 import { upsertSecuritySessionFromRequest } from './securityCenterController.js';
+import { syncStudentProfile } from '../services/crmSyncService.js';
 
 // Exported dependency wrapper — allows tests to inject mocks without needing
 // module-level monkey-patching (ES module bindings are read-only).
-export const _deps = { upsertSecuritySessionFromRequest, UsedSSOToken, SecuritySession };
+export const _deps = { upsertSecuritySessionFromRequest, UsedSSOToken, SecuritySession, syncStudentProfile };
 
 const ssoLogsBuffer = [];
 const originalLog = console.log;
@@ -540,20 +541,49 @@ export const ssoLogin = async (req, res) => {
         crmStudentId: userId,
         crmSource: 'sso-gfi-crm',
         status: 'active',
-        syncStatus: 'success',
-        lastSyncedAt: new Date()
+        syncStatus: 'pending',
+        lastSyncedAt: null
       });
       await user.save();
       newUser = user;
     } else {
-      if (!user.studentId && userId) user.studentId = userId;
-      if (!user.crmStudentId && userId) user.crmStudentId = userId;
-      user.lastSyncedAt = new Date();
-      await user.save();
+      let docModified = false;
+      if (!user.studentId && userId) { user.studentId = userId; docModified = true; }
+      if (!user.crmStudentId && userId) { user.crmStudentId = userId; docModified = true; }
+      if (docModified) {
+        await user.save();
+      }
     }
 
     console.log('STEP 7: JIT provisioning');
     console.log(newUser);
+
+    // Synchronize user profile & enrollments from CRM in the background with throttling & locking
+    const needsSync = !user.lastSyncedAt || (Date.now() - user.lastSyncedAt.getTime() > 15 * 60 * 1000);
+    if (!user.isSyncing && needsSync) {
+      user.isSyncing = true;
+      await user.save();
+
+      _deps.syncStudentProfile(user.crmStudentId, inst.crmInstituteId || inst.instituteId, user)
+        .catch((err) => {
+          console.error('Background student sync error:', err.message);
+        })
+        .finally(async () => {
+          if (process.env.NODE_ENV === 'test') {
+            user.isSyncing = false;
+            return;
+          }
+          try {
+            const freshUser = await User.findById(user._id);
+            if (freshUser) {
+              freshUser.isSyncing = false;
+              await freshUser.save();
+            }
+          } catch (dbErr) {
+            console.error('Failed to reset user.isSyncing flag:', dbErr);
+          }
+        });
+    }
 
     if (user.status !== 'active') {
       const error = new Error(`User account ${email} is deactivated`);

@@ -551,6 +551,23 @@ export default function StudentDashboard() {
                             <div>
                               <h2 className="text-xl font-bold truncate">{user?.name || 'Student'}</h2>
                               <p className="text-sm text-muted-foreground">{user?.email}</p>
+                              <div className="mt-1 flex items-center gap-1.5 text-xs">
+                                {user?.syncStatus === 'success' && (
+                                  <span className="text-green-500 font-medium flex items-center gap-1">
+                                    <CheckCircle className="w-3 h-3" /> Sync Success (Last Sync: {user.lastSyncedAt ? new Date(user.lastSyncedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Today'})
+                                  </span>
+                                )}
+                                {user?.syncStatus === 'failed' && (
+                                  <span className="text-destructive font-medium flex items-center gap-1" title={user.lastSyncError || 'CRM API offline'}>
+                                    <AlertCircle className="w-3 h-3" /> Sync Failed (Showing Cached Data)
+                                  </span>
+                                )}
+                                {user?.syncStatus === 'pending' && (
+                                  <span className="text-amber-500 font-medium flex items-center gap-1 animate-pulse">
+                                    <RefreshCw className="w-3 h-3 animate-spin" /> Syncing profile data...
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
                               {user?.institute?.logo ? (
@@ -569,12 +586,12 @@ export default function StudentDashboard() {
                       {/* ID Card Grid */}
                       <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                         {[
-                          { label: 'Student ID', value: user?.user_id || 'N/A', icon: <Award className="w-3.5 h-3.5" /> },
+                          { label: 'Student ID', value: user?.crmStudentId || user?.studentId || user?.user_id || 'N/A', icon: <Award className="w-3.5 h-3.5" /> },
                           { label: 'Batch', value: user?.batchName || 'N/A', icon: <Users className="w-3.5 h-3.5" /> },
-                          { label: 'Program', value: user?.courseName || 'N/A', icon: <BookOpen className="w-3.5 h-3.5" /> },
+                          { label: 'Program', value: user?.program || user?.courseName || 'N/A', icon: <BookOpen className="w-3.5 h-3.5" /> },
                           { label: 'Branch', value: user?.branchName || user?.institute?.branchName || 'Main Campus', icon: <Building2 className="w-3.5 h-3.5" /> },
                           { label: 'Enrolled', value: user?.enrollmentDate ? new Date(user.enrollmentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A', icon: <Clock className="w-3.5 h-3.5" /> },
-                          { label: 'Faculty', value: purchasedCourses[0]?.instructor || 'N/A', icon: <Users className="w-3.5 h-3.5" /> },
+                          { label: 'Faculty', value: user?.faculty || purchasedCourses[0]?.instructor || 'N/A', icon: <Users className="w-3.5 h-3.5" /> },
                           { label: 'Courses', value: `${totalCourses} Enrolled`, icon: <PlayCircle className="w-3.5 h-3.5" /> },
                           { label: 'Status', value: 'Active', icon: <CheckCircle className="w-3.5 h-3.5 text-green-500" /> },
                         ].map((item) => (

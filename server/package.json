@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test tests/tenant-isolation.test.js tests/content-access.test.js tests/crm-integration.test.js tests/sso.test.js",
+    "test": "node --test tests/tenant-isolation.test.js tests/content-access.test.js tests/crm-integration.test.js tests/sso.test.js tests/crmSync.test.js",
     "backfill:slugs": "node src/scripts/backfillSlugs.js"
   },
   "dependencies": {

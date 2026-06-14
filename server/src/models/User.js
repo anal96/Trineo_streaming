@@ -45,6 +45,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  program: {
+    type: String,
+    default: ''
+  },
+  faculty: {
+    type: String,
+    default: ''
+  },
   enrollmentDate: {
     type: Date,
     default: null
@@ -81,6 +89,7 @@ const userSchema = new mongoose.Schema({
   },
   crmStudentId: {
     type: String,
+    index: true,
     default: ''
   },
   crmSource: {
@@ -98,8 +107,16 @@ const userSchema = new mongoose.Schema({
   },
   syncStatus: {
     type: String,
-    enum: ['pending', 'success', 'failed', ''],
+    enum: ['success', 'failed', 'pending'],
+    default: 'pending'
+  },
+  lastSyncError: {
+    type: String,
     default: ''
+  },
+  isSyncing: {
+    type: Boolean,
+    default: false
   },
   createdAt: {
     type: Date,
