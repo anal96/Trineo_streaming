@@ -564,7 +564,7 @@ export const ssoLogin = async (req, res) => {
       user.isSyncing = true;
       await user.save();
 
-      _deps.syncStudentProfile(user.crmStudentId, inst.crmInstituteId || inst.instituteId, user)
+      _deps.syncStudentProfile(user.crmStudentId, inst.integration?.crmInstituteId || inst.crmInstituteId, user)
         .catch((err) => {
           console.error('Background student sync error:', err.message);
         })

@@ -1,4 +1,5 @@
 import { User } from '../models/User.js';
+import jwt from 'jsonwebtoken';
 import { Course } from '../models/Course.js';
 import { Lesson } from '../models/Lesson.js';
 import { Payment } from '../models/Payment.js';
@@ -783,5 +784,146 @@ export const disableApiKey = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+export const updateCrmIntegration = async (req, res) => {
+  const { crmApiUrl, crmInstituteId, apiKey, apiVersion, syncEnabled } = req.body;
+  try {
+    const inst = await Institute.findById(req.params.id);
+    if (!inst || inst.status === 'deleted') {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    let apiKeyHash = inst.integration?.apiKeyHash || '';
+    if (apiKey) {
+      const salt = await bcrypt.genSalt(10);
+      apiKeyHash = await bcrypt.hash(apiKey, salt);
+    }
+
+    inst.integration = {
+      crmApiUrl: crmApiUrl !== undefined ? crmApiUrl : (inst.integration?.crmApiUrl || ''),
+      crmInstituteId: crmInstituteId !== undefined ? crmInstituteId : (inst.integration?.crmInstituteId || ''),
+      apiKeyHash: apiKeyHash,
+      apiVersion: apiVersion !== undefined ? apiVersion : (inst.integration?.apiVersion || 'v1'),
+      syncEnabled: syncEnabled !== undefined ? Boolean(syncEnabled) : (inst.integration?.syncEnabled ?? false),
+      onboardingStatus: crmApiUrl ? 'configured' : 'pending',
+      successfulSyncCount: inst.integration?.successfulSyncCount || 0,
+      failedSyncCount: inst.integration?.failedSyncCount || 0,
+      lastSuccessfulSyncAt: inst.integration?.lastSuccessfulSyncAt || null,
+      lastConnectionTestAt: inst.integration?.lastConnectionTestAt || null,
+      lastConnectionTestResult: inst.integration?.lastConnectionTestResult || ''
+    };
+
+    await inst.save();
+    await logOwnerAction(req, 'update_crm_integration', { targetInstitute: inst._id, details: `Updated CRM integration settings` });
+    res.json(inst);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const testCrmConnection = async (req, res) => {
+  try {
+    const inst = await Institute.findById(req.params.id);
+    if (!inst || inst.status === 'deleted') {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    const crmUrl = inst.integration?.crmApiUrl;
+    if (!crmUrl) {
+      return res.status(400).json({ success: false, message: 'CRM API URL is not configured' });
+    }
+
+    const secret = process.env.CRM_INTEGRATION_SECRET;
+    if (!secret) {
+      return res.status(500).json({ success: false, message: 'CRM_INTEGRATION_SECRET is not configured' });
+    }
+
+    // Generate integration token containing issuer, audience, purpose, jti, and bindings
+    const token = jwt.sign({
+      jti: crypto.randomUUID(),
+      crmInstituteId: inst.integration?.crmInstituteId || inst.crmInstituteId || inst.instituteId,
+      trineoInstituteId: inst._id.toString(),
+      purpose: 'health-check'
+    }, secret, {
+      issuer: 'trineo-stream',
+      audience: 'crm-integration',
+      expiresIn: '1m'
+    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      // 1. Fetch GET /api/stream/health
+      const healthRes = await fetch(`${crmUrl}/api/stream/health`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        signal: controller.signal
+      });
+
+      if (!healthRes.ok) {
+        throw new Error(`Health check returned status ${healthRes.status}`);
+      }
+
+      const healthData = await healthRes.json().catch(() => ({}));
+      if (!healthData.success) {
+        throw new Error(healthData.message || 'Health check returned unsuccessful status');
+      }
+
+      // 2. Fetch GET /api/stream/version
+      const versionRes = await fetch(`${crmUrl}/api/stream/version`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        signal: controller.signal
+      });
+
+      if (!versionRes.ok) {
+        throw new Error(`Version check returned status ${versionRes.status}`);
+      }
+
+      const versionData = await versionRes.json().catch(() => ({}));
+      if (!versionData.success) {
+        throw new Error(versionData.message || 'Version check returned unsuccessful status');
+      }
+
+      clearTimeout(timeoutId);
+
+      // Verify apiVersion compatibility
+      const configuredVersion = inst.integration?.apiVersion || 'v1';
+      const crmApiVersion = versionData.apiVersion || 'v1';
+      let msg = 'CRM integration health check passed.';
+      let isDegraded = false;
+      if (configuredVersion !== crmApiVersion) {
+        msg = `CRM integration healthy, but version mismatch warning: Configured ${configuredVersion} vs CRM ${crmApiVersion}`;
+        isDegraded = true;
+      }
+
+      // Save connection test success details
+      inst.integration.onboardingStatus = 'verified';
+      inst.integration.lastConnectionTestAt = new Date();
+      inst.integration.lastConnectionTestResult = isDegraded ? 'degraded' : 'success';
+      await inst.save();
+
+      return res.json({ success: true, message: msg });
+
+    } catch (connErr) {
+      clearTimeout(timeoutId);
+      
+      // Save connection test failure details
+      inst.integration.lastConnectionTestAt = new Date();
+      inst.integration.lastConnectionTestResult = connErr.message || 'failed';
+      await inst.save();
+
+      return res.json({ success: false, message: `Failed to connect to CRM: ${connErr.message}` });
+    }
+
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };

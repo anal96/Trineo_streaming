@@ -1,9 +1,11 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { User } from '../models/User.js';
 import { CourseAssignment } from '../models/CourseAssignment.js';
 import { Course } from '../models/Course.js';
 import { CourseIntegrationMap } from '../models/CourseIntegrationMap.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { Institute } from '../models/Institute.js';
 
 /**
  * Perform asynchronous background student profile and course assignment sync.
@@ -16,27 +18,61 @@ export async function syncStudentProfile(crmStudentId, crmInstituteId, user) {
   if (process.env.NODE_ENV === 'test') {
     return;
   }
-  const secret = process.env.TRINEO_SSO_SECRET;
-  if (!secret) {
-    throw new Error('Sync configuration error: TRINEO_SSO_SECRET environment variable is missing.');
+
+  // Load institute configuration dynamically
+  let institute = null;
+  try {
+    if (user.institute) {
+      institute = await Institute.findById(user.institute);
+    }
+    if (!institute && user.instituteId) {
+      institute = await Institute.findOne({ instituteId: user.instituteId });
+    }
+  } catch (dbErr) {
+    console.error('Database error fetching institute in syncStudentProfile:', dbErr);
   }
 
-  // Generate a short-lived token to authorize the request on the CRM
-  const authPayload = { studentId: crmStudentId, crmInstituteId };
-  const token = jwt.sign(authPayload, secret, { expiresIn: '1m' });
+  const crmUrl = institute?.integration?.crmApiUrl;
+  const syncEnabled = institute?.integration?.syncEnabled === true;
 
-  const crmUrl = process.env.CRM_API_URL || 'http://localhost:5000';
+  if (!crmUrl || !syncEnabled) {
+    user.syncStatus = 'pending';
+    user.lastSyncError = '';
+    await user.save();
+    return;
+  }
+
+  const secret = process.env.CRM_INTEGRATION_SECRET;
+  if (!secret) {
+    throw new Error('Sync configuration error: CRM_INTEGRATION_SECRET environment variable is missing.');
+  }
+
+  // Generate a short-lived token to authorize the request on the CRM (with explicit issuer, audience, purpose, and jti claims)
+  const authPayload = {
+    jti: crypto.randomUUID(),
+    studentId: crmStudentId,
+    crmInstituteId,
+    trineoInstituteId: institute._id.toString(),
+    purpose: 'profile-sync'
+  };
+  const token = jwt.sign(authPayload, secret, {
+    issuer: 'trineo-stream',
+    audience: 'crm-integration',
+    expiresIn: '1m'
+  });
+
   const syncEndpoint = `${crmUrl}/api/stream/student-profile`;
 
   try {
-    // 1. Request student profile from CRM
+    // 1. Request student profile from CRM (with 5-second fetch timeout signal)
     const response = await fetch(syncEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ studentId: crmStudentId, crmInstituteId })
+      body: JSON.stringify({ studentId: crmStudentId, crmInstituteId }),
+      signal: AbortSignal.timeout(5000)
     });
 
     if (!response.ok) {
@@ -63,6 +99,14 @@ export async function syncStudentProfile(crmStudentId, crmInstituteId, user) {
     user.syncStatus = 'success';
     user.lastSyncError = '';
     await user.save();
+
+    // Increment success statistics on Institute
+    if (institute) {
+      await Institute.findByIdAndUpdate(institute._id, {
+        $inc: { 'integration.successfulSyncCount': 1 },
+        $set: { 'integration.lastSuccessfulSyncAt': new Date() }
+      });
+    }
 
     await AuditLog.create({
       userId: user._id,
@@ -129,13 +173,16 @@ export async function syncStudentProfile(crmStudentId, crmInstituteId, user) {
         institute: user.institute || null,
         instituteId: user.instituteId || '',
         eventType: 'COURSE_SYNC_SUCCESS',
-        details: `Synchronized courses: added ${addedCount} courses, removed ${removedCount} courses`,
+        details: `Added ${addedCount} courses, removed ${removedCount} courses`,
         ipAddress: '127.0.0.1',
         userAgent: 'System Sync Service'
       });
 
     } catch (courseErr) {
       console.error('Course Assignment Sync Error:', courseErr);
+      if (institute) {
+        await Institute.findByIdAndUpdate(institute._id, { $inc: { 'integration.failedSyncCount': 1 } });
+      }
       await AuditLog.create({
         userId: user._id,
         institute: user.institute || null,
@@ -154,6 +201,10 @@ export async function syncStudentProfile(crmStudentId, crmInstituteId, user) {
     user.syncStatus = 'failed';
     user.lastSyncError = error.message || 'CRM API unavailable';
     await user.save();
+
+    if (institute) {
+      await Institute.findByIdAndUpdate(institute._id, { $inc: { 'integration.failedSyncCount': 1 } });
+    }
 
     await AuditLog.create({
       userId: user._id,

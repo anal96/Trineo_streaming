@@ -95,6 +95,7 @@ test('SSO Login Controller Verification', async (t) => {
   const mockInstObj = {
     _id: new mongoose.Types.ObjectId(),
     instituteId: 'inst_gfi',
+    crmInstituteId: 'crm_inst_gfi',
     status: 'active',
     name: 'GFI Institute'
   };

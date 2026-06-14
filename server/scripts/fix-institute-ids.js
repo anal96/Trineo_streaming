@@ -49,6 +49,10 @@ async function run() {
     if (user.studentId === undefined) {
       user.studentId = '';
     }
+    // Prevent validation errors if syncStatus is empty
+    if (user.syncStatus === '') {
+      user.syncStatus = 'pending';
+    }
     await user.save();
     updatedCount++;
   }

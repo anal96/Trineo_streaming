@@ -115,17 +115,75 @@ const seedData = async () => {
         },
         supportEmail: 'support@gfi.edu',
         supportPhone: '+1 (555) 019-2834',
-        branchName: 'Digital Campus'
+        branchName: 'Digital Campus',
+        integration: {
+          crmApiUrl: '',
+          crmInstituteId: '',
+          apiKeyHash: '',
+          apiVersion: 'v1',
+          syncEnabled: false,
+          onboardingStatus: 'pending',
+          successfulSyncCount: 0,
+          failedSyncCount: 0,
+          lastSuccessfulSyncAt: null
+        }
       });
       await defaultInstitute.save();
       console.log('Seeded default Institute: GFI Institute');
-    } else if (!defaultInstitute.instituteId || !defaultInstitute.apiKeyHash) {
-      defaultInstitute.instituteId = defaultInstitute.instituteId || 'inst_gfi';
-      if (!defaultInstitute.apiKeyHash) {
-        defaultInstitute.apiKey = 'trn_gfi_9a8c7d6e5f4a';
+    } else {
+      let docModified = false;
+      if (!defaultInstitute.instituteId || !defaultInstitute.apiKeyHash) {
+        defaultInstitute.instituteId = defaultInstitute.instituteId || 'inst_gfi';
+        if (!defaultInstitute.apiKeyHash) {
+          defaultInstitute.apiKey = 'trn_gfi_9a8c7d6e5f4a';
+        }
+        docModified = true;
       }
-      await defaultInstitute.save();
-      console.log('Updated existing GFI Institute with instituteId and apiKeyHash');
+      if (!defaultInstitute.integration) {
+        defaultInstitute.integration = {
+          crmApiUrl: '',
+          crmInstituteId: '',
+          apiKeyHash: '',
+          apiVersion: 'v1',
+          syncEnabled: false,
+          onboardingStatus: 'pending',
+          successfulSyncCount: 0,
+          failedSyncCount: 0,
+          lastSuccessfulSyncAt: null
+        };
+        docModified = true;
+      }
+      if (docModified) {
+        await defaultInstitute.save();
+        console.log('Updated existing GFI Institute with instituteId, apiKeyHash, and integration settings');
+      }
+    }
+
+    // Migration: Update existing institutes that don't have integration settings
+    const institutesToMigrate = await Institute.find({ integration: { $exists: false } });
+    for (const inst of institutesToMigrate) {
+      inst.integration = {
+        crmApiUrl: '',
+        crmInstituteId: '',
+        apiKeyHash: '',
+        apiVersion: 'v1',
+        syncEnabled: false,
+        onboardingStatus: 'pending',
+        successfulSyncCount: 0,
+        failedSyncCount: 0,
+        lastSuccessfulSyncAt: null
+      };
+      await inst.save();
+      console.log(`Migrated CRM integration settings for institute: ${inst.name}`);
+    }
+
+    // Migration: Fix existing users with invalid empty syncStatus
+    const usersMigrated = await User.updateMany(
+      { syncStatus: '' },
+      { $set: { syncStatus: 'pending' } }
+    );
+    if (usersMigrated.modifiedCount > 0) {
+      console.log(`Migrated syncStatus for ${usersMigrated.modifiedCount} users to 'pending'`);
     }
 
     // 1. Seed Users

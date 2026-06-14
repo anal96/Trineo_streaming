@@ -83,6 +83,16 @@ export default function InstitutesManagementPage() {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
 
+  // CRM Integration configuration states
+  const [crmApiUrl, setCrmApiUrl] = useState('');
+  const [crmInstituteId, setCrmInstituteId] = useState('');
+  const [crmApiKey, setCrmApiKey] = useState('');
+  const [crmApiVersion, setCrmApiVersion] = useState('v1');
+  const [crmSyncEnabled, setCrmSyncEnabled] = useState(false);
+  const [savingCrm, setSavingCrm] = useState(false);
+  const [testingCrm, setTestingCrm] = useState(false);
+  const [crmTestResult, setCrmTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   // Edit State
   const [editingInst, setEditingInst] = useState<Institute | null>(null);
   const [editForm, setEditForm] = useState({ name: '', instituteId: '', contactPerson: '', phone: '', domain: '', subscription: '' });
@@ -112,6 +122,87 @@ export default function InstitutesManagementPage() {
   useEffect(() => {
     loadInstitutes();
   }, [loadInstitutes]);
+
+  // Sync CRM Integration states when details are loaded
+  useEffect(() => {
+    if (instDetails?.profile?.integration) {
+      setCrmApiUrl(instDetails.profile.integration.crmApiUrl || '');
+      setCrmInstituteId(instDetails.profile.integration.crmInstituteId || '');
+      setCrmApiKey(instDetails.profile.integration.apiKeyHash ? '••••••••' : '');
+      setCrmApiVersion(instDetails.profile.integration.apiVersion || 'v1');
+      setCrmSyncEnabled(instDetails.profile.integration.syncEnabled === true);
+      setCrmTestResult(null);
+    } else {
+      setCrmApiUrl('');
+      setCrmInstituteId('');
+      setCrmApiKey('');
+      setCrmApiVersion('v1');
+      setCrmSyncEnabled(false);
+      setCrmTestResult(null);
+    }
+  }, [instDetails]);
+
+  const formatDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return 'Never';
+    try {
+      return new Date(dateStr).toLocaleString('en-US', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (e) {
+      return 'Invalid Date';
+    }
+  };
+
+  const handleSaveCrmConfig = async () => {
+    if (!selectedInst) return;
+    setSavingCrm(true);
+    setError('');
+    setSuccess('');
+    try {
+      const updated = await apiFetch(`/owner/institutes/${selectedInst._id}/crm-integration`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          crmApiUrl,
+          crmInstituteId,
+          apiKey: crmApiKey === '••••••••' ? undefined : crmApiKey,
+          apiVersion: crmApiVersion,
+          syncEnabled: crmSyncEnabled
+        })
+      });
+      setSuccess('CRM Integration settings saved successfully.');
+      loadDetails(selectedInst._id);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save CRM settings');
+    } finally {
+      setSavingCrm(false);
+    }
+  };
+
+  const handleTestCrm = async () => {
+    if (!selectedInst) return;
+    setTestingCrm(true);
+    setCrmTestResult(null);
+    try {
+      const res = await apiFetch(`/owner/institutes/${selectedInst._id}/test-crm`, {
+        method: 'POST'
+      });
+      if (res.success) {
+        setCrmTestResult({ success: true, message: res.message || 'CRM connection successful!' });
+        loadDetails(selectedInst._id);
+      } else {
+        setCrmTestResult({ success: false, message: res.message || 'CRM connection failed.' });
+      }
+    } catch (err: any) {
+      setCrmTestResult({ success: false, message: err.message || 'Connection request failed.' });
+    } finally {
+      setTestingCrm(false);
+    }
+  };
 
   // Load Institute details
   const loadDetails = async (id: string) => {
@@ -560,48 +651,163 @@ export default function InstitutesManagementPage() {
                     </div>
                   </div>
 
-                  {/* Real-time CRM Connection Tester */}
-                  {instDetails.profile.apiKeyConfigured && (
-                    <div className={`p-5 rounded-xl border ${isDark ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-white border-slate-200'}`}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider">CRM Connection Tester</h3>
+                  {/* CRM Integration Settings Page */}
+                  <div className={`p-5 rounded-xl border ${isDark ? 'bg-white/[0.02] border-white/[0.05]' : 'bg-white border-slate-200 shadow-sm'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-violet-500" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider">CRM Integration Settings</h3>
                       </div>
-                      <p className={`text-[11px] mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        Verify your API key connection directly from the super admin console. Enter the institute key below to execute a mock check.
-                      </p>
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <input
-                          type="password"
-                          placeholder="Paste API Key here..."
-                          value={testApiKey}
-                          onChange={(e) => setTestApiKey(e.target.value)}
-                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-mono border ${
-                            isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500' : 'bg-white border-slate-200 text-slate-700'
-                          }`}
-                        />
+                      <div className="flex items-center gap-2">
+                        {/* Onboarding status badges */}
+                        {instDetails.profile.integration?.onboardingStatus === 'verified' && (
+                          <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> CRM Connected
+                          </span>
+                        )}
+                        {instDetails.profile.integration?.onboardingStatus === 'configured' && (
+                          <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" /> Connection Pending/Failed
+                          </span>
+                        )}
+                        {(instDetails.profile.integration?.onboardingStatus === 'pending' || !instDetails.profile.integration?.onboardingStatus) && (
+                          <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" /> Not Configured
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">CRM API Base URL</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. https://crm.gfi.edu"
+                            value={crmApiUrl}
+                            onChange={(e) => setCrmApiUrl(e.target.value)}
+                            className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">CRM Institute ID</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 6a2d10978f77d510c879f5aa"
+                            value={crmInstituteId}
+                            onChange={(e) => setCrmInstituteId(e.target.value)}
+                            className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">API Version</label>
+                          <select
+                            value={crmApiVersion}
+                            onChange={(e) => setCrmApiVersion(e.target.value)}
+                            className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          >
+                            <option value="v1">v1 (Default)</option>
+                            <option value="v2">v2 (Legacy Backup)</option>
+                            <option value="v3">v3 (Advanced ERP)</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">CRM API Token / Key</label>
+                          <input
+                            type="password"
+                            placeholder="Type new API key..."
+                            value={crmApiKey}
+                            onChange={(e) => setCrmApiKey(e.target.value)}
+                            className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between py-2 border-t border-b border-white/[0.04] mt-2">
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-semibold text-slate-300">Enable Background Sync</span>
+                          <p className={`text-[10px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>Allow SSO logins to query this CRM for student profile updates</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={crmSyncEnabled}
+                            onChange={(e) => setCrmSyncEnabled(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className={`w-9 h-5 rounded-full peer transition-all after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${
+                            isDark 
+                              ? 'bg-white/[0.08] peer-checked:bg-violet-600 peer-checked:after:translate-x-full peer-checked:after:border-white' 
+                              : 'bg-slate-200 peer-checked:bg-violet-600 peer-checked:after:translate-x-full'
+                          }`}></div>
+                        </label>
+                      </div>
+
+                      {/* Connection Test Log & Sync Stats Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 p-3 rounded-xl bg-white/[0.01] border border-white/[0.04]">
+                        <div className="space-y-1.5">
+                          <h4 className="text-[10px] font-bold uppercase text-slate-400">Connection Log</h4>
+                          <div className="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                            <div>Test Result: <span className={`font-mono text-[10px] font-bold ${
+                              instDetails.profile.integration?.lastConnectionTestResult === 'success' ? 'text-emerald-400' : 'text-red-400'
+                            }`}>{instDetails.profile.integration?.lastConnectionTestResult || 'No checks performed'}</span></div>
+                            <div>Last Checked: <span className="font-semibold text-slate-400">{formatDate(instDetails.profile.integration?.lastConnectionTestAt)}</span></div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <h4 className="text-[10px] font-bold uppercase text-slate-400">Sync Statistics</h4>
+                          <div className="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                            <div>Success Rate: <span className="text-emerald-400 font-bold">{instDetails.profile.integration?.successfulSyncCount || 0}</span> success, <span className="text-red-400 font-bold">{instDetails.profile.integration?.failedSyncCount || 0}</span> failed</div>
+                            <div>Last Sync: <span className="font-semibold text-slate-400">{formatDate(instDetails.profile.integration?.lastSuccessfulSyncAt)}</span></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-white/[0.05]">
                         <button
-                          onClick={handleTestCRMConnection}
-                          disabled={testingConnection || !testApiKey}
-                          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 transition-all shrink-0 active:scale-95"
+                          onClick={handleTestCrm}
+                          disabled={testingCrm || !crmApiUrl}
+                          className="px-4 py-2.5 rounded-xl border border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400 disabled:opacity-50 text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5"
                         >
                           <Send className="w-3.5 h-3.5" />
-                          <span>{testingConnection ? 'Testing...' : 'Test CRM Connection'}</span>
+                          <span>{testingCrm ? 'Testing...' : 'Test Connection'}</span>
+                        </button>
+
+                        <button
+                          onClick={handleSaveCrmConfig}
+                          disabled={savingCrm}
+                          className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>{savingCrm ? 'Saving...' : 'Save Configuration'}</span>
                         </button>
                       </div>
 
-                      {testResult && (
-                        <div className={`mt-3 p-3 rounded-lg flex items-center gap-2.5 text-xs ${
-                          testResult.success
+                      {crmTestResult && (
+                        <div className={`p-3 rounded-lg flex items-center gap-2.5 text-xs ${
+                          crmTestResult.success
                             ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
                             : 'bg-red-500/10 border border-red-500/20 text-red-400'
                         }`}>
-                          {testResult.success ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                          <span>{testResult.message}</span>
+                          {crmTestResult.success ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                          <span>{crmTestResult.message}</span>
                         </div>
                       )}
                     </div>
-                  )}
+                  </div>
 
                   {/* API Logs & Docs Grid */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

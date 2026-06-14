@@ -170,11 +170,60 @@ const instituteSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  integration: {
+    crmApiUrl: {
+      type: String,
+      default: ''
+    },
+    crmInstituteId: {
+      type: String,
+      default: ''
+    },
+    apiKeyHash: {
+      type: String,
+      default: ''
+    },
+    apiVersion: {
+      type: String,
+      default: 'v1'
+    },
+    syncEnabled: {
+      type: Boolean,
+      default: false
+    },
+    onboardingStatus: {
+      type: String,
+      enum: ['pending', 'configured', 'verified'],
+      default: 'pending'
+    },
+    lastConnectionTestAt: {
+      type: Date,
+      default: null
+    },
+    lastConnectionTestResult: {
+      type: String,
+      default: ''
+    },
+    successfulSyncCount: {
+      type: Number,
+      default: 0
+    },
+    failedSyncCount: {
+      type: Number,
+      default: 0
+    },
+    lastSuccessfulSyncAt: {
+      type: Date,
+      default: null
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now
   }
 });
+
+instituteSchema.index({ 'integration.crmInstituteId': 1 }, { sparse: true });
 
 instituteSchema.pre('save', async function (next) {
   if (!this.instituteId) {

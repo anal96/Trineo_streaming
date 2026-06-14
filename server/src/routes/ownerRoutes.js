@@ -29,7 +29,9 @@ import {
   getInstituteDetails,
   updateInstitute,
   generateApiKey,
-  disableApiKey
+  disableApiKey,
+  updateCrmIntegration,
+  testCrmConnection
 } from '../controllers/ownerController.js';
 
 const router = express.Router();
@@ -57,6 +59,8 @@ router.get('/institutes/:id/details', getInstituteDetails);
 router.post('/institutes/:id/api-key', generateApiKey);
 router.post('/institutes/:id/api-key/regenerate', generateApiKey);
 router.delete('/institutes/:id/api-key', disableApiKey);
+router.put('/institutes/:id/crm-integration', updateCrmIntegration);
+router.post('/institutes/:id/test-crm', testCrmConnection);
 
 // ─── User Management ──────────────────────────────────────────────────────────
 router.get('/users', getAllUsers);

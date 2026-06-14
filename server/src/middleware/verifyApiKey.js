@@ -14,7 +14,9 @@ export const verifyApiKey = async (req, res, next) => {
     let matchedInstitute = null;
 
     for (const inst of institutes) {
-      if (inst.apiKeyHash && await bcrypt.compare(apiKey, inst.apiKeyHash)) {
+      const isMatchedLegacy = inst.apiKeyHash && await bcrypt.compare(apiKey, inst.apiKeyHash);
+      const isMatchedIntegration = inst.integration?.apiKeyHash && await bcrypt.compare(apiKey, inst.integration.apiKeyHash);
+      if (isMatchedLegacy || isMatchedIntegration) {
         matchedInstitute = inst;
         break;
       }
