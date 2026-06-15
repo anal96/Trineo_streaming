@@ -824,6 +824,13 @@ export const updateCrmIntegration = async (req, res) => {
 };
 
 export const testCrmConnection = async (req, res) => {
+  if (process.env.ENABLE_CRM_SYNC !== 'true') {
+    return res.json({
+      success: true,
+      message: 'CRM integration validation skipped (sync disabled)'
+    });
+  }
+
   try {
     const inst = await Institute.findById(req.params.id);
     if (!inst || inst.status === 'deleted') {

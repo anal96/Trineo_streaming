@@ -15,6 +15,8 @@ import { Institute } from '../src/models/Institute.js';
 process.env.TRINEO_SSO_SECRET = 'sso_secret_123';
 process.env.CRM_INTEGRATION_SECRET = 'crm_secret_123';
 process.env.CRM_API_URL = 'http://mock-crm.invalid';
+process.env.ENABLE_CRM_SYNC = 'true';
+process.env.ENABLE_SSO = 'true';
 
 test('CRM Profile & Course Sync Service Verification', async (t) => {
   const originalFetch = global.fetch;

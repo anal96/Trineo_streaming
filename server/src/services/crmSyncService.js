@@ -15,6 +15,9 @@ import { Institute } from '../models/Institute.js';
  * @param {Object} user - User document on Trineo Stream
  */
 export async function syncStudentProfile(crmStudentId, crmInstituteId, user) {
+  if (process.env.ENABLE_CRM_SYNC !== 'true') {
+    return;
+  }
   if (process.env.NODE_ENV === 'test') {
     return;
   }

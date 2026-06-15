@@ -679,6 +679,13 @@ export default function InstitutesManagementPage() {
                     </div>
 
                     <div className="space-y-4">
+                      {/* CRM Integration Decoupled / Coming Soon Notification */}
+                      <div className="p-4 rounded-xl bg-violet-600/10 border border-violet-500/20 text-violet-400 text-xs flex flex-col gap-1 shadow-lg shadow-violet-500/5">
+                        <span className="font-bold text-sm">CRM Integration</span>
+                        <span className="font-semibold text-xs text-violet-300">Coming Soon</span>
+                        <span className="opacity-80">Available in a future update</span>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase text-slate-400">CRM API Base URL</label>
@@ -687,8 +694,9 @@ export default function InstitutesManagementPage() {
                             placeholder="e.g. https://crm.gfi.edu"
                             value={crmApiUrl}
                             onChange={(e) => setCrmApiUrl(e.target.value)}
+                            disabled={true}
                             className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
-                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white/50 focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-slate-100 border-slate-200 text-slate-400'
                             }`}
                           />
                         </div>
@@ -700,8 +708,9 @@ export default function InstitutesManagementPage() {
                             placeholder="e.g. 6a2d10978f77d510c879f5aa"
                             value={crmInstituteId}
                             onChange={(e) => setCrmInstituteId(e.target.value)}
+                            disabled={true}
                             className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
-                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white/50 focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-slate-100 border-slate-200 text-slate-400'
                             }`}
                           />
                         </div>
@@ -711,8 +720,9 @@ export default function InstitutesManagementPage() {
                           <select
                             value={crmApiVersion}
                             onChange={(e) => setCrmApiVersion(e.target.value)}
+                            disabled={true}
                             className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
-                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white/50 focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-slate-100 border-slate-200 text-slate-400'
                             }`}
                           >
                             <option value="v1">v1 (Default)</option>
@@ -728,8 +738,9 @@ export default function InstitutesManagementPage() {
                             placeholder="Type new API key..."
                             value={crmApiKey}
                             onChange={(e) => setCrmApiKey(e.target.value)}
+                            disabled={true}
                             className={`w-full px-3.5 py-2.5 rounded-xl text-xs border ${
-                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-white border-slate-200 text-slate-700'
+                              isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white/50 focus:border-violet-500 focus:bg-[#0f0f2a]' : 'bg-slate-100 border-slate-200 text-slate-400'
                             }`}
                           />
                         </div>
@@ -745,6 +756,7 @@ export default function InstitutesManagementPage() {
                             type="checkbox"
                             checked={crmSyncEnabled}
                             onChange={(e) => setCrmSyncEnabled(e.target.checked)}
+                            disabled={true}
                             className="sr-only peer"
                           />
                           <div className={`w-9 h-5 rounded-full peer transition-all after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${
@@ -779,20 +791,20 @@ export default function InstitutesManagementPage() {
                       <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-white/[0.05]">
                         <button
                           onClick={handleTestCrm}
-                          disabled={testingCrm || !crmApiUrl}
-                          className="px-4 py-2.5 rounded-xl border border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400 disabled:opacity-50 text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5"
+                          disabled={true}
+                          className="px-4 py-2.5 rounded-xl border border-slate-500/30 text-slate-400 disabled:opacity-50 text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 cursor-not-allowed"
                         >
                           <Send className="w-3.5 h-3.5" />
-                          <span>{testingCrm ? 'Testing...' : 'Test Connection'}</span>
+                          <span>Test Connection</span>
                         </button>
 
                         <button
                           onClick={handleSaveCrmConfig}
-                          disabled={savingCrm}
-                          className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5"
+                          disabled={true}
+                          className="px-4 py-2.5 rounded-xl bg-slate-700 text-slate-400 disabled:opacity-50 text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 cursor-not-allowed"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>{savingCrm ? 'Saving...' : 'Save Configuration'}</span>
+                          <span>Save Configuration</span>
                         </button>
                       </div>
 

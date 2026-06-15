@@ -316,6 +316,13 @@ export const getSecurityLogs = async (req, res) => {
 };
 
 export const ssoLogin = async (req, res) => {
+  if (process.env.ENABLE_SSO !== 'true') {
+    return res.json({
+      success: false,
+      message: "SSO temporarily disabled"
+    });
+  }
+
   const { token } = req.query;
   const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
   const normalizedIp = ipAddress === '::1' ? '127.0.0.1' : ipAddress;
@@ -564,25 +571,30 @@ export const ssoLogin = async (req, res) => {
       user.isSyncing = true;
       await user.save();
 
-      _deps.syncStudentProfile(user.crmStudentId, inst.integration?.crmInstituteId || inst.crmInstituteId, user)
-        .catch((err) => {
-          console.error('Background student sync error:', err.message);
-        })
-        .finally(async () => {
-          if (process.env.NODE_ENV === 'test') {
-            user.isSyncing = false;
-            return;
-          }
-          try {
-            const freshUser = await User.findById(user._id);
-            if (freshUser) {
-              freshUser.isSyncing = false;
-              await freshUser.save();
+      if (process.env.ENABLE_CRM_SYNC === 'true') {
+        _deps.syncStudentProfile(user.crmStudentId, inst.integration?.crmInstituteId || inst.crmInstituteId, user)
+          .catch((err) => {
+            console.error('Background student sync error:', err.message);
+          })
+          .finally(async () => {
+            if (process.env.NODE_ENV === 'test') {
+              user.isSyncing = false;
+              return;
             }
-          } catch (dbErr) {
-            console.error('Failed to reset user.isSyncing flag:', dbErr);
-          }
-        });
+            try {
+              const freshUser = await User.findById(user._id);
+              if (freshUser) {
+                freshUser.isSyncing = false;
+                await freshUser.save();
+              }
+            } catch (dbErr) {
+              console.error('Failed to reset user.isSyncing flag:', dbErr);
+            }
+          });
+      } else {
+        user.isSyncing = false;
+        await user.save();
+      }
     }
 
     if (user.status !== 'active') {
