@@ -1,11 +1,7 @@
-import fs from 'fs';
+import mongoose from 'mongoose';
 import { Lesson } from '../models/Lesson.js';
-import { Course } from '../models/Course.js';
-import { VideoUploadJob } from '../models/VideoUploadJob.js';
-import { uploadToYouTube, getVideoMetadata } from '../utils/youtubeService.js';
-import { getThumbnailUrl } from '../utils/videoProvider.js';
-import { Notification } from '../models/Notification.js';
-import { Purchase } from '../models/Purchase.js';
+import { Unit } from '../models/Unit.js';
+import { Content } from '../models/Content.js';
 
 const requireInstitute = (req, res) => {
   if (req.user.role === 'owner') return true;
@@ -16,27 +12,72 @@ const requireInstitute = (req, res) => {
   return true;
 };
 
-const instituteFilter = (req) => (req.user.role === 'owner' ? {} : { institute: req.user.institute });
+const instituteFilter = (req) => (req.user.role === 'owner' ? { isDeleted: false } : { institute: req.user.institute, isDeleted: false });
 
-const parseDurationToSeconds = (duration = '0:00') => {
-  const parts = String(duration).split(':').map((v) => Number(v || 0));
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return Number(parts[0] || 0);
-};
-
-export const getCourseLessons = async (req, res) => {
+export const getUnitLessons = async (req, res) => {
   try {
     if (!requireInstitute(req, res)) return;
-    const course = await Course.findOne({ _id: req.params.courseId, ...instituteFilter(req) });
-    if (!course) return res.status(404).json({ message: 'Course not found' });
-    const { search = '', status = 'All', module = '' } = req.query;
-    const filter = { courseId: course._id, ...instituteFilter(req) };
-    if (status !== 'All') filter.publishStatus = status;
-    if (module) filter.moduleTitle = module;
+    const { unitId } = req.query;
+    if (!unitId) return res.status(400).json({ message: 'unitId parameter required' });
+
+    const unit = await Unit.findOne({ _id: unitId, ...instituteFilter(req) });
+    if (!unit) return res.status(404).json({ message: 'Unit not found' });
+
+    const filter = { unitId: unit._id, ...instituteFilter(req) };
+    const { search = '' } = req.query;
     if (search) filter.title = { $regex: search, $options: 'i' };
-    const lessons = await Lesson.find(filter).sort({ moduleOrder: 1, order: 1, createdAt: 1 }).populate('videoAssetId');
-    res.json(lessons);
+
+    const lessons = await Lesson.find(filter).populate('videoAssetId').sort({ order: 1, createdAt: 1 });
+
+    // Fetch corresponding content records (both videos and PDFs) for these lessons
+    const lessonIds = lessons.map((l) => l._id);
+    const contents = await Content.find({
+      lessonId: { $in: lessonIds },
+      isDeleted: { $ne: true }
+    }).populate('videoAssetId');
+
+    const contentMap = {};
+    for (const c of contents) {
+      const lessonIdStr = c.lessonId.toString();
+      if (!contentMap[lessonIdStr]) {
+        contentMap[lessonIdStr] = [];
+      }
+      contentMap[lessonIdStr].push(c);
+    }
+
+    const lessonsWithVideoInfo = lessons.map((lesson) => {
+      const lessonObj = lesson.toObject();
+      const lessonContents = contentMap[lesson._id.toString()] || [];
+      const videoContent = lessonContents.find(c => c.type === 'video');
+      const pdfContents = lessonContents.filter(c => c.type === 'pdf');
+
+      // Diagnostic and Debug information for Admin Panel
+      lessonObj.contents = lessonContents;
+      lessonObj.contentCount = lessonContents.length;
+      lessonObj.videoCount = lessonContents.filter(c => c.type === 'video').length;
+      lessonObj.pdfCount = pdfContents.length;
+      lessonObj.contentIds = lessonContents.map(c => c._id.toString());
+
+      if (videoContent) {
+        const asset = videoContent.videoAssetId;
+        if (asset && typeof asset === 'object') {
+          lessonObj.videoAssetId = asset._id;
+          lessonObj.youtubeVideoId = asset.youtubeVideoId || null;
+          lessonObj.uploadStatus = asset.uploadStatus || 'pending';
+        } else {
+          lessonObj.videoAssetId = videoContent.videoAssetId || null;
+          lessonObj.youtubeVideoId = videoContent.youtubeVideoId || null;
+          lessonObj.uploadStatus = videoContent.uploadStatus || 'pending';
+        }
+      } else {
+        lessonObj.videoAssetId = lessonObj.videoAssetId ? (lessonObj.videoAssetId._id || lessonObj.videoAssetId) : null;
+        lessonObj.youtubeVideoId = lessonObj.youtubeVideoId || null;
+        lessonObj.uploadStatus = lessonObj.uploadStatus || 'pending';
+      }
+      return lessonObj;
+    });
+
+    res.json(lessonsWithVideoInfo);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -45,39 +86,21 @@ export const getCourseLessons = async (req, res) => {
 export const createLesson = async (req, res) => {
   try {
     if (!requireInstitute(req, res)) return;
-    const {
-      courseId, title, description = '', moduleTitle = 'Module 1', moduleOrder = 1,
-      order = 1, isLocked = false, publishStatus = 'draft', releaseAt = null, duration = '0:00', thumbnail = null,
-      videoAssetId = null
-    } = req.body;
-    const course = await Course.findOne({ _id: courseId, ...instituteFilter(req) });
-    if (!course) return res.status(404).json({ message: 'Course not found' });
+    const { unitId, title, description = '', order = 1, isLocked, publishStatus, status, thumbnail } = req.body;
+    const unit = await Unit.findOne({ _id: unitId, ...instituteFilter(req) });
+    if (!unit) return res.status(404).json({ message: 'Unit not found' });
+
     const lesson = await Lesson.create({
-      institute: course.institute || req.user.institute || null,
-      courseId,
+      institute: unit.institute || req.user.institute || null,
+      unitId,
       title,
       description,
-      moduleTitle,
-      moduleOrder: Number(moduleOrder) || 1,
       order: Number(order) || 1,
-      isLocked: isLocked === true || isLocked === 'true',
-      publishStatus,
-      releaseAt: releaseAt ? new Date(releaseAt) : null,
-      duration,
-      durationSeconds: parseDurationToSeconds(duration),
-      thumbnail,
-      videoAssetId: (videoAssetId && videoAssetId !== 'none') ? videoAssetId : null
+      isLocked: isLocked !== undefined ? isLocked : false,
+      publishStatus: publishStatus || status || 'draft',
+      thumbnail: thumbnail || null
     });
-    const enrolled = await Purchase.find({ institute: lesson.institute, courseId: lesson.courseId, status: 'completed' }).select('studentId');
-    if (enrolled.length) {
-      await Notification.insertMany(enrolled.map((p) => ({
-        institute: lesson.institute,
-        userId: p.studentId,
-        message: `New lesson uploaded: ${lesson.title}`,
-        type: 'upload',
-        read: false
-      })));
-    }
+
     res.status(201).json(lesson);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -89,32 +112,16 @@ export const updateLesson = async (req, res) => {
     if (!requireInstitute(req, res)) return;
     const lesson = await Lesson.findOne({ _id: req.params.id, ...instituteFilter(req) });
     if (!lesson) return res.status(404).json({ message: 'Lesson not found' });
+
     const updates = req.body || {};
-    Object.keys(updates).forEach((key) => {
-      if (updates[key] !== undefined && key in lesson) lesson[key] = updates[key];
-    });
-    if (updates.videoAssetId === '' || updates.videoAssetId === 'none' || updates.videoAssetId === null) {
-      lesson.videoAssetId = null;
-    } else if (updates.videoAssetId !== undefined) {
-      lesson.videoAssetId = updates.videoAssetId;
-    }
-    if (updates.duration !== undefined) {
-      lesson.durationSeconds = parseDurationToSeconds(updates.duration);
-    }
-    if (updates.releaseAt !== undefined) {
-      lesson.releaseAt = updates.releaseAt ? new Date(updates.releaseAt) : null;
-    }
+    lesson.title = updates.title || lesson.title;
+    lesson.description = updates.description !== undefined ? updates.description : lesson.description;
+    lesson.order = updates.order !== undefined ? Number(updates.order) : lesson.order;
+    lesson.isLocked = updates.isLocked !== undefined ? updates.isLocked : lesson.isLocked;
+    lesson.publishStatus = updates.publishStatus || updates.status || lesson.publishStatus;
+    lesson.thumbnail = updates.thumbnail !== undefined ? updates.thumbnail : lesson.thumbnail;
+
     await lesson.save();
-    const enrolled = await Purchase.find({ institute: lesson.institute, courseId: lesson.courseId, status: 'completed' }).select('studentId');
-    if (enrolled.length) {
-      await Notification.insertMany(enrolled.map((p) => ({
-        institute: lesson.institute,
-        userId: p.studentId,
-        message: `Course update: ${lesson.title} has been updated`,
-        type: 'system',
-        read: false
-      })));
-    }
     res.json(lesson);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -124,10 +131,14 @@ export const updateLesson = async (req, res) => {
 export const deleteLesson = async (req, res) => {
   try {
     if (!requireInstitute(req, res)) return;
-    const lesson = await Lesson.findOneAndDelete({ _id: req.params.id, ...instituteFilter(req) });
+    const lesson = await Lesson.findOne({ _id: req.params.id, ...instituteFilter(req) });
     if (!lesson) return res.status(404).json({ message: 'Lesson not found' });
-    await VideoUploadJob.deleteMany({ lessonId: lesson._id, ...instituteFilter(req) });
-    res.json({ message: 'Lesson deleted' });
+
+    lesson.isDeleted = true;
+    lesson.deletedAt = new Date();
+    await lesson.save();
+
+    res.json({ message: 'Lesson soft deleted' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -139,7 +150,7 @@ export const reorderLessons = async (req, res) => {
     const { items = [] } = req.body;
     await Promise.all(items.map((item) => Lesson.updateOne(
       { _id: item.id, ...instituteFilter(req) },
-      { $set: { order: Number(item.order) || 0, moduleOrder: Number(item.moduleOrder) || 1, moduleTitle: item.moduleTitle || 'Module 1' } }
+      { $set: { order: Number(item.order) || 0 } }
     )));
     res.json({ message: 'Lessons reordered successfully' });
   } catch (error) {
@@ -150,45 +161,23 @@ export const reorderLessons = async (req, res) => {
 export const bulkUpdateLessons = async (req, res) => {
   try {
     if (!requireInstitute(req, res)) return;
-    const { lessonIds = [], action, value } = req.body;
+    const { lessonIds = [], action } = req.body;
     if (!lessonIds.length) return res.status(400).json({ message: 'No lessons selected' });
     const update = {};
-    if (action === 'lock') update.isLocked = true;
-    if (action === 'unlock') update.isLocked = false;
-    if (action === 'publish') update.publishStatus = 'published';
-    if (action === 'unpublish') update.publishStatus = 'unpublished';
-    if (action === 'setModule') update.moduleTitle = value || 'Module 1';
+    if (action === 'delete') {
+      update.isDeleted = true;
+      update.deletedAt = new Date();
+    } else if (action === 'lock') {
+      update.isLocked = true;
+    } else if (action === 'unlock') {
+      update.isLocked = false;
+    } else if (action === 'publish') {
+      update.publishStatus = 'published';
+    } else if (action === 'unpublish') {
+      update.publishStatus = 'draft';
+    }
     await Lesson.updateMany({ _id: { $in: lessonIds }, ...instituteFilter(req) }, { $set: update });
     res.json({ message: 'Bulk action completed' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const retryFailedUpload = async (req, res) => {
-  try {
-    if (!requireInstitute(req, res)) return;
-    const lesson = await Lesson.findOne({ _id: req.params.id, ...instituteFilter(req) });
-    if (!lesson) return res.status(404).json({ message: 'Lesson not found' });
-    lesson.uploadStatus = 'pending';
-    lesson.errorMessage = '';
-    await lesson.save();
-    await VideoUploadJob.create({
-      institute: lesson.institute || req.user.institute || null,
-      lessonId: lesson._id,
-      status: 'pending'
-    });
-    res.json({ message: 'Retry queued. Upload a replacement video to continue.' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const getLessonUploadHistory = async (req, res) => {
-  try {
-    if (!requireInstitute(req, res)) return;
-    const jobs = await VideoUploadJob.find({ lessonId: req.params.id, ...instituteFilter(req) }).sort({ createdAt: -1 });
-    res.json(jobs);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

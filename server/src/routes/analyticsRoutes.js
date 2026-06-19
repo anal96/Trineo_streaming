@@ -7,7 +7,9 @@ import {
   deleteStudent,
   createAnnouncement,
   getAnnouncements,
-  updateInstituteBranding
+  updateInstituteBranding,
+  resendWelcomeEmail,
+  resetStudentPassword
 } from '../controllers/analyticsController.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 
@@ -18,6 +20,8 @@ router.post('/student-status', protect, adminOnly, updateStudentStatus);
 router.post('/students', protect, adminOnly, createStudent);
 router.put('/students/:id', protect, adminOnly, updateStudent);
 router.delete('/students/:id', protect, adminOnly, deleteStudent);
+router.post('/students/:id/resend-welcome', protect, adminOnly, resendWelcomeEmail);
+router.post('/students/:id/reset-password', protect, adminOnly, resetStudentPassword);
 
 // Announcements & Branding
 router.post('/announcement', protect, adminOnly, createAnnouncement);

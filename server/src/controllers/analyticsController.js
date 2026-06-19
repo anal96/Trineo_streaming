@@ -7,6 +7,10 @@ import { Institute } from '../models/Institute.js';
 import { Announcement } from '../models/Announcement.js';
 import { Lesson } from '../models/Lesson.js';
 import { StudyMaterial } from '../models/StudyMaterial.js';
+import { AuditLog } from '../models/AuditLog.js';
+import { SecurityEvent } from '../models/SecurityEvent.js';
+import { generateTemporaryPassword } from '../utils/passwordGenerator.js';
+import { sendStudentWelcomeEmail } from '../services/emailService.js';
 
 export const getAdminOverview = async (req, res) => {
   try {
@@ -17,19 +21,99 @@ export const getAdminOverview = async (req, res) => {
     const instQuery = isOwner ? {} : { institute: req.user.institute };
     const userQuery = isOwner ? { role: 'student' } : { role: 'student', institute: req.user.institute };
     const now = new Date();
-    const range = req.query.range || '30d';
-    const rangeMap = { today: 1, '7d': 7, '30d': 30, '90d': 90 };
-    const days = rangeMap[range] || 30;
-    const fromDate = new Date(now);
-    fromDate.setDate(now.getDate() - days);
-
-    const totalStudents = await User.countDocuments(userQuery);
-    const activeStudents = await User.countDocuments({ ...userQuery, status: 'active' });
-    const activeCourses = await Course.countDocuments({ ...instQuery, status: 'active' });
-    const totalLessons = await Lesson.countDocuments(instQuery);
-    const totalStudyMaterials = await StudyMaterial.countDocuments(instQuery);
     
-    const studentIds = (await User.find(userQuery).select('_id')).map(u => u._id);
+    // Parse range
+    const range = req.query.range || '30d';
+    let fromDate = new Date();
+    let toDate = new Date();
+    
+    if (range === 'today') {
+      fromDate.setHours(0, 0, 0, 0);
+    } else if (range === '7d') {
+      fromDate.setDate(fromDate.getDate() - 7);
+    } else if (range === '30d') {
+      fromDate.setDate(fromDate.getDate() - 30);
+    } else if (range === '90d') {
+      fromDate.setDate(fromDate.getDate() - 90);
+    } else if (range === 'custom' && req.query.startDate && req.query.endDate) {
+      fromDate = new Date(req.query.startDate);
+      toDate = new Date(req.query.endDate);
+      toDate.setHours(23, 59, 59, 999);
+    } else {
+      fromDate.setDate(fromDate.getDate() - 30); // default 30d
+    }
+
+    // --- 1. Top Summary Cards ---
+    // Total Students
+    const totalStudents = await User.countDocuments(userQuery);
+
+    // Active Students
+    const activeLoginUserIds = await AuditLog.distinct('userId', {
+      ...instQuery,
+      eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] },
+      createdAt: { $gte: fromDate, $lte: toDate }
+    });
+    const activeWatchUserIds = await WatchHistory.distinct('studentId', {
+      ...instQuery,
+      $or: [
+        { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
+        { watchedAt: { $gte: fromDate, $lte: toDate } }
+      ]
+    });
+    const activeDownloadUserIds = await SecurityEvent.distinct('studentId', {
+      ...instQuery,
+      eventType: 'download_attempt',
+      createdAt: { $gte: fromDate, $lte: toDate }
+    });
+
+    const activeUserIdsSet = new Set([
+      ...activeLoginUserIds.filter(Boolean).map(String),
+      ...activeWatchUserIds.filter(Boolean).map(String),
+      ...activeDownloadUserIds.filter(Boolean).map(String)
+    ]);
+    const activeStudentsCount = activeUserIdsSet.size;
+    const activeRate = totalStudents > 0 ? parseFloat(((activeStudentsCount / totalStudents) * 100).toFixed(1)) : 0;
+
+    // Total Batches
+    const distinctBatches = await User.distinct('batchName', {
+      ...userQuery,
+      batchName: { $ne: '' }
+    });
+    const distinctCourses = await User.distinct('courseName', {
+      ...userQuery,
+      courseName: { $ne: '' }
+    });
+    const totalBatches = new Set([...distinctBatches, ...distinctCourses].filter(Boolean)).size;
+
+    // Total Topics (published lessons)
+    const totalTopics = await Lesson.countDocuments({
+      ...instQuery,
+      publishStatus: 'published',
+      isDeleted: { $ne: true }
+    });
+
+    // Total Subjects (distinct subjectTitle)
+    const distinctSubjects = await Lesson.distinct('subjectTitle', {
+      ...instQuery,
+      isDeleted: { $ne: true }
+    });
+    const totalSubjects = distinctSubjects.filter(Boolean).length;
+
+    // Total Watch Hours
+    const watchHistoryInRange = await WatchHistory.find({
+      ...instQuery,
+      $or: [
+        { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
+        { watchedAt: { $gte: fromDate, $lte: toDate } }
+      ]
+    }).select('watchTime progress');
+    const totalWatchSeconds = watchHistoryInRange.reduce((sum, entry) => sum + (entry.watchTime || Math.round((entry.progress || 0) * 0.6)), 0);
+    const totalWatchHours = parseFloat((totalWatchSeconds / 3600).toFixed(1));
+
+    // Study Materials
+    const totalStudyMaterials = await StudyMaterial.countDocuments(instQuery);
+
+    // Backward-Compatible revenue and enrollment stats
     const purchaseMatch = isOwner
       ? { status: 'completed' }
       : { status: 'completed', institute: req.user.institute };
@@ -45,15 +129,11 @@ export const getAdminOverview = async (req, res) => {
       purchasedAt: { $gte: fromDate }
     });
 
-    const watchHistoryFilter = isOwner
-      ? { studentId: { $in: studentIds } }
-      : { studentId: { $in: studentIds }, institute: req.user.institute };
-    const totalWatchHistory = await WatchHistory.countDocuments(watchHistoryFilter);
-    const watchHistoryInRange = await WatchHistory.find({ ...watchHistoryFilter, watchedAt: { $gte: fromDate } }).select('studentId courseId lessonId progress completed watchedAt');
-    const completedWatchHistory = await WatchHistory.countDocuments({ ...watchHistoryFilter, completed: true });
+    const activeCourses = await Course.countDocuments({ ...instQuery, status: 'active' });
+
+    const totalWatchHistory = await WatchHistory.countDocuments(instQuery);
+    const completedWatchHistory = await WatchHistory.countDocuments({ ...instQuery, completed: true });
     const completionRate = totalWatchHistory > 0 ? ((completedWatchHistory / totalWatchHistory) * 100).toFixed(1) : '0';
-    const totalWatchSeconds = watchHistoryInRange.reduce((sum, entry) => sum + Math.round((entry.progress || 0) * 0.6), 0);
-    const watchHours = Math.round((totalWatchSeconds / 3600) * 10) / 10;
 
     const revenueMonthlyAgg = await Purchase.aggregate([
       { $match: { ...purchaseMatch, purchasedAt: { $gte: fromDate } } },
@@ -80,129 +160,462 @@ export const getAdminOverview = async (req, res) => {
       enrollments: item.enrollments
     }));
 
-    const studentsList = await User.find(userQuery).select('-password').sort({ createdAt: -1 });
-    
-    // Enrich students with course count and average progress
-    const enrichedStudents = await Promise.all(studentsList.map(async (student) => {
-      const courseCount = await Purchase.countDocuments({ studentId: student._id, status: 'completed' });
-      
-      const progressList = await WatchHistory.find({ studentId: student._id });
-      const avgProgress = progressList.length > 0
-        ? Math.round(progressList.reduce((acc, curr) => acc + curr.progress, 0) / progressList.length)
+    const metrics = {
+      totalStudents,
+      activeStudents: activeStudentsCount,
+      activeRate,
+      totalBatches,
+      totalTopics,
+      totalWatchHours,
+      totalStudyMaterials,
+      totalRevenue,
+      completionRate,
+      newEnrollments,
+      activeCourses,
+      totalSubjects
+    };
+
+    // --- 2. Section 1: Student Engagement Trend ---
+    let engagementTrend = [];
+    const loginsList = await AuditLog.find({
+      ...instQuery,
+      eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] },
+      createdAt: { $gte: fromDate, $lte: toDate }
+    }).select('createdAt');
+
+    const viewsList = await WatchHistory.find({
+      ...instQuery,
+      $or: [
+        { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
+        { watchedAt: { $gte: fromDate, $lte: toDate } }
+      ]
+    }).select('lastWatchedAt watchedAt watchTime progress studentId');
+
+    const downloadsList = await SecurityEvent.find({
+      ...instQuery,
+      eventType: 'download_attempt',
+      createdAt: { $gte: fromDate, $lte: toDate }
+    }).select('createdAt');
+
+    if (range === 'today') {
+      const hourMap = {};
+      for (let i = 0; i < 24; i++) {
+        const hourStr = `${String(i).padStart(2, '0')}:00`;
+        hourMap[hourStr] = { date: hourStr, logins: 0, views: 0, downloads: 0 };
+      }
+      loginsList.forEach(item => {
+        const hour = item.createdAt.getHours();
+        const hourStr = `${String(hour).padStart(2, '0')}:00`;
+        if (hourMap[hourStr]) hourMap[hourStr].logins++;
+      });
+      viewsList.forEach(item => {
+        const dateObj = item.lastWatchedAt || item.watchedAt;
+        if (dateObj) {
+          const hour = dateObj.getHours();
+          const hourStr = `${String(hour).padStart(2, '0')}:00`;
+          if (hourMap[hourStr]) hourMap[hourStr].views++;
+        }
+      });
+      downloadsList.forEach(item => {
+        const hour = item.createdAt.getHours();
+        const hourStr = `${String(hour).padStart(2, '0')}:00`;
+        if (hourMap[hourStr]) hourMap[hourStr].downloads++;
+      });
+      engagementTrend = Object.values(hourMap);
+    } else {
+      const dateMap = {};
+      let current = new Date(fromDate);
+      while (current <= toDate) {
+        const dateStr = current.toISOString().split('T')[0];
+        dateMap[dateStr] = { date: dateStr, logins: 0, views: 0, downloads: 0 };
+        current.setDate(current.getDate() + 1);
+      }
+      loginsList.forEach(item => {
+        const dStr = item.createdAt.toISOString().split('T')[0];
+        if (dateMap[dStr]) dateMap[dStr].logins++;
+      });
+      viewsList.forEach(item => {
+        const dateObj = item.lastWatchedAt || item.watchedAt;
+        if (dateObj) {
+          const dStr = dateObj.toISOString().split('T')[0];
+          if (dateMap[dStr]) dateMap[dStr].views++;
+        }
+      });
+      downloadsList.forEach(item => {
+        const dStr = item.createdAt.toISOString().split('T')[0];
+        if (dateMap[dStr]) dateMap[dStr].downloads++;
+      });
+      engagementTrend = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    // --- 3. Section 2: Student Progress Distribution (Doughnut Chart) ---
+    const allStudents = await User.find(userQuery).select('_id name email batchName createdAt enrollmentDate packageExpiryDate joined phone courseName status branchName');
+    const studentIds = allStudents.map(s => String(s._id));
+
+    const allHistory = await WatchHistory.find({ studentId: { $in: studentIds } }).select('studentId progress');
+    const progressMap = {};
+    studentIds.forEach(id => { progressMap[id] = []; });
+    allHistory.forEach(h => {
+      const sId = String(h.studentId);
+      if (progressMap[sId]) {
+        progressMap[sId].push(h.progress || 0);
+      }
+    });
+
+    let g1 = 0, g2 = 0, g3 = 0, g4 = 0;
+    Object.values(progressMap).forEach((progressList) => {
+      const avg = progressList.length > 0
+        ? progressList.reduce((a, b) => a + b, 0) / progressList.length
         : 0;
+      if (avg <= 25) g1++;
+      else if (avg <= 50) g2++;
+      else if (avg <= 75) g3++;
+      else g4++;
+    });
+
+    const progressDistribution = [
+      { name: '0–25%', value: g1 },
+      { name: '26–50%', value: g2 },
+      { name: '51–75%', value: g3 },
+      { name: '76–100%', value: g4 }
+    ];
+
+    // --- 4. Section 3: Batch Performance ---
+    const batchMap = {};
+    allStudents.forEach(s => {
+      const bName = s.batchName || s.courseName || 'General Batch';
+      if (!batchMap[bName]) {
+        batchMap[bName] = { name: bName, studentIds: [], watchTime: 0, completions: 0, totalEntries: 0 };
+      }
+      batchMap[bName].studentIds.push(String(s._id));
+    });
+
+    const batchWatchHistories = await WatchHistory.find({
+      studentId: { $in: studentIds }
+    }).select('studentId watchTime progress completed');
+
+    batchWatchHistories.forEach(h => {
+      const sId = String(h.studentId);
+      Object.values(batchMap).forEach(b => {
+        if (b.studentIds.includes(sId)) {
+          b.watchTime += h.watchTime || Math.round((h.progress || 0) * 0.6);
+          b.totalEntries++;
+          if (h.completed) b.completions++;
+        }
+      });
+    });
+
+    const batchPerformance = Object.values(batchMap).map(b => {
+      const completionRate = b.totalEntries > 0
+        ? parseFloat(((b.completions / b.totalEntries) * 100).toFixed(1))
+        : 0;
+      return {
+        name: b.name,
+        students: b.studentIds.length,
+        watchHours: parseFloat((b.watchTime / 3600).toFixed(1)),
+        completion: completionRate
+      };
+    }).sort((a, b) => b.completion - a.completion || b.watchHours - a.watchHours);
+
+    // --- 5. Section 4: Subject Performance ---
+    const watchHistoriesWithLesson = await WatchHistory.find({
+      ...instQuery
+    }).populate({
+      path: 'lessonId',
+      select: 'title subjectTitle'
+    }).select('lessonId watchTime progress completed');
+
+    const subjectMap = {};
+    watchHistoriesWithLesson.forEach(h => {
+      const subjName = h.lessonId?.subjectTitle || 'General';
+      if (!subjectMap[subjName]) {
+        subjectMap[subjName] = { name: subjName, views: 0, watchTime: 0, completions: 0, totalEntries: 0 };
+      }
+      subjectMap[subjName].views++;
+      subjectMap[subjName].watchTime += h.watchTime || Math.round((h.progress || 0) * 0.6);
+      subjectMap[subjName].totalEntries++;
+      if (h.completed) subjectMap[subjName].completions++;
+    });
+
+    const subjectPerformance = Object.values(subjectMap).map(s => {
+      const completionRate = s.totalEntries > 0
+        ? parseFloat(((s.completions / s.totalEntries) * 100).toFixed(1))
+        : 0;
+      return {
+        name: s.name,
+        views: s.views,
+        watchHours: parseFloat((s.watchTime / 3600).toFixed(1)),
+        completion: completionRate
+      };
+    });
+
+    // --- 6. Section 5: Top Topics ---
+    const topicViews = {};
+    watchHistoriesWithLesson.forEach(h => {
+      if (h.lessonId) {
+        const title = h.lessonId.title || 'Unknown Topic';
+        topicViews[title] = (topicViews[title] || 0) + 1;
+      }
+    });
+
+    const topTopics = Object.entries(topicViews)
+      .map(([name, views]) => ({ name, views }))
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 10);
+
+    // --- 7. Section 6: Watch Time Growth ---
+    let watchTimeGrowth = [];
+    let accumulatedSeconds = 0;
+
+    if (range === 'today') {
+      for (let i = 0; i < 24; i++) {
+        const hourStr = `${String(i).padStart(2, '0')}:00`;
+        const hourViews = viewsList.filter(item => {
+          const dateObj = item.lastWatchedAt || item.watchedAt;
+          return dateObj && dateObj.getHours() === i;
+        });
+        const hourSeconds = hourViews.reduce((sum, item) => sum + (item.watchTime || Math.round((item.progress || 0) * 0.6)), 0);
+        accumulatedSeconds += hourSeconds;
+        watchTimeGrowth.push({
+          date: hourStr,
+          hours: parseFloat((accumulatedSeconds / 3600).toFixed(2))
+        });
+      }
+    } else {
+      let currentD = new Date(fromDate);
+      while (currentD <= toDate) {
+        const dateStr = currentD.toISOString().split('T')[0];
+        const dayViews = viewsList.filter(item => {
+          const dateObj = item.lastWatchedAt || item.watchedAt;
+          return dateObj && dateObj.toISOString().split('T')[0] === dateStr;
+        });
+        const daySeconds = dayViews.reduce((sum, item) => sum + (item.watchTime || Math.round((item.progress || 0) * 0.6)), 0);
+        accumulatedSeconds += daySeconds;
+        watchTimeGrowth.push({
+          date: dateStr,
+          hours: parseFloat((accumulatedSeconds / 3600).toFixed(2))
+        });
+        currentD.setDate(currentD.getDate() + 1);
+      }
+    }
+
+    // --- 8. Section 7: Students Needing Attention ---
+    const needyStudents = [];
+    const nowTime = new Date().getTime();
+
+    for (const student of allStudents) {
+      // Find latest login
+      const latestLogin = await AuditLog.findOne({
+        userId: student._id,
+        eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] }
+      }).sort({ createdAt: -1 }).select('createdAt');
+
+      // Find latest watch
+      const latestWatch = await WatchHistory.findOne({
+        studentId: student._id
+      }).sort({ lastWatchedAt: -1, watchedAt: -1 }).select('lastWatchedAt watchedAt');
+
+      const lastActiveDate = [
+        latestLogin?.createdAt,
+        latestWatch?.lastWatchedAt,
+        latestWatch?.watchedAt
+      ].filter(Boolean).sort((a, b) => b - a)[0] || student.createdAt;
+
+      // Student progress list
+      const sProgressList = progressMap[String(student._id)] || [];
+      const progress = sProgressList.length > 0
+        ? Math.round(sProgressList.reduce((a, b) => a + b, 0) / sProgressList.length)
+        : 0;
+
+      const diffDays = Math.floor((nowTime - new Date(lastActiveDate).getTime()) / (1000 * 3600 * 24));
+
+      let severity = '';
+      let reason = '';
+      if (diffDays > 30) {
+        severity = 'Critical';
+        reason = `No login for ${diffDays} days`;
+      } else if (diffDays > 14) {
+        severity = 'Warning';
+        reason = `No login for ${diffDays} days`;
+      } else if (progress < 20) {
+        severity = 'Low';
+        reason = `Progress is ${progress}%`;
+      }
+
+      if (severity) {
+        needyStudents.push({
+          name: student.name,
+          email: student.email,
+          batch: student.batchName || student.courseName || 'General',
+          progress,
+          lastActive: lastActiveDate,
+          severity,
+          reason
+        });
+      }
+    }
+
+    const severityOrder = { Critical: 3, Warning: 2, Low: 1 };
+    needyStudents.sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity] || new Date(b.lastActive) - new Date(a.lastActive));
+
+    // --- 9. Section 8: Top Student Leaderboard & Enriched Students list ---
+    const leaderboard = [];
+    const enrichedStudents = await Promise.all(allStudents.map(async (student) => {
+      const courseCount = await Purchase.countDocuments({ studentId: student._id, status: 'completed' });
+      const sProgressList = progressMap[String(student._id)] || [];
+      const progress = sProgressList.length > 0
+        ? Math.round(sProgressList.reduce((a, b) => a + b, 0) / sProgressList.length)
+        : 0;
+
+      const totalWatchSec = viewsList
+        .filter(v => String(v.studentId) === String(student._id))
+        .reduce((sum, h) => sum + (h.watchTime || Math.round((h.progress || 0) * 0.6)), 0);
+      const watchHours = parseFloat((totalWatchSec / 3600).toFixed(1));
+
+      // Latest login/activity
+      const latestLogin = await AuditLog.findOne({
+        userId: student._id,
+        eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] }
+      }).sort({ createdAt: -1 }).select('createdAt');
+
+      const latestWatch = await WatchHistory.findOne({
+        studentId: student._id
+      }).sort({ lastWatchedAt: -1, watchedAt: -1 }).select('lastWatchedAt watchedAt');
+
+      const lastActiveDate = [
+        latestLogin?.createdAt,
+        latestWatch?.lastWatchedAt,
+        latestWatch?.watchedAt
+      ].filter(Boolean).sort((a, b) => b - a)[0] || student.createdAt;
 
       const dateStr = student.createdAt.toISOString().split('T')[0];
 
-      return {
+      const enriched = {
         id: student._id,
         user_id: student.user_id,
         name: student.name,
         email: student.email,
+        phone: student.phone || '',
         courses: courseCount,
-        progress: avgProgress,
+        progress,
         joined: dateStr,
         status: student.status,
         branchName: student.branchName || '',
         batchName: student.batchName || '',
         courseName: student.courseName || '',
         enrollmentDate: student.enrollmentDate ? student.enrollmentDate.toISOString().split('T')[0] : '',
+        packageExpiryDate: student.packageExpiryDate ? student.packageExpiryDate.toISOString().split('T')[0] : null,
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${student.name}`
       };
+
+      leaderboard.push({
+        name: student.name,
+        email: student.email,
+        batch: student.batchName || student.courseName || 'General',
+        progress,
+        watchHours,
+        lastActive: lastActiveDate
+      });
+
+      return enriched;
     }));
 
-    const activities = await Notification.find(isOwner ? {} : { institute: req.user.institute })
-      .populate('userId', 'name')
+    leaderboard.sort((a, b) => b.watchHours - a.watchHours);
+
+    // --- 10. Section 9: Resource Analytics ---
+    const downloadEvents = await SecurityEvent.find({
+      ...instQuery,
+      eventType: 'download_attempt',
+      createdAt: { $gte: fromDate, $lte: toDate }
+    }).select('details topicTitle');
+
+    let pdfCount = 0;
+    let notesCount = 0;
+    let assignmentCount = 0;
+
+    downloadEvents.forEach(e => {
+      const text = `${e.topicTitle || ''} ${e.details || ''}`.toLowerCase();
+      if (text.includes('.pdf') || text.includes('pdf')) {
+        pdfCount++;
+      } else if (text.includes('assignment')) {
+        assignmentCount++;
+      } else {
+        notesCount++;
+      }
+    });
+
+    const resourceAnalytics = [
+      { name: 'PDF Downloads', count: pdfCount },
+      { name: 'Notes Views', count: notesCount },
+      { name: 'Assignment Opens', count: assignmentCount }
+    ];
+
+    // --- 11. Section 10: Recent Activity Feed ---
+    const recentWatch = await WatchHistory.find(instQuery)
+      .populate('studentId', 'name')
+      .populate('lessonId', 'title')
+      .sort({ lastWatchedAt: -1, watchedAt: -1 })
+      .limit(15);
+
+    const recentDown = await SecurityEvent.find({
+      ...instQuery,
+      eventType: 'download_attempt'
+    })
+      .populate('studentId', 'name')
       .sort({ createdAt: -1 })
-      .limit(10);
+      .limit(15);
 
-    const formattedActivities = activities.map(act => {
-      const timeDiff = Math.abs(new Date() - new Date(act.createdAt));
-      const diffMins = Math.floor(timeDiff / (1000 * 60));
-      const diffHours = Math.floor(timeDiff / (1000 * 60 * 60));
-      
-      let timeStr = 'Just now';
-      if (diffMins > 0 && diffMins < 60) timeStr = `${diffMins} min ago`;
-      else if (diffHours > 0 && diffHours < 24) timeStr = `${diffHours} hours ago`;
-      else if (diffHours >= 24) timeStr = `${Math.floor(diffHours / 24)} days ago`;
-
-      return {
-        id: act._id,
-        type: act.type,
-        user: act.userId?.name || 'Admin',
-        action: act.message,
-        time: timeStr
-      };
+    const feed = [];
+    recentWatch.forEach(h => {
+      if (h.studentId && h.lessonId) {
+        const studentName = h.studentId.name || 'Student';
+        const topicTitle = h.lessonId.title || 'Topic';
+        const action = h.completed ? 'completed' : 'watched';
+        const timestamp = h.lastWatchedAt || h.watchedAt || new Date();
+        feed.push({
+          id: `watch-${h._id}`,
+          studentName,
+          action,
+          target: topicTitle,
+          timestamp: timestamp.toISOString()
+        });
+      }
     });
 
-    const studentProgressMap = {};
-    for (const entry of watchHistoryInRange) {
-      const key = String(entry.studentId);
-      if (!studentProgressMap[key]) studentProgressMap[key] = [];
-      studentProgressMap[key].push(entry.progress || 0);
-    }
-    const studentProgress = Object.entries(studentProgressMap).map(([studentId, values]) => ({
-      studentId,
-      avgProgress: Math.round(values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1)),
-      activityCount: values.length
-    }));
-    studentProgress.sort((a, b) => b.activityCount - a.activityCount);
-
-    const courseViews = {};
-    const lessonViews = {};
-    watchHistoryInRange.forEach((entry) => {
-      const cKey = String(entry.courseId);
-      courseViews[cKey] = (courseViews[cKey] || 0) + 1;
-      const lKey = String(entry.lessonId);
-      lessonViews[lKey] = (lessonViews[lKey] || 0) + 1;
+    recentDown.forEach(d => {
+      if (d.studentId) {
+        const studentName = d.studentId.name || 'Student';
+        const target = d.topicTitle || 'study material';
+        const timestamp = d.createdAt || new Date();
+        feed.push({
+          id: `down-${d._id}`,
+          studentName,
+          action: 'downloaded',
+          target,
+          timestamp: timestamp.toISOString()
+        });
+      }
     });
 
-    const coursesByViews = Object.entries(courseViews).sort((a, b) => b[1] - a[1]);
-    const lessonsByViews = Object.entries(lessonViews).sort((a, b) => b[1] - a[1]);
-    const mostViewedCourse = coursesByViews[0] || null;
-    const leastViewedCourse = coursesByViews[coursesByViews.length - 1] || null;
-    const mostWatchedLesson = lessonsByViews[0] || null;
-    const leastWatchedLesson = lessonsByViews[lessonsByViews.length - 1] || null;
+    const finalFeed = feed
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 15);
 
     res.json({
-      metrics: {
-        totalStudents,
-        activeStudents,
-        totalRevenue,
-        activeCourses,
-        totalLessons,
-        totalStudyMaterials,
-        completionRate,
-        watchHours,
-        newEnrollments
-      },
+      metrics,
       revenueData,
       topCourses: topCoursesData,
       students: enrichedStudents,
-      recentActivity: formattedActivities,
-      studentAnalytics: {
-        mostActiveStudents: studentProgress.slice(0, 5),
-        leastActiveStudents: studentProgress.slice(-5),
-        studentsWithNoActivity: Math.max(totalStudents - Object.keys(studentProgressMap).length, 0),
-        topLearners: studentProgress.slice(0, 5).sort((a, b) => b.avgProgress - a.avgProgress),
-      },
-      courseAnalytics: {
-        mostViewedCourse,
-        leastViewedCourse,
-        averageProgress: studentProgress.length ? Math.round(studentProgress.reduce((a, b) => a + b.avgProgress, 0) / studentProgress.length) : 0,
-        courseCompletionRate: completionRate
-      },
-      videoAnalytics: {
-        mostWatchedLesson,
-        leastWatchedLesson,
-        totalWatchTimeSeconds: totalWatchSeconds,
-        averageWatchDurationSeconds: watchHistoryInRange.length ? Math.round(totalWatchSeconds / watchHistoryInRange.length) : 0,
-        lessonCompletionRate: completionRate
-      },
-      engagement: {
-        dailyActiveStudents: new Set(watchHistoryInRange.filter((v) => new Date(v.watchedAt) >= new Date(now.getTime() - 24 * 3600 * 1000)).map((v) => String(v.studentId))).size,
-        weeklyActiveStudents: new Set(watchHistoryInRange.filter((v) => new Date(v.watchedAt) >= new Date(now.getTime() - 7 * 24 * 3600 * 1000)).map((v) => String(v.studentId))).size,
-        monthlyActiveStudents: new Set(watchHistoryInRange.filter((v) => new Date(v.watchedAt) >= new Date(now.getTime() - 30 * 24 * 3600 * 1000)).map((v) => String(v.studentId))).size
-      }
+      engagementTrend,
+      progressDistribution,
+      batchPerformance,
+      subjectPerformance,
+      topTopics,
+      watchTimeGrowth,
+      needyStudents: needyStudents.slice(0, 10),
+      leaderboard: leaderboard.slice(0, 10),
+      resourceAnalytics,
+      recentActivity: finalFeed
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -240,15 +653,23 @@ export const updateStudentStatus = async (req, res) => {
 };
 
 export const createStudent = async (req, res) => {
-  const { name, email, password, phone, status, branchName, batchName, courseName, enrollmentDate } = req.body;
+  const { name, email, phone, status, branchName, batchName, courseName, enrollmentDate } = req.body;
   try {
     if (!req.user.institute) {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Student with this email already exists' });
+    }
+
+    const tempPassword = generateTemporaryPassword();
+
     const student = await User.create({
       name,
       email,
-      password: password || 'ChangeMe123!',
+      password: tempPassword,
       phone: phone || '',
       status: status || 'active',
       role: 'student',
@@ -256,7 +677,8 @@ export const createStudent = async (req, res) => {
       branchName: branchName || '',
       batchName: batchName || '',
       courseName: courseName || '',
-      enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : new Date()
+      enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : new Date(),
+      mustChangePassword: true
     });
 
     // Auto-create Purchase record if courseName was provided
@@ -281,6 +703,8 @@ export const createStudent = async (req, res) => {
       type: 'system'
     });
 
+    await sendStudentWelcomeEmail(name, email, tempPassword);
+
     res.status(201).json({
       message: 'Student created successfully',
       student: {
@@ -295,9 +719,67 @@ export const createStudent = async (req, res) => {
         batchName: student.batchName,
         courseName: student.courseName,
         enrollmentDate: student.enrollmentDate,
-        createdAt: student.createdAt
+        packageExpiryDate: student.packageExpiryDate ? student.packageExpiryDate.toISOString().split('T')[0] : null,
+        createdAt: student.createdAt,
+        mustChangePassword: student.mustChangePassword
       }
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const resendWelcomeEmail = async (req, res) => {
+  try {
+    if (!req.user.institute) {
+      return res.status(403).json({ message: 'Forbidden: institute access required' });
+    }
+    const student = await User.findOne({ _id: req.params.id, institute: req.user.institute, role: 'student' });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    const tempPassword = generateTemporaryPassword();
+    student.password = tempPassword;
+    student.mustChangePassword = true;
+    await student.save();
+
+    await sendStudentWelcomeEmail(student.name, student.email, tempPassword);
+
+    res.json({ message: 'Welcome email resent successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const resetStudentPassword = async (req, res) => {
+  try {
+    if (!req.user.institute) {
+      return res.status(403).json({ message: 'Forbidden: institute access required' });
+    }
+    const student = await User.findOne({ _id: req.params.id, institute: req.user.institute, role: 'student' });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    const tempPassword = generateTemporaryPassword();
+    student.password = tempPassword;
+    student.mustChangePassword = true;
+    await student.save();
+
+    // Log password reset action
+    await AuditLog.create({
+      userId: student._id,
+      institute: req.user.institute,
+      eventType: 'PASSWORD_RESET',
+      details: `Password reset by admin (${req.user.email})`,
+      ipAddress: req.ip || '',
+      userAgent: req.headers['user-agent'] || ''
+    });
+
+    await sendStudentWelcomeEmail(student.name, student.email, tempPassword);
+
+    res.json({ message: 'Password reset successfully, email sent' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -371,6 +853,7 @@ export const updateStudent = async (req, res) => {
         batchName: student.batchName,
         courseName: student.courseName,
         enrollmentDate: student.enrollmentDate,
+        packageExpiryDate: student.packageExpiryDate ? student.packageExpiryDate.toISOString().split('T')[0] : null,
         createdAt: student.createdAt
       }
     });

@@ -2,21 +2,18 @@ import express from 'express';
 import { protect } from '../middleware/auth.js';
 import {
   getStudents,
-  getStudentAccessRules,
-  updateStudentAccessRule,
   editStudentAccessRuleById,
-  deleteStudentAccessRule,
-  getAccessPackages,
-  createAccessPackage,
-  updateAccessPackage,
-  deleteAccessPackage,
-  assignPackageToStudent,
-  getBatchAccessRules,
-  updateBatchAccessRule,
-  editBatchAccessRuleById,
-  deleteBatchAccessRule,
-  getCurriculumMeta,
-  getAccessAnalytics
+  bulkToggleAccess,
+  bulkSetExpiry,
+  bulkExtendExpiry,
+  getAccessAnalytics,
+  getStudentRestrictions,
+  toggleStudentRestriction,
+  applyQuickAction,
+  bulkToggleRestriction,
+  bulkQuickAction,
+  getBatchHierarchy,
+  getStudentAccessRules
 } from '../controllers/accessController.js';
 
 const router = express.Router();
@@ -24,30 +21,28 @@ const router = express.Router();
 // Register protect middleware on all access manager routes
 router.use(protect);
 
-// Student listing & specific student overrides
+// Student listing & individual update
 router.get('/students', getStudents);
-router.get('/student/:studentId', getStudentAccessRules);
-router.post('/student', updateStudentAccessRule);
 router.put('/student/:id', editStudentAccessRuleById);
-router.delete('/student/:id', deleteStudentAccessRule);
-router.post('/student/:studentId/assign-package', assignPackageToStudent);
+router.get('/student/:studentId', getStudentAccessRules);
 
-// Access packages CRUD
-router.get('/packages', getAccessPackages);
-router.post('/packages', createAccessPackage);
-router.put('/packages/:id', updateAccessPackage);
-router.delete('/packages/:id', deleteAccessPackage);
+// Student specific detailed content restrictions
+router.get('/student/:studentId/restrictions', getStudentRestrictions);
+router.post('/student/:studentId/restrictions/toggle', toggleStudentRestriction);
+router.post('/student/:studentId/restrictions/quick-action', applyQuickAction);
 
-// Batch Rules CRUD
-router.get('/batches', getBatchAccessRules);
-router.post('/batches', updateBatchAccessRule);
-router.put('/batches/:id', editBatchAccessRuleById);
-router.delete('/batches/:id', deleteBatchAccessRule);
+// Bulk operations
+router.post('/bulk/toggle-access', bulkToggleAccess);
+router.post('/bulk/set-expiry', bulkSetExpiry);
+router.post('/bulk/extend-expiry', bulkExtendExpiry);
 
-// Distinct curriculum items selector helper
-router.get('/curriculum-meta/:courseId', getCurriculumMeta);
+// Bulk content restriction operations
+router.post('/bulk/restrictions/toggle', bulkToggleRestriction);
+router.post('/bulk/restrictions/quick-action', bulkQuickAction);
+router.get('/batch/:batchName/hierarchy', getBatchHierarchy);
 
 // Analytics
 router.get('/analytics', getAccessAnalytics);
 
 export default router;
+

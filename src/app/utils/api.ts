@@ -39,14 +39,29 @@ export async function apiFetch(endpoint: string, options: RequestInit & { ignore
     if (response.status === 401) {
       const data = await response.json().catch(() => ({}));
       if (!options.ignoreAuthError) {
-        if (data.oneDeviceViolation) {
-          alert('Session invalidated: You have been logged in from another device.');
+        // If the user is on the login page (attempting to sign in), do NOT
+        // redirect — just throw so the login form can display the error.
+        const isLoginAttempt = endpoint.includes('/auth/login');
+        if (!isLoginAttempt) {
+          if (data.oneDeviceViolation) {
+            alert('Session invalidated: You have been logged in from another device.');
+          }
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = '/';
         }
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/';
       }
       throw new Error(data.message || 'Unauthorized');
+    }
+
+    if (response.status === 403) {
+      const data = await response.clone().json().catch(() => ({}));
+      if (data.mustChangePassword === true) {
+        if (window.location.pathname !== '/change-password') {
+          window.location.href = '/change-password';
+        }
+        throw new Error(data.message || 'Password change required');
+      }
     }
 
     if (!response.ok) {

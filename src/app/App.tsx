@@ -11,6 +11,7 @@ import AdminDashboard from './components/pages/AdminDashboard';
 import CoursesPage from './components/pages/CoursesPage';
 import OwnerPanel from './components/pages/OwnerPanel';
 import InstitutesManagementPage from './components/pages/InstitutesManagementPage';
+import ChangePasswordPage from './components/pages/ChangePasswordPage';
 import { BrandingManager } from './components/BrandingManager';
 import { apiFetch, decodeShortId } from './utils/api';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router';
@@ -56,7 +57,7 @@ function LegacyWatchRedirect() {
 
 export default function App() {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark">
+    <ThemeProvider attribute="class" defaultTheme="light">
       <Router>
         <BrandingManager />
         <div className="size-full bg-background text-foreground">
@@ -64,10 +65,13 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="/student" element={<StudentDashboard />} />
             <Route path="/student/courses" element={<CoursesPage />} />
             <Route path="/course/:courseSlug" element={<VideoPlayer />} />
             <Route path="/course/:courseSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
+            <Route path="/program/:programSlug" element={<VideoPlayer />} />
+            <Route path="/program/:programSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
             <Route path="/student/video/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
             <Route path="/watch/v/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
             <Route path="/admin" element={<AdminDashboard />} />

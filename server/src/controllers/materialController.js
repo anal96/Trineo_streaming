@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { StudyMaterial } from '../models/StudyMaterial.js';
 import { Course } from '../models/Course.js';
+import { Program } from '../models/Program.js';
 import { Purchase } from '../models/Purchase.js';
 import { Notification } from '../models/Notification.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
@@ -17,6 +18,40 @@ const requireInstitute = (req, res) => {
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const populateMaterialCourses = async (materials) => {
+  const courseIds = [...new Set(materials.map(m => {
+    const rawId = m.courseId?._id || m.courseId;
+    return rawId ? rawId.toString() : null;
+  }).filter(Boolean))];
+
+  if (courseIds.length === 0) {
+    return materials.map(m => m.toObject ? m.toObject() : m);
+  }
+
+  // Query Course and Program models
+  const [courses, programs] = await Promise.all([
+    Course.find({ _id: { $in: courseIds } }),
+    Program.find({ _id: { $in: courseIds } })
+  ]);
+
+  const courseMap = {};
+  courses.forEach(c => { courseMap[c._id.toString()] = { title: c.title }; });
+  programs.forEach(p => { courseMap[p._id.toString()] = { title: p.name }; });
+
+  return materials.map(m => {
+    const obj = m.toObject ? m.toObject() : JSON.parse(JSON.stringify(m));
+    const cId = obj.courseId?._id?.toString() || obj.courseId?.toString();
+    if (cId && courseMap[cId]) {
+      obj.courseId = {
+        _id: cId,
+        title: courseMap[cId].title,
+        name: courseMap[cId].title
+      };
+    }
+    return obj;
+  });
+};
+
 const formatMaterial = (material) => {
   const obj = material.toObject ? material.toObject() : material;
   const instituteId = obj.institute?._id || obj.institute || obj.instituteId || null;
@@ -26,7 +61,7 @@ const formatMaterial = (material) => {
     id: obj._id,
     instituteId,
     courseId,
-    courseTitle: obj.courseId?.title || obj.courseTitle || '',
+    courseTitle: obj.courseId?.title || obj.courseId?.name || obj.courseTitle || '',
     uploaderName: obj.uploadedBy?.name || obj.uploaderName || '',
     downloadUrl: `/api/materials/${obj._id}/download`
   };
@@ -65,11 +100,13 @@ export const getStudentMaterials = async (req, res) => {
 
     const { search = '', type = 'All', courseId = '' } = req.query;
     
-    // Find all courses in the student's institute
-    const courses = await Course.find({ institute: req.user.institute });
+    // Find all courses/programs in the student's institute
+    const dbCourses = await Course.find({ institute: req.user.institute });
+    const dbPrograms = await Program.find({ institute: req.user.institute, isDeleted: false });
+    const allCourses = [...dbCourses, ...dbPrograms];
     const allowedCourseIds = [];
 
-    for (const course of courses) {
+    for (const course of allCourses) {
       const access = await verifyStudentAccess({
         user: req.user,
         courseId: course._id.toString()
@@ -91,11 +128,11 @@ export const getStudentMaterials = async (req, res) => {
     });
 
     const materials = await StudyMaterial.find(filter)
-      .populate('courseId', 'title')
       .populate('uploadedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    res.json(materials.map(formatMaterial));
+    const populatedMaterials = await populateMaterialCourses(materials);
+    res.json(populatedMaterials.map(formatMaterial));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -117,11 +154,11 @@ export const getAdminMaterials = async (req, res) => {
     });
 
     const materials = await StudyMaterial.find(filter)
-      .populate('courseId', 'title')
       .populate('uploadedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    res.json(materials.map(formatMaterial));
+    const populatedMaterials = await populateMaterialCourses(materials);
+    res.json(populatedMaterials.map(formatMaterial));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -143,7 +180,10 @@ export const createStudyMaterial = async (req, res) => {
       return res.status(400).json({ message: 'PDF file is required' });
     }
 
-    const course = await Course.findOne({ _id: courseId, institute: req.user.institute });
+    let course = await Course.findOne({ _id: courseId, institute: req.user.institute });
+    if (!course) {
+      course = await Program.findOne({ _id: courseId, institute: req.user.institute, isDeleted: false });
+    }
     if (!course) {
       if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(404).json({ message: 'Course not found' });
@@ -164,8 +204,9 @@ export const createStudyMaterial = async (req, res) => {
     });
 
     const populated = await StudyMaterial.findById(material._id)
-      .populate('courseId', 'title')
       .populate('uploadedBy', 'name email');
+
+    const [populatedWithCourse] = await populateMaterialCourses([populated]);
 
     const enrolled = await Purchase.find({ institute: req.user.institute, courseId, status: 'completed' }).select('studentId');
     if (enrolled.length) {
@@ -178,7 +219,7 @@ export const createStudyMaterial = async (req, res) => {
       })));
     }
 
-    res.status(201).json(formatMaterial(populated));
+    res.status(201).json(formatMaterial(populatedWithCourse));
   } catch (error) {
     if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ message: error.message });
@@ -200,7 +241,10 @@ export const updateStudyMaterial = async (req, res) => {
 
     const { title, description, courseId } = req.body;
     if (courseId) {
-      const course = await Course.findOne({ _id: courseId, institute: req.user.institute });
+      let course = await Course.findOne({ _id: courseId, institute: req.user.institute });
+      if (!course) {
+        course = await Program.findOne({ _id: courseId, institute: req.user.institute, isDeleted: false });
+      }
       if (!course) {
         if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         return res.status(404).json({ message: 'Course not found' });
@@ -224,9 +268,10 @@ export const updateStudyMaterial = async (req, res) => {
 
     await material.save();
     const populated = await StudyMaterial.findById(material._id)
-      .populate('courseId', 'title')
       .populate('uploadedBy', 'name email');
-    res.json(formatMaterial(populated));
+
+    const [populatedWithCourse] = await populateMaterialCourses([populated]);
+    res.json(formatMaterial(populatedWithCourse));
   } catch (error) {
     if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ message: error.message });
@@ -260,19 +305,20 @@ export const downloadStudyMaterial = async (req, res) => {
     if (!requireInstitute(req, res)) return;
 
     const material = req.user.role === 'owner'
-      ? await StudyMaterial.findById(req.params.id).populate('courseId', 'title').populate('uploadedBy', 'name email')
+      ? await StudyMaterial.findById(req.params.id).populate('uploadedBy', 'name email')
       : await StudyMaterial.findOne({ _id: req.params.id, institute: req.user.institute })
-        .populate('courseId', 'title')
         .populate('uploadedBy', 'name email');
 
     if (!material) {
       return res.status(404).json({ message: 'Study material not found' });
     }
 
+    const [populated] = await populateMaterialCourses([material]);
+
     if (req.user.role === 'student') {
       const access = await verifyStudentAccess({
         user: req.user,
-        courseId: material.courseId._id || material.courseId
+        courseId: populated.courseId?._id || populated.courseId
       });
 
       if (!access.granted) {
@@ -283,12 +329,12 @@ export const downloadStudyMaterial = async (req, res) => {
       }
     }
 
-    if (!material.filePath || !fs.existsSync(material.filePath)) {
+    if (!populated.filePath || !fs.existsSync(populated.filePath)) {
       return res.status(404).json({ message: 'Material file not found on server' });
     }
 
-    const downloadName = material.originalName || path.basename(material.filePath);
-    return res.download(material.filePath, downloadName);
+    const downloadName = populated.originalName || path.basename(populated.filePath);
+    return res.download(populated.filePath, downloadName);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

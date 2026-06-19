@@ -31,7 +31,7 @@ const videoUploadJobSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'uploading', 'youtube_processing', 'ready', 'failed'],
+    enum: ['pending', 'uploading', 'processing', 'youtube_processing', 'ready', 'failed'],
     default: 'pending'
   },
   uploadedBytes: {

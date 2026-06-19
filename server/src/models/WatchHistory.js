@@ -7,20 +7,29 @@ const watchHistorySchema = new mongoose.Schema({
     default: null,
     index: true
   },
+  instituteId: {
+    type: String,
+    index: true,
+    default: ''
+  },
   studentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  lessonId: {
+  // New relationship
+  contentId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Lesson',
-    required: true
+    ref: 'Content',
+    default: null
   },
-  courseId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Course',
-    required: true
+  watchTime: {
+    type: Number,
+    default: 0 // seconds watched
+  },
+  duration: {
+    type: Number,
+    default: 0 // total duration in seconds
   },
   progress: {
     type: Number,
@@ -30,16 +39,31 @@ const watchHistorySchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  watchedAt: {
+  lastWatchedAt: {
     type: Date,
     default: Date.now
   },
-  instituteId: {
-    type: String,
-    index: true,
-    default: ''
+
+  // --- Legacy Fields (optional during migration) ---
+  lessonId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Lesson',
+    default: null
+  },
+  courseId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Course',
+    default: null
+  },
+  watchedAt: {
+    type: Date,
+    default: Date.now
   }
 });
+
+// Dual indexes to prevent duplicates in new schema and optimize old schema lookup
+watchHistorySchema.index({ studentId: 1, contentId: 1 }, { unique: true, partialFilterExpression: { contentId: { $exists: true } } });
+watchHistorySchema.index({ studentId: 1, lessonId: 1 }, { partialFilterExpression: { lessonId: { $exists: true } } });
 
 watchHistorySchema.pre('save', async function (next) {
   if (this.institute && !this.instituteId) {
@@ -55,7 +79,5 @@ watchHistorySchema.pre('save', async function (next) {
   }
   next();
 });
-
-watchHistorySchema.index({ institute: 1, studentId: 1, lessonId: 1 }, { unique: true });
 
 export const WatchHistory = mongoose.model('WatchHistory', watchHistorySchema);

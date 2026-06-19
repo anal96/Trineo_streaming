@@ -439,9 +439,9 @@ export default function SignupPage() {
       <div class="auth-card">
         <div class="card-body p-5 p-sm-7">
           <div class="text-center mb-6">
-            <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none">
+            <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none justify-content-center">
               <img src="${trineoLogoImg}" alt="Trineo Logo" width="34" height="34" class="img-fluid rounded-circle" style="object-fit: contain;">
-              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">trineo<span class="text-primary">.</span></span>
+              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">Trineo Stream</span>
             </a>
             <p class="text-muted mt-2 mb-0" style="font-size: 0.9rem; font-weight: 500;">Create your account to start learning today.</p>
           </div>

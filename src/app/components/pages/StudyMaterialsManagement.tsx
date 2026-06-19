@@ -108,7 +108,7 @@ export default function StudyMaterialsManagement() {
             <Upload className="w-5 h-5 text-primary" />
             Upload Study Material
           </CardTitle>
-          <CardDescription>Upload tenant-scoped PDF materials and assign them to a course.</CardDescription>
+          <CardDescription>Upload tenant-scoped PDF materials and assign them to a batch.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleUpload} className="space-y-4">
@@ -118,14 +118,14 @@ export default function StudyMaterialsManagement() {
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Week 3 Revision Notes" required />
               </div>
               <div className="space-y-2">
-                <Label>Course</Label>
+                <Label>Batch</Label>
                 <select
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={uploadCourseId}
                   onChange={(e) => setUploadCourseId(e.target.value)}
                   required
                 >
-                  <option value="">Select a course</option>
+                  <option value="">Select a batch</option>
                   {courses.map((course) => (
                     <option key={course._id} value={course._id}>{course.title}</option>
                   ))}
@@ -172,7 +172,7 @@ export default function StudyMaterialsManagement() {
               value={courseId}
               onChange={(e) => setCourseId(e.target.value)}
             >
-              <option value="">All Courses</option>
+              <option value="">All Batches</option>
               {courses.map((course) => (
                 <option key={course._id} value={course._id}>{course.title}</option>
               ))}
@@ -202,7 +202,7 @@ export default function StudyMaterialsManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Title</TableHead>
-                      <TableHead>Course</TableHead>
+                      <TableHead>Batch</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Size</TableHead>
                       <TableHead>Uploaded</TableHead>
@@ -216,7 +216,7 @@ export default function StudyMaterialsManagement() {
                           <div className="font-medium">{material.title}</div>
                           <div className="text-xs text-muted-foreground line-clamp-1">{material.description || 'No description'}</div>
                         </TableCell>
-                        <TableCell>{material.courseTitle || 'Unknown Course'}</TableCell>
+                        <TableCell>{material.courseTitle || 'Unknown Batch'}</TableCell>
                         <TableCell><Badge variant="outline">{String(material.fileType || 'pdf').toUpperCase()}</Badge></TableCell>
                         <TableCell>{((material.fileSize || 0) / (1024 * 1024)).toFixed(2)} MB</TableCell>
                         <TableCell>{new Date(material.createdAt).toLocaleDateString()}</TableCell>
@@ -244,7 +244,7 @@ export default function StudyMaterialsManagement() {
                     <MobileRecordCard
                       key={material.id}
                       title={material.title}
-                      subtitle={material.courseTitle || 'Unknown Course'}
+                      subtitle={material.courseTitle || 'Unknown Batch'}
                       badges={<Badge variant="outline">{String(material.fileType || 'pdf').toUpperCase()}</Badge>}
                       rows={[
                         { label: 'Size', value: `${((material.fileSize || 0) / (1024 * 1024)).toFixed(2)} MB` },

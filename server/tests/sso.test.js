@@ -8,6 +8,7 @@ import { Institute } from '../src/models/Institute.js';
 import { User } from '../src/models/User.js';
 import { AuditLog } from '../src/models/AuditLog.js';
 import { SecuritySession } from '../src/models/SecuritySession.js';
+import { SecurityEvent } from '../src/models/SecurityEvent.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -540,6 +541,15 @@ test('SSO Login Controller Verification', async (t) => {
           assert.equal(filter.userId, mockUserInstance._id);
           assert.equal(update.$set.status, 'terminated');
           securitySessionsTerminated = true;
+          return Promise.resolve({});
+        }
+      },
+      {
+        target: SecurityEvent,
+        method: 'create',
+        impl: (payload) => {
+          assert.equal(payload.studentId, mockUserInstance._id);
+          assert.equal(payload.eventType, 'concurrent_session_violation');
           return Promise.resolve({});
         }
       },

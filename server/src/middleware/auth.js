@@ -29,6 +29,18 @@ export const protect = async (req, res, next) => {
         return res.status(403).json({ message: 'User account is deactivated' });
       }
 
+      // Check if password change is forced
+      if (user.mustChangePassword === true) {
+        const allowedPaths = ['/password/change', '/profile', '/session', '/logout'];
+        const isAllowed = allowedPaths.some(p => req.originalUrl.endsWith(p) || req.path.endsWith(p));
+        if (!isAllowed) {
+          return res.status(403).json({
+            message: 'Password change required',
+            mustChangePassword: true
+          });
+        }
+      }
+
       // One-device login check: check if token matches the active session token in DB (applies to student, admin, owner)
       const expectedSessionToken = decoded.isPlaybackToken ? decoded.sessionToken : token;
       if (!user.activeSessionToken || user.activeSessionToken !== expectedSessionToken) {

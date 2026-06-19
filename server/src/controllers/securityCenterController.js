@@ -1,6 +1,7 @@
 import { AuditLog } from '../models/AuditLog.js';
 import { User } from '../models/User.js';
 import { SecuritySession } from '../models/SecuritySession.js';
+import { SecurityEvent } from '../models/SecurityEvent.js';
 
 const parseAgent = (ua = '') => {
   const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
@@ -15,22 +16,28 @@ export const getSecurityCenterOverview = async (req, res) => {
     if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
     const filter = instituteFilter(req);
     const activeSessions = await SecuritySession.countDocuments({ ...filter, status: 'active' });
-    const activeDevices = await SecuritySession.aggregate([
+    const activeDevicesAgg = await SecuritySession.aggregate([
       { $match: { ...filter, status: 'active' } },
       { $group: { _id: '$device' } },
       { $count: 'count' }
     ]);
-    const suspiciousActivities = await AuditLog.countDocuments({ ...filter, eventType: { $in: ['suspicious_ip', 'playback_anomaly', 'invalid_token', 'multiple_login'] } });
-    const concurrentAttempts = await AuditLog.countDocuments({ ...filter, eventType: 'multiple_login' });
-    const sessionViolations = await AuditLog.countDocuments({ ...filter, eventType: { $in: ['multiple_login', 'invalid_token'] } });
-    const piracyEvents = await AuditLog.countDocuments({ ...filter, eventType: { $in: ['screenshot', 'screen_recording', 'devtools_open', 'playback_anomaly'] } });
+    
+    const screenshotAttempts = await SecurityEvent.countDocuments({ ...filter, eventType: 'screenshot' });
+    const recordingAttempts = await SecurityEvent.countDocuments({ ...filter, eventType: 'screen_recording' });
+    const concurrentAttempts = await SecurityEvent.countDocuments({ ...filter, eventType: { $in: ['multiple_device_login', 'concurrent_session_violation'] } });
+    const accountSharingAlerts = await SecurityEvent.countDocuments({ ...filter, eventType: 'account_sharing' });
+    const downloadAttempts = await SecurityEvent.countDocuments({ ...filter, eventType: 'download_attempt' });
+    const piracyEvents = await SecurityEvent.countDocuments({ ...filter, eventType: { $in: ['screenshot', 'screen_recording', 'session_hijack'] } });
+
     res.json({
       cards: {
         activeSessions,
-        activeDevices: activeDevices[0]?.count || 0,
-        suspiciousActivities,
+        activeDevices: activeDevicesAgg[0]?.count || 0,
+        screenshotAttempts,
+        recordingAttempts,
         concurrentAttempts,
-        sessionViolations,
+        accountSharingAlerts,
+        downloadAttempts,
         piracyEvents
       }
     });
@@ -42,7 +49,7 @@ export const getSecurityCenterOverview = async (req, res) => {
 export const getSecuritySessions = async (req, res) => {
   try {
     if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
-    const sessions = await SecuritySession.find({ ...instituteFilter(req) }).populate('userId', 'name email status').sort({ lastSeenAt: -1 }).limit(500);
+    const sessions = await SecuritySession.find({ ...instituteFilter(req) }).populate('userId', 'name email status user_id branchName').sort({ lastSeenAt: -1 }).limit(500);
     res.json(sessions);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -52,7 +59,13 @@ export const getSecuritySessions = async (req, res) => {
 export const getSecurityEvents = async (req, res) => {
   try {
     if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
-    const events = await AuditLog.find({ ...instituteFilter(req) }).populate('userId', 'name email').sort({ createdAt: -1 }).limit(500);
+    const events = await SecurityEvent.find({ ...instituteFilter(req) })
+      .populate('studentId', 'name email status user_id branchName enrollmentDate')
+      .populate('batchId', 'title')
+      .populate('subjectId', 'subjectName')
+      .populate('topicId', 'title')
+      .sort({ createdAt: -1 })
+      .limit(500);
     res.json(events);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -124,14 +137,49 @@ export const setStudentSecurityStatus = async (req, res) => {
     const { studentId, action } = req.body;
     const student = await User.findOne({ _id: studentId, ...instituteFilter(req) });
     if (!student) return res.status(404).json({ message: 'Student not found' });
-    if (action === 'disable') student.status = 'inactive';
-    if (action === 'enable') student.status = 'active';
-    if (action === 'resetSessions') student.activeSessionToken = '';
-    await student.save();
+    
+    if (action === 'disable' || action === 'suspend') {
+      student.status = 'inactive';
+      student.activeSessionToken = '';
+    }
+    if (action === 'enable' || action === 'unlock') {
+      student.status = 'active';
+    }
     if (action === 'resetSessions') {
+      student.activeSessionToken = '';
+    }
+    await student.save();
+    
+    if (action === 'disable' || action === 'suspend' || action === 'resetSessions') {
       await SecuritySession.updateMany({ userId: student._id, status: 'active' }, { $set: { status: 'terminated' } });
     }
     res.json({ message: 'Security action applied', studentId: student._id, status: student.status });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const ignoreSecurityEvent = async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
+    const event = await SecurityEvent.findOne({ _id: req.params.eventId, ...instituteFilter(req) });
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+    event.status = 'ignored';
+    await event.save();
+    res.json({ message: 'Event ignored successfully', eventId: event._id });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const resolveSecurityEvent = async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
+    const event = await SecurityEvent.findOne({ _id: req.params.eventId, ...instituteFilter(req) });
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+    event.status = 'resolved';
+    await event.save();
+    res.json({ message: 'Event resolved successfully', eventId: event._id });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

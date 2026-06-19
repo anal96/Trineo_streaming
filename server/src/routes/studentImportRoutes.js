@@ -5,11 +5,13 @@ import {
   previewStudentImport,
   confirmStudentImport,
   getStudentImportHistory,
-  getImportJobDetails
+  getImportJobDetails,
+  downloadExcelTemplate
 } from '../controllers/studentImportController.js';
 
 const router = express.Router();
 
+router.get('/template/excel', protect, adminOnly, downloadExcelTemplate);
 router.post('/preview', protect, adminOnly, studentImportUpload.single('file'), previewStudentImport);
 router.post('/confirm/:jobId', protect, adminOnly, confirmStudentImport);
 router.get('/history', protect, adminOnly, getStudentImportHistory);

@@ -24,7 +24,7 @@ export function MobileNav({ items, onItemClick }: MobileNavProps) {
   const handleClick = (item: (typeof items)[0]) => {
     if (item.path) {
       navigate(item.path);
-      if (item.path === '/student' && onItemClick) {
+      if (item.path.startsWith('/student') && onItemClick) {
         onItemClick(item.id);
       }
     } else if (onItemClick) {
@@ -34,11 +34,15 @@ export function MobileNav({ items, onItemClick }: MobileNavProps) {
   };
 
   const isActive = (item: (typeof items)[0]) => {
-    if (item.path && item.path !== '/student') {
-      return location.pathname === item.path;
-    }
-    if (item.path === '/student' && location.pathname === '/student') {
-      return false;
+    if (item.path) {
+      if (item.id === 'courses') {
+        return location.pathname === '/student/courses';
+      }
+      if (location.pathname === '/student') {
+        const params = new URLSearchParams(location.search);
+        const currentTab = params.get('tab') || 'home';
+        return currentTab === item.id;
+      }
     }
     return false;
   };
@@ -97,11 +101,11 @@ export function MobileNav({ items, onItemClick }: MobileNavProps) {
 }
 
 export const studentNavItems = [
-  { icon: Home, label: 'Home', path: '/student', id: 'home' },
-  { icon: BookOpen, label: 'Courses', path: '/student/courses', id: 'courses' },
-  { icon: Video, label: 'Live Classes', path: '/student', id: 'live-classes' },
-  { icon: FileText, label: 'Materials', path: '/student', id: 'materials' },
-  { icon: Key, label: 'Access', path: '/student', id: 'access' },
-  { icon: Users, label: 'Faculty', path: '/student', id: 'faculty' },
-  { icon: ShieldCheck, label: 'Security', path: '/student', id: 'security' },
+  { icon: Home, label: 'Home', path: '/student?tab=home', id: 'home' },
+  { icon: BookOpen, label: 'My Batches', path: '/student/courses', id: 'courses' },
+  { icon: Video, label: 'Live Classes', path: '/student?tab=live-classes', id: 'live-classes' },
+  { icon: FileText, label: 'Materials', path: '/student?tab=materials', id: 'materials' },
+  { icon: Key, label: 'Access', path: '/student?tab=access', id: 'access' },
+  { icon: Users, label: 'Faculty', path: '/student?tab=faculty', id: 'faculty' },
+  { icon: ShieldCheck, label: 'Security', path: '/student?tab=security', id: 'security' },
 ];

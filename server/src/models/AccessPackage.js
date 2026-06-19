@@ -1,3 +1,9 @@
+/**
+ * @deprecated
+ * LEGACY / DEPRECATED / READ-ONLY
+ * This model is kept for backward-compatibility / database safety during the June 29 release cycle.
+ * Do not use in active application logic. No UI exposure, no new records, and no access evaluation.
+ */
 import mongoose from 'mongoose';
 
 const accessPackageSchema = new mongoose.Schema({

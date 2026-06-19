@@ -586,8 +586,8 @@ export default function OwnerPanel() {
               }`} />
             </div>
             <div>
-              <div className={`font-bold text-base leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>Trineo</div>
-              <div className="text-[11px] text-violet-500 font-semibold tracking-wide mt-0.5">Owner Panel</div>
+              <div className={`font-bold text-base leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>Trineo Stream</div>
+              <div className="text-[11px] text-violet-500 font-semibold tracking-wide mt-0.5">Owner Console</div>
             </div>
           </div>
           <div className={`flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border ${
@@ -687,8 +687,8 @@ export default function OwnerPanel() {
         }`}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <PanelDrawerNav
-              title="Trineo Owner"
-              subtitle="Platform Control"
+              title="Trineo Stream"
+              subtitle="Owner Console"
               items={navItems}
               activeId={activeSection}
               onSelect={(id) => {
@@ -715,7 +715,7 @@ export default function OwnerPanel() {
             />
             <div className={`hidden sm:flex items-center gap-2 text-sm min-w-0 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
               <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="truncate">Owner Panel</span>
+              <span className="truncate">Owner Console</span>
               <ChevronRight className="w-3 h-3 shrink-0" />
               <span className={`font-semibold capitalize truncate ${isDark ? 'text-white/70' : 'text-slate-800'}`}>
                 {navItems.find(n => n.id === activeSection)?.label}

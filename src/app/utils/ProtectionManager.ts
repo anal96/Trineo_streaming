@@ -2,24 +2,6 @@ import { apiFetch } from './api';
 
 export type ProtectionType = 'focus_lost' | 'visibility_hidden' | 'fullscreen_interruption' | 'screen_recording' | 'devtools_open' | 'none';
 
-const LOCAL_AUDIT_KEY = 'trineo_security_audit';
-
-const persistLocalAudit = (entry: Record<string, any>) => {
-  try {
-    const existing = JSON.parse(localStorage.getItem(LOCAL_AUDIT_KEY) || '[]');
-    const next = [
-      {
-        _id: `local-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        userAgent: navigator.userAgent,
-        ...entry
-      },
-      ...existing
-    ].slice(0, 50);
-    localStorage.setItem(LOCAL_AUDIT_KEY, JSON.stringify(next));
-  } catch (_e) {}
-};
-
 export interface ProtectionManagerOptions {
   userId: string;
   email: string;
@@ -32,14 +14,13 @@ export interface ProtectionManagerOptions {
   getCurrentPlaybackState: () => { isPlaying: boolean; provider: 'youtube' | 'hls' };
   pausePlayer: () => void;
   resumePlayer: () => void;
-  reportViolation: (type: string, details: string) => void;
+  reportViolation: (type: string, details: string) => Promise<{ success: boolean; action?: string; message?: string } | null>;
 }
 
 export class ProtectionManager {
   private options: ProtectionManagerOptions;
   private isSuspicious: boolean = false;
   private activeType: ProtectionType = 'none';
-  private devToolsInterval: NodeJS.Timeout | null = null;
   private isRunning: boolean = false;
   private wasPlayingBeforeViolation: boolean = false;
 
@@ -80,14 +61,11 @@ export class ProtectionManager {
     // 4. Hijack Screen Capture permission prompts (getDisplayMedia)
     this.hijackScreenCapture();
 
-    // 5. Docked DevTools Dimension Checker
-    this.startDevToolsCheck();
-
-    // 6. Keyboard shortcut monitoring
+    // 5. Keyboard shortcut monitoring
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
 
-    // 7. Mouse interaction monitoring for eager recovery
+    // 6. Mouse interaction monitoring for eager recovery
     window.addEventListener('mousemove', this.handleInteraction);
     window.addEventListener('mousedown', this.handleInteraction);
 
@@ -102,8 +80,7 @@ export class ProtectionManager {
       this.options.onStateChange(true, 'focus_lost', 'Restored security lock from storage');
       this.startCooldown();
     } else {
-      // Initial check in case it starts out-of-focus
-      this.evaluateState(false);
+      this.evaluateState();
     }
   }
 
@@ -123,11 +100,6 @@ export class ProtectionManager {
     window.removeEventListener('mousemove', this.handleInteraction);
     window.removeEventListener('mousedown', this.handleInteraction);
 
-    if (this.devToolsInterval) {
-      clearInterval(this.devToolsInterval);
-      this.devToolsInterval = null;
-    }
-
     this.clearCooldown();
   }
 
@@ -145,31 +117,27 @@ export class ProtectionManager {
     }
   };
 
-  private handleKeyDown = (e: KeyboardEvent) => {
+  private handleKeyDown = async (e: KeyboardEvent) => {
     // PrintScreen Key
     if (e.key === 'PrintScreen') {
       e.preventDefault();
-      this.options.reportViolation('screenshot', 'PrintScreen screenshot attempt blocked.');
-      this.triggerImmediateViolation('focus_lost', 'PrintScreen screenshot shortcut blocked.');
+      await this.handleScreenshotViolation('PrintScreen screenshot attempt blocked.');
     }
     
     // Windows Snipping Tool (Win/Meta + Shift + S) or MacOS standard screenshot shortcuts (Cmd/Meta + Shift + 3/4/5)
     const isMetaShiftCombo = (e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'S' || e.key === 's' || e.key === '3' || e.key === '4' || e.key === '5');
     if (isMetaShiftCombo) {
       e.preventDefault();
-      this.options.reportViolation('screenshot', 'System screenshot shortcut blocked.');
-      this.triggerImmediateViolation('focus_lost', 'System screenshot shortcut blocked.');
+      await this.handleScreenshotViolation('System screenshot shortcut blocked.');
     }
 
     if (e.ctrlKey && e.key === 's') {
       e.preventDefault();
-      this.options.reportViolation('playback_anomaly', 'HTML page saving blocked.');
-      this.triggerImmediateViolation('focus_lost', 'HTML page saving blocked.');
+      await this.options.reportViolation('playback_anomaly', 'HTML page saving blocked.');
     }
     if (e.ctrlKey && (e.key === 'p' || e.key === 'P')) {
       e.preventDefault();
-      this.options.reportViolation('screenshot', 'Page print shortcut blocked.');
-      this.triggerImmediateViolation('focus_lost', 'Page print shortcut blocked.');
+      await this.handleScreenshotViolation('Page print shortcut blocked.');
     }
   };
 
@@ -183,8 +151,34 @@ export class ProtectionManager {
     }
   };
 
+  private async handleScreenshotViolation(details: string) {
+    this.options.pausePlayer();
+    
+    // Increment local count
+    let count = this.getViolationCount() + 1;
+    localStorage.setItem('trineo_violation_count', count.toString());
+    this.options.onViolationCountChange(count);
+
+    const res = await this.options.reportViolation('screenshot', details);
+    if (res) {
+      if (res.action === 'session_terminated') {
+        this.terminateSession();
+      } else if (res.action === 'warning_shown') {
+        this.options.onStateChange(true, 'focus_lost', res.message || 'Screenshot warning.');
+        localStorage.setItem('trineo_security_lock_until', (Date.now() + 10000).toString());
+        localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
+        this.startCooldown();
+      } else if (res.action === 'alert_logged') {
+        this.options.onStateChange(true, 'focus_lost', res.message || 'Screenshot attempt logged.');
+        localStorage.setItem('trineo_security_lock_until', (Date.now() + 60000).toString());
+        localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
+        this.startCooldown();
+      }
+    }
+  }
+
   private handleBlur = () => {
-    this.options.reportViolation('screenshot', 'Playback paused: Screen focus lost (possible screenshot or snip tool capture threat).');
+    // Simply pause locally, do not report/log screenshot exceptions on focus loss
     this.evaluateState();
   };
 
@@ -199,16 +193,11 @@ export class ProtectionManager {
   };
 
   private handleVisibilityChange = () => {
-    if (document.hidden) {
-      this.options.reportViolation('screenshot', 'Tab hidden (visibilitychange flagged)');
-    }
+    // Simply pause locally on hidden tab
     this.evaluateState();
   };
 
   private handleFullscreenChange = () => {
-    if (document.fullscreenElement === null && !document.hasFocus()) {
-      this.options.reportViolation('screenshot', 'Fullscreen exited while document lacks focus');
-    }
     this.evaluateState();
   };
 
@@ -216,86 +205,28 @@ export class ProtectionManager {
     if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
       const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
       const self = this;
-      navigator.mediaDevices.getDisplayMedia = function(options) {
-        self.options.reportViolation('screen_recording', 'Unauthorized display sharing API block.');
-        self.triggerImmediateViolation('screen_recording', 'Unauthorized getDisplayMedia API access blocked.');
+      navigator.mediaDevices.getDisplayMedia = async function(options) {
+        // Pause player immediately
+        self.options.pausePlayer();
+
+        // Increment local count
+        let count = self.getViolationCount() + 1;
+        localStorage.setItem('trineo_violation_count', count.toString());
+        self.options.onViolationCountChange(count);
+
+        const res = await self.options.reportViolation('screen_recording', 'Unauthorized display sharing API block.');
+        if (res && res.action === 'playback_paused') {
+          self.options.onStateChange(true, 'screen_recording', res.message || 'Screen recording blocked.');
+        } else if (res && res.action === 'session_terminated') {
+          self.terminateSession();
+        }
         return Promise.reject(new Error('Screen capture is strictly prohibited.'));
       };
     }
   }
 
-  private startDevToolsCheck() {
-    this.devToolsInterval = setInterval(() => {
-      const threshold = 160;
-      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-      const heightThreshold = window.outerHeight - window.innerHeight > threshold;
-      
-      const lockUntil = parseInt(localStorage.getItem('trineo_security_lock_until') || '0', 10);
-      const requiresManualResume = localStorage.getItem('trineo_lock_requires_manual_resume') === 'true';
-      const hasActiveLock = requiresManualResume || Date.now() < lockUntil;
-
-      if (widthThreshold || heightThreshold) {
-        this.options.reportViolation('devtools_open', 'Docked developer tools inspect panel detected.');
-        this.triggerImmediateViolation('devtools_open', 'DevTools window size anomaly detected.');
-      } else {
-        if (this.activeType === 'devtools_open' && !hasActiveLock) {
-          this.evaluateState();
-        }
-      }
-    }, 1500);
-  }
-
-  private triggerImmediateViolation(type: ProtectionType, details: string) {
-    if (!this.isSuspicious || this.activeType !== type) {
-      const playback = this.options.getCurrentPlaybackState();
-      this.wasPlayingBeforeViolation = playback.isPlaying;
-      
-      // Pause playback immediately
-      this.options.pausePlayer();
-
-      this.isSuspicious = true;
-      this.activeType = type;
-
-      // Increment attempt counter for direct active violation
-      this.incrementViolationCount(type, details);
-
-      this.options.onStateChange(true, type, details);
-    }
-  }
-
-  private incrementViolationCount(type: string, details: string) {
-    let count = this.getViolationCount();
-    count += 1;
-    localStorage.setItem('trineo_violation_count', count.toString());
-
-    this.options.onViolationCountChange(count);
-    this.logAudit(type, details, count);
-
-    if (count === 1) {
-      // 60 seconds penalty
-      localStorage.setItem('trineo_security_lock_until', (Date.now() + 60000).toString());
-      localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
-      this.startCooldown();
-    } else if (count === 2) {
-      // 60 seconds penalty
-      localStorage.setItem('trineo_security_lock_until', (Date.now() + 60000).toString());
-      localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
-      this.startCooldown();
-    } else if (count === 3) {
-      // Force exit to /student
-      try {
-        this.options.pausePlayer();
-      } catch (e) {}
-      window.location.href = '/student';
-    } else if (count >= 4) {
-      // Force logout
-      this.terminateSession();
-    }
-  }
-
   private startCooldown() {
     this.clearCooldown();
-
     this.cooldownActive = true;
 
     const updateTime = () => {
@@ -328,56 +259,10 @@ export class ProtectionManager {
     this.options.onCooldownTimeChange?.(0);
   }
 
-  private async logAudit(eventType: string, details: string, attempt: number) {
-    const token = localStorage.getItem('token');
-    const deviceFingerprint = navigator.userAgent;
-
-    // Map custom types to fit the Mongoose eventType enum values
-    let mappedType = 'screenshot';
-    if (eventType === 'devtools_open') {
-      mappedType = 'devtools_open';
-    } else if (eventType === 'screen_recording') {
-      mappedType = 'screen_recording';
-    } else if (eventType === 'playback_anomaly') {
-      mappedType = 'playback_anomaly';
-    }
-
-    const payload = {
-      eventType: mappedType,
-      details: JSON.stringify({
-        userId: this.options.userId,
-        email: this.options.email,
-        ipAddress: this.options.ipAddress,
-        sessionId: this.options.sessionId,
-        timestamp: new Date().toISOString(),
-        deviceFingerprint,
-        violationType: eventType,
-        attemptNumber: attempt,
-        additionalInfo: details
-      }),
-      deviceFingerprint
-    };
-
-    try {
-      await apiFetch('/security/audit', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-    } catch (e) {
-      console.error('[DRM Audit Fetch Failed]', e);
-      persistLocalAudit({
-        eventType: mappedType,
-        details: payload.details,
-        deviceFingerprint
-      });
-    }
-  }
-
-  private terminateSession() {
+  public terminateSession() {
     this.isRunning = false;
     this.clearCooldown();
     
-    // Immediately stop playback
     try {
       this.options.pausePlayer();
     } catch (e) {}
@@ -409,10 +294,10 @@ export class ProtectionManager {
     this.clearCooldown();
     
     this.isSuspicious = false;
-    this.evaluateState(false);
+    this.evaluateState();
   }
 
-  public evaluateState(shouldIncrement: boolean = true) {
+  public evaluateState() {
     let nextSuspicious = false;
     let nextType: ProtectionType = 'none';
     let details = '';
@@ -431,16 +316,7 @@ export class ProtectionManager {
     } else if (!document.hasFocus()) {
       nextSuspicious = true;
       nextType = 'focus_lost';
-      details = 'Window focus is lost (Snipping Tool or focus capture overlay active)';
-    } else {
-      const threshold = 160;
-      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-      const heightThreshold = window.outerHeight - window.innerHeight > threshold;
-      if (widthThreshold || heightThreshold) {
-        nextSuspicious = true;
-        nextType = 'devtools_open';
-        details = 'DevTools dimension anomaly detected';
-      }
+      details = 'Window focus is lost (LMS paused)';
     }
 
     if (this.isSuspicious !== nextSuspicious || this.activeType !== nextType) {
@@ -452,20 +328,6 @@ export class ProtectionManager {
         
         // Pause playback instantly
         this.options.pausePlayer();
-
-        // Increment count only if:
-        // 1. shouldIncrement is true
-        // 2. We are NOT already inside an active penalty cooldown or awaiting manual resume
-        const isCooldownRunning = Date.now() < lockUntil;
-        if (!isCooldownRunning && !requiresManualResume) {
-          const isDevTools = nextType === 'devtools_open';
-          const isBlurDuringPlayback = nextType === 'focus_lost' && this.wasPlayingBeforeViolation;
-          const isVisibilityHiddenDuringPlayback = nextType === 'visibility_hidden' && this.wasPlayingBeforeViolation;
-
-          if (shouldIncrement && (isDevTools || isBlurDuringPlayback || isVisibilityHiddenDuringPlayback)) {
-            this.incrementViolationCount(nextType, details);
-          }
-        }
       } else {
         // Recover and resume playback if it was playing before
         if (this.wasPlayingBeforeViolation) {

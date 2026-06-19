@@ -5,6 +5,7 @@ import { tenantGuard } from '../src/middleware/tenantGuard.js';
 import { Course } from '../src/models/Course.js';
 import { Lesson } from '../src/models/Lesson.js';
 import { AuditLog } from '../src/models/AuditLog.js';
+import { SecurityEvent } from '../src/models/SecurityEvent.js';
 
 const makeResponse = () => {
   const state = {
@@ -132,7 +133,7 @@ test('tenant isolation hardening', async (t) => {
       }
     };
 
-    await withMock(AuditLog, 'find', (query) => {
+    await withMock(SecurityEvent, 'find', (query) => {
       capturedQuery = query;
       return chain;
     }, async () => {

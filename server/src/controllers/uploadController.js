@@ -3,6 +3,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { Lesson } from '../models/Lesson.js';
 import { Course } from '../models/Course.js';
+import { Program } from '../models/Program.js';
 import { Purchase } from '../models/Purchase.js';
 import { Notification } from '../models/Notification.js';
 import { TranscodingJob } from '../models/TranscodingJob.js';
@@ -66,9 +67,16 @@ export const uploadVideo = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
 
-    const course = req.user.role === 'owner'
+    let course = req.user.role === 'owner'
       ? await Course.findById(courseId)
       : await Course.findOne({ _id: courseId, institute: req.user.institute });
+
+    if (!course) {
+      course = req.user.role === 'owner'
+        ? await Program.findById(courseId)
+        : await Program.findOne({ _id: courseId, institute: req.user.institute, isDeleted: false });
+    }
+
     if (!course) {
       if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
       return res.status(404).json({ message: 'Course not found' });

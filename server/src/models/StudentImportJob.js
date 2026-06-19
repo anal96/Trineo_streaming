@@ -8,14 +8,20 @@ const importRowSchema = new mongoose.Schema({
   studentId: String,
   batch: String,
   course: String,
+  branch: String,
+  admissionDate: String,
   status: {
     type: String,
-    enum: ['pending', 'imported', 'failed'],
+    enum: ['pending', 'imported', 'failed', 'skipped', 'duplicate'],
     default: 'pending'
   },
   error: {
     type: String,
     default: ''
+  },
+  duplicateDetails: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
   }
 }, { _id: false });
 
@@ -41,6 +47,10 @@ const studentImportJobSchema = new mongoose.Schema({
     default: 'uploaded'
   },
   importedCount: {
+    type: Number,
+    default: 0
+  },
+  skippedCount: {
     type: Number,
     default: 0
   },

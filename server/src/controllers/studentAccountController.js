@@ -55,12 +55,27 @@ export const changeStudentPassword = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
     const isMatch = await user.matchPassword(currentPassword);
     if (!isMatch) return res.status(400).json({ message: 'Current password is incorrect' });
+
+    const wasForced = user.mustChangePassword === true;
     user.password = newPassword;
-    user.activeSessionToken = '';
-    await user.save();
-    await SecuritySession.updateMany({ userId: user._id, status: 'active' }, { $set: { status: 'terminated' } });
-    await logSecurityEvent(req, user._id, 'Password changed by student');
-    res.json({ message: 'Password changed successfully. Please log in again.' });
+    user.mustChangePassword = false;
+
+    if (!wasForced) {
+      user.activeSessionToken = '';
+      await user.save();
+      await SecuritySession.updateMany({ userId: user._id, status: 'active' }, { $set: { status: 'terminated' } });
+      await logSecurityEvent(req, user._id, 'Password changed by student');
+      res.json({ message: 'Password changed successfully. Please log in again.' });
+    } else {
+      const suffix = req.token ? req.token.slice(-10) : '';
+      await user.save();
+      await SecuritySession.updateMany(
+        { userId: user._id, status: 'active', tokenSuffix: { $ne: suffix } },
+        { $set: { status: 'terminated' } }
+      );
+      await logSecurityEvent(req, user._id, 'Password changed by student (first login)');
+      res.json({ message: 'Password changed successfully', mustChangePassword: false });
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

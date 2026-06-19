@@ -4,6 +4,8 @@ import { Course } from '../models/Course.js';
 import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
+import { Enrollment } from '../models/Enrollment.js';
+import { Program } from '../models/Program.js';
 
 const requireInstitute = (req, res) => {
   if (req.user.role === 'owner') return true;
@@ -46,6 +48,28 @@ export const purchaseCourse = async (req, res) => {
         amount: course.price,
         status: 'completed'
       });
+    }
+
+    // Synchronize to Program Enrollment
+    try {
+      const program = await Program.findOne({ slug: course.slug, institute: req.user.institute });
+      if (program) {
+        const existingEnrollment = await Enrollment.findOne({ studentId, programId: program._id });
+        if (existingEnrollment) {
+          existingEnrollment.status = 'active';
+          existingEnrollment.enrolledAt = Date.now();
+          await existingEnrollment.save();
+        } else {
+          await Enrollment.create({
+            institute: req.user.institute,
+            studentId,
+            programId: program._id,
+            status: 'active'
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error synchronizing enrollment during purchaseCourse:', err);
     }
 
     const payment = await Payment.create({
@@ -250,6 +274,28 @@ export const verifyManualPayment = async (req, res) => {
 
       await payment.save();
       await purchase.save();
+
+      // Synchronize to Program Enrollment
+      try {
+        const program = await Program.findOne({ slug: course.slug, institute: req.user.institute });
+        if (program) {
+          const existingEnrollment = await Enrollment.findOne({ studentId: purchase.studentId, programId: program._id });
+          if (existingEnrollment) {
+            existingEnrollment.status = 'active';
+            existingEnrollment.enrolledAt = Date.now();
+            await existingEnrollment.save();
+          } else {
+            await Enrollment.create({
+              institute: req.user.institute,
+              studentId: purchase.studentId,
+              programId: program._id,
+              status: 'active'
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error synchronizing enrollment during payment approval:', err);
+      }
 
       await Notification.create({
         userId: purchase.studentId,

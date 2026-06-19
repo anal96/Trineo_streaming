@@ -28,6 +28,7 @@ import {
   ToggleRight,
   CheckCircle,
   ShieldCheck,
+  Youtube,
   Loader2,
   Palette,
   Building2,
@@ -36,7 +37,16 @@ import {
   RefreshCw,
   Unlink2,
   Calendar,
-  Key
+  Key,
+  Mail,
+  Lock,
+  Unlock,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  UserX,
+  MoreVertical,
+  XCircle
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -59,10 +69,49 @@ import StudentImportCenter from './StudentImportCenter';
 import AnalyticsUpgrade from './AnalyticsUpgrade';
 import LiveClassesManagement from './LiveClassesManagement';
 import ContentAccessManager from './ContentAccessManager';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
+import trineoLogoImg from '@/images/trineoStream-1.png';
+
+const tabLabels: Record<string, string> = {
+  overview: 'Dashboard',
+  students: 'Student Management',
+  upload: 'Video Library',
+  youtube: 'YouTube Integration',
+  lessons: 'Course Builder',
+  materials: 'Study Materials',
+  liveClasses: 'Live Classes',
+  accessManager: 'Access Management',
+  import: 'Student Import',
+  securityCenter: 'Security Center',
+  payments: 'Analytics',
+  announcements: 'Notifications',
+  branding: 'Institute Branding'
+};
+
+const navItems = [
+  { icon: Activity, label: 'Dashboard', id: 'overview' },
+  { icon: Video, label: 'Video Library', id: 'upload' },
+  { icon: Youtube, label: 'YouTube Integration', id: 'youtube' },
+  { icon: BookOpen, label: 'Course Builder', id: 'lessons' },
+  { icon: FileText, label: 'Study Materials', id: 'materials' },
+  { icon: Calendar, label: 'Live Classes', id: 'liveClasses' },
+  { icon: Key, label: 'Access Manager', id: 'accessManager' },
+  { icon: Users, label: 'Student Import', id: 'import' },
+  { icon: ShieldCheck, label: 'Security Center', id: 'securityCenter' },
+  { icon: Users, label: 'Student Management', id: 'students' },
+  { icon: Bell, label: 'Notifications', id: 'announcements' },
+  { icon: Palette, label: 'Institute Branding', id: 'branding' }
+];
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
+
+  useEffect(() => {
+    localStorage.setItem('trineo_admin_active_tab', activeTab);
+  }, [activeTab]);
+  const [curriculumBuilderProgramId, setCurriculumBuilderProgramId] = useState<string | undefined>(undefined);
   
   // Dynamic metrics & statistics from API
   const [metrics, setMetrics] = useState<any>({
@@ -98,15 +147,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Course creation state
-  const [showCourseModal, setShowCourseModal] = useState(false);
-  const [editingCourse, setEditingCourse] = useState<any>(null);
-  const [newCourseTitle, setNewCourseTitle] = useState('');
-  const [newCourseDesc, setNewCourseDesc] = useState('');
-  const [newCourseInstructor, setNewCourseInstructor] = useState('');
-  const [newCourseThumbnail, setNewCourseThumbnail] = useState('');
-  const [newCoursePrice, setNewCoursePrice] = useState('');
-  const [newCourseDuration, setNewCourseDuration] = useState('');
+  // Course/Program creation state has been removed - unified under Curriculum Builder
 
   // Student management state
   const [showStudentModal, setShowStudentModal] = useState(false);
@@ -122,6 +163,12 @@ export default function AdminDashboard() {
   const [newStudentEnrollmentDate, setNewStudentEnrollmentDate] = useState('');
   const [selectedCourseForEnrollment, setSelectedCourseForEnrollment] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [studentPage, setStudentPage] = useState(1);
+  const [studentsPerPage, setStudentsPerPage] = useState(10);
+  const [studentBatchFilter, setStudentBatchFilter] = useState('');
+  const [studentStatusFilter, setStudentStatusFilter] = useState('');
+  const [studentExpiryFilter, setStudentExpiryFilter] = useState('');
+  const [studentActionsOpenId, setStudentActionsOpenId] = useState<string | null>(null);
 
   // Video upload state
   const [uploadTitle, setUploadTitle] = useState('');
@@ -133,11 +180,14 @@ export default function AdminDashboard() {
   const [uploadAttachmentUrl, setUploadAttachmentUrl] = useState('');
   const [uploadAttachmentName, setUploadAttachmentName] = useState('');
   
-  const [selectedUploadCourseId, setSelectedUploadCourseId] = useState('');
-  const [availableModules, setAvailableModules] = useState<string[]>([]);
-  const [selectedUploadModule, setSelectedUploadModule] = useState('');
+  const [selectedUploadProgramId, setSelectedUploadProgramId] = useState('');
+  const [availableUploadSubjects, setAvailableUploadSubjects] = useState<any[]>([]);
+  const [selectedUploadSubjectId, setSelectedUploadSubjectId] = useState('');
+  const [availableUploadUnits, setAvailableUploadUnits] = useState<any[]>([]);
+  const [selectedUploadUnitId, setSelectedUploadUnitId] = useState('');
   const [availableLessons, setAvailableLessons] = useState<any[]>([]);
   const [selectedUploadLessonId, setSelectedUploadLessonId] = useState('');
+  const [programsList, setProgramsList] = useState<any[]>([]);
   
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -169,6 +219,9 @@ export default function AdminDashboard() {
       const courses = await apiFetch('/courses');
       setCoursesList(courses);
 
+      const programs = await apiFetch('/programs');
+      setProgramsList(programs);
+
       const payments = await apiFetch('/purchases/pending-payments');
       setPendingPayments(payments);
 
@@ -195,6 +248,7 @@ export default function AdminDashboard() {
           setBrandingBranchName(institute.branchName || '');
           setBrandingSupportEmail(institute.supportEmail || '');
           setBrandingSupportPhone(institute.supportPhone || '');
+          setNewStudentBranch(prev => prev || institute.name || '');
         }
       } catch (_) {}
     } catch (err: any) {
@@ -205,8 +259,10 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    loadCrmData();
-  }, []);
+    if (activeTab === 'students' || activeTab === 'overview') {
+      loadCrmData();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const onOAuthResult = async (event: MessageEvent) => {
@@ -240,38 +296,6 @@ export default function AdminDashboard() {
     }
     return () => clearInterval(interval);
   }, [activeTab]);
-
-  const tabLabels: Record<string, string> = {
-    overview: 'Dashboard',
-    students: 'Student Management',
-    upload: 'Video Library',
-    lessons: 'Course Builder',
-    materials: 'Study Materials',
-    liveClasses: 'Live Classes',
-    accessManager: 'Access Management',
-    import: 'Student Import',
-    securityCenter: 'Security Center',
-    payments: 'Analytics',
-    announcements: 'Notifications',
-    branding: 'Institute Branding',
-    youtubeIntegration: 'YouTube Integration'
-  };
-
-  const navItems = [
-    { icon: Activity, label: 'Dashboard', id: 'overview' },
-    { icon: Video, label: 'Video Library', id: 'upload' },
-    { icon: BookOpen, label: 'Course Builder', id: 'lessons' },
-    { icon: FileText, label: 'Study Materials', id: 'materials' },
-    { icon: Calendar, label: 'Live Classes', id: 'liveClasses' },
-    { icon: Key, label: 'Access Manager', id: 'accessManager' },
-    { icon: Users, label: 'Student Import', id: 'import' },
-    { icon: ShieldCheck, label: 'Security Center', id: 'securityCenter' },
-    { icon: Users, label: 'Student Management', id: 'students' },
-    { icon: TrendingUp, label: 'Analytics', id: 'payments' },
-    { icon: Bell, label: 'Notifications', id: 'announcements' },
-    { icon: Palette, label: 'Institute Branding', id: 'branding' },
-    { icon: Settings, label: 'YouTube Integration', id: 'youtubeIntegration' }
-  ];
 
   const handleLogout = async () => {
     try {
@@ -326,71 +350,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const openCreateCourseModal = () => {
-    setEditingCourse(null);
-    setNewCourseTitle('');
-    setNewCourseDesc('');
-    setNewCourseInstructor('');
-    setNewCourseThumbnail('');
-    setNewCoursePrice('');
-    setNewCourseDuration('');
-    setShowCourseModal(true);
-  };
-
-  const openEditCourseModal = (course: any) => {
-    setEditingCourse(course);
-    setNewCourseTitle(course.title || '');
-    setNewCourseDesc(course.description || '');
-    setNewCourseInstructor(course.instructor || '');
-    setNewCourseThumbnail(course.thumbnail || '');
-    setNewCoursePrice(String(course.price ?? ''));
-    setNewCourseDuration(course.duration || '');
-    setShowCourseModal(true);
-  };
-
-  const handleSubmitCourse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCourseTitle || !newCourseInstructor || !newCoursePrice) {
-      alert('Please fill in required fields');
-      return;
-    }
-
-    const payload = {
-      title: newCourseTitle,
-      description: newCourseDesc,
-      instructor: newCourseInstructor,
-      thumbnail: newCourseThumbnail || 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800',
-      price: Number(newCoursePrice),
-      duration: newCourseDuration || '10h',
-      status: editingCourse?.status || 'active'
-    };
-
-    try {
-      if (editingCourse?._id) {
-        await apiFetch(`/courses/${editingCourse._id}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload)
-        });
-      } else {
-        await apiFetch('/courses', {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-      }
-
-      setShowCourseModal(false);
-      setEditingCourse(null);
-      setNewCourseTitle('');
-      setNewCourseDesc('');
-      setNewCourseInstructor('');
-      setNewCourseThumbnail('');
-      setNewCoursePrice('');
-      setNewCourseDuration('');
-      loadCrmData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to save course');
-    }
-  };
+  // Course creation and edit modal functions removed - unified under Curriculum Builder
 
   const handleDeleteCourse = async (courseId: string) => {
     if (!window.confirm('Delete this course and its lessons?')) return;
@@ -414,6 +374,23 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleToggleCourseLock = async (course: any) => {
+    try {
+      await apiFetch(`/courses/${course._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isLocked: !course.isLocked })
+      });
+      loadCrmData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update lock status');
+    }
+  };
+
+  const handleEditBatchFromDashboard = (courseId: string) => {
+    setCurriculumBuilderProgramId(courseId);
+    setActiveTab('lessons');
+  };
+
   const openCreateStudentModal = () => {
     setEditingStudent(null);
     setNewStudentName('');
@@ -422,7 +399,7 @@ export default function AdminDashboard() {
     setNewStudentPassword('');
     setNewStudentStatus('active');
     setNewStudentBatch('');
-    setNewStudentBranch('');
+    setNewStudentBranch(brandingInstituteName || '');
     setNewStudentCourseName('');
     setNewStudentEnrollmentDate('');
     setShowStudentModal(true);
@@ -436,7 +413,7 @@ export default function AdminDashboard() {
     setNewStudentPassword('');
     setNewStudentStatus(student.status === 'inactive' ? 'inactive' : 'active');
     setNewStudentBatch(student.batchName || '');
-    setNewStudentBranch(student.branchName || '');
+    setNewStudentBranch(brandingInstituteName || '');
     setNewStudentCourseName(student.courseName || '');
     setNewStudentEnrollmentDate(student.enrollmentDate ? student.enrollmentDate.slice(0, 10) : '');
     setShowStudentModal(true);
@@ -444,8 +421,42 @@ export default function AdminDashboard() {
 
   const handleSubmitStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStudentName || !newStudentEmail) {
-      alert('Please fill in the student name and email');
+    if (!newStudentName) {
+      alert('Student Name is required');
+      return;
+    }
+    if (!newStudentEmail) {
+      alert('Email Address is required');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newStudentEmail)) {
+      alert('Invalid Email Address format. Please enter a valid email address (e.g. student@school.edu).');
+      return;
+    }
+    if (!newStudentPhone) {
+      alert('Phone Number is required');
+      return;
+    }
+    const phoneRegex = /^\+?[0-9]{10,15}$/;
+    if (!phoneRegex.test(newStudentPhone)) {
+      alert('Invalid Phone Number. It must contain only digits (optionally starting with +) and be between 10 and 15 digits long.');
+      return;
+    }
+    if (!newStudentCourseName) {
+      alert('Batch is required');
+      return;
+    }
+    if (!newStudentBranch) {
+      alert('Campus is required');
+      return;
+    }
+    if (!newStudentEnrollmentDate) {
+      alert('Admission Date is required');
+      return;
+    }
+    if (!newStudentStatus) {
+      alert('Status is required');
       return;
     }
 
@@ -455,7 +466,7 @@ export default function AdminDashboard() {
       phone: newStudentPhone,
       password: newStudentPassword,
       status: newStudentStatus,
-      batchName: newStudentBatch,
+      batchName: '', // cohort completely removed
       branchName: newStudentBranch,
       courseName: newStudentCourseName,
       enrollmentDate: newStudentEnrollmentDate || undefined
@@ -482,7 +493,7 @@ export default function AdminDashboard() {
       setNewStudentPassword('');
       setNewStudentStatus('active');
       setNewStudentBatch('');
-      setNewStudentBranch('');
+      setNewStudentBranch(brandingInstituteName || '');
       setNewStudentCourseName('');
       setNewStudentEnrollmentDate('');
       loadCrmData();
@@ -532,16 +543,35 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteStudent = async (studentId: string) => {
-    if (!window.confirm('Delete this student and related records?')) return;
-    try {
-      await apiFetch(`/analytics/students/${studentId}`, { method: 'DELETE' });
-      setSelectedStudentIds((current) => current.filter((id) => id !== studentId));
-      loadCrmData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete student');
-    }
-  };
+    const handleDeleteStudent = async (studentId: string) => {
+      if (!window.confirm('Delete this student and related records?')) return;
+      try {
+        await apiFetch(`/analytics/students/${studentId}`, { method: 'DELETE' });
+        setSelectedStudentIds((current) => current.filter((id) => id !== studentId));
+        loadCrmData();
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete student');
+      }
+    };
+
+    const handleResendWelcome = async (studentId: string) => {
+      try {
+        await apiFetch(`/analytics/students/${studentId}/resend-welcome`, { method: 'POST' });
+        toast.success('Welcome email resent successfully.');
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to resend welcome email.');
+      }
+    };
+
+    const handleResetPassword = async (studentId: string) => {
+      if (!window.confirm('Are you sure you want to reset this student\'s password? A new temporary password will be sent via email.')) return;
+      try {
+        await apiFetch(`/analytics/students/${studentId}/reset-password`, { method: 'POST' });
+        toast.success('Password reset successfully. Email sent to student.');
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to reset password.');
+      }
+    };
 
   const handleAssignCourse = async (studentId: string) => {
     if (!selectedCourseForEnrollment) {
@@ -592,41 +622,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // Create course action
-  const handleCreateCourse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCourseTitle || !newCourseInstructor || !newCoursePrice) {
-      alert('Please fill in required fields');
-      return;
-    }
-
-    try {
-      await apiFetch('/courses', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: newCourseTitle,
-          description: newCourseDesc,
-          instructor: newCourseInstructor,
-          thumbnail: newCourseThumbnail || 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800',
-          price: Number(newCoursePrice),
-          duration: newCourseDuration || '10h'
-        })
-      });
-
-      setShowCourseModal(false);
-      // Reset form
-      setNewCourseTitle('');
-      setNewCourseDesc('');
-      setNewCourseInstructor('');
-      setNewCourseThumbnail('');
-      setNewCoursePrice('');
-      setNewCourseDuration('');
-
-      loadCrmData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to create course');
-    }
-  };
+  // handleCreateCourse action removed - unified under Curriculum Builder
 
   // OAuth YouTube Authorization flow
   const handleAuthorizeYouTube = async () => {
@@ -719,43 +715,54 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleUploadCourseChange = async (courseId: string) => {
-    setSelectedUploadCourseId(courseId);
-    setSelectedUploadModule('');
-    setAvailableModules([]);
+  const handleUploadProgramChange = async (programId: string) => {
+    setSelectedUploadProgramId(programId);
+    setSelectedUploadSubjectId('');
+    setAvailableUploadSubjects([]);
+    setSelectedUploadUnitId('');
+    setAvailableUploadUnits([]);
     setSelectedUploadLessonId('');
     setAvailableLessons([]);
     
-    if (!courseId) return;
+    if (!programId) return;
     
     try {
-      const data = await apiFetch(`/lessons/course/${courseId}`);
-      const uniqueModules: string[] = [];
-      data.forEach((lesson: any) => {
-        const title = lesson.moduleTitle || 'Module 1';
-        if (!uniqueModules.includes(title)) {
-          uniqueModules.push(title);
-        }
-      });
-      setAvailableModules(uniqueModules);
+      const data = await apiFetch(`/subjects?programId=${programId}`);
+      setAvailableUploadSubjects(data);
     } catch (err: any) {
-      toast.error('Failed to load modules for selected course.');
+      toast.error('Failed to load subjects for selected program.');
     }
   };
 
-  const handleUploadModuleChange = async (moduleTitle: string) => {
-    setSelectedUploadModule(moduleTitle);
+  const handleUploadSubjectChange = async (subjectId: string) => {
+    setSelectedUploadSubjectId(subjectId);
+    setSelectedUploadUnitId('');
+    setAvailableUploadUnits([]);
     setSelectedUploadLessonId('');
     setAvailableLessons([]);
     
-    if (!moduleTitle || !selectedUploadCourseId) return;
+    if (!subjectId) return;
     
     try {
-      const data = await apiFetch(`/lessons/course/${selectedUploadCourseId}`);
-      const filtered = data.filter((lesson: any) => (lesson.moduleTitle || 'Module 1') === moduleTitle);
-      setAvailableLessons(filtered);
+      const data = await apiFetch(`/units?subjectId=${subjectId}`);
+      setAvailableUploadUnits(data);
     } catch (err: any) {
-      toast.error('Failed to load lessons for selected module.');
+      toast.error('Failed to load units for selected subject.');
+    }
+  };
+
+  const handleUploadUnitChange = async (unitId: string) => {
+    setSelectedUploadUnitId(unitId);
+    setSelectedUploadLessonId('');
+    setAvailableLessons([]);
+    
+    if (!unitId) return;
+    
+    try {
+      const data = await apiFetch(`/lessons?unitId=${unitId}`);
+      setAvailableLessons(data);
+    } catch (err: any) {
+      toast.error('Failed to load lessons for selected unit.');
     }
   };
 
@@ -786,12 +793,16 @@ export default function AdminDashboard() {
   // Upload video file using XHR to track real progress
   const handleVideoUpload = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUploadCourseId) {
-      alert('Please select a course.');
+    if (!selectedUploadProgramId) {
+      alert('Please select a program.');
       return;
     }
-    if (!selectedUploadModule) {
-      alert('Please select a module.');
+    if (!selectedUploadSubjectId) {
+      alert('Please select a subject.');
+      return;
+    }
+    if (!selectedUploadUnitId) {
+      alert('Please select a unit.');
       return;
     }
     if (!selectedUploadLessonId) {
@@ -824,17 +835,18 @@ export default function AdminDashboard() {
     const formData = new FormData();
     formData.append('video', selectedFile);
     formData.append('title', uploadTitle.trim());
-    formData.append('courseId', selectedUploadCourseId);
+    formData.append('courseId', selectedUploadProgramId);
     formData.append('lessonId', selectedUploadLessonId);
     formData.append('duration', uploadDuration || '15:00');
     formData.append('attachmentUrl', uploadAttachmentUrl);
     formData.append('attachmentName', uploadAttachmentName);
 
     const xhr = new XMLHttpRequest();
+    xhr.withCredentials = true;
     const token = localStorage.getItem('token');
 
     xhr.open('POST', getApiUrl('/videos/youtube/upload'));
-    if (token) {
+    if (token && token !== 'session_active') {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
 
@@ -848,15 +860,17 @@ export default function AdminDashboard() {
     xhr.onload = () => {
       setUploading(false);
       if (xhr.status === 202 || xhr.status === 200) {
-        setUploadSuccess('Video uploaded successfully! Streaming and processing on YouTube in the background.');
+        setUploadSuccess('Video uploaded successfully. The video will be available shortly.');
         setUploadTitle('');
         setSelectedFile(null);
         setUploadDuration('');
         setUploadAttachmentUrl('');
         setUploadAttachmentName('');
-        setSelectedUploadCourseId('');
-        setSelectedUploadModule('');
-        setAvailableModules([]);
+        setSelectedUploadProgramId('');
+        setSelectedUploadSubjectId('');
+        setAvailableUploadSubjects([]);
+        setSelectedUploadUnitId('');
+        setAvailableUploadUnits([]);
         setSelectedUploadLessonId('');
         setAvailableLessons([]);
         loadCrmData();
@@ -891,25 +905,186 @@ export default function AdminDashboard() {
     }
   };
 
-  const filteredStudents = studentsList.filter(student =>
-    student.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-    student.email.toLowerCase().includes(studentSearch.toLowerCase()) ||
-    String(student.user_id).includes(studentSearch)
+  const getAccessExpiry = (joinedDate: string, packageExpiryDate?: string | null) => {
+    if (!packageExpiryDate) {
+      return { date: 'Lifetime', relative: 'No Expiry' };
+    }
+    const expiry = new Date(packageExpiryDate);
+    if (isNaN(expiry.getTime())) {
+      return { date: 'Lifetime', relative: 'No Expiry' };
+    }
+    const now = new Date();
+    const diffMs = expiry.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const months = Math.floor(diffDays / 30);
+    const relativeStr = diffDays < 0 ? 'Expired' : months > 0 ? `in ${months} month${months > 1 ? 's' : ''}` : `in ${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+    return { date: expiry.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }), relative: relativeStr };
+  };
+
+  const getStatusDetails = (status: string) => {
+    const isSuspended = status === 'inactive' || status === 'suspended';
+    return {
+      label: isSuspended ? 'Suspended' : 'Active',
+      badgeClass: isSuspended 
+        ? 'text-red-400 border-red-500/20 bg-red-500/10' 
+        : 'text-green-400 border-green-500/20 bg-green-500/10',
+      dotClass: isSuspended ? 'bg-red-400' : 'bg-green-400'
+    };
+  };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const filteredStudents = studentsList.filter(student => {
+    const matchesSearch = student.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+      student.email.toLowerCase().includes(studentSearch.toLowerCase()) ||
+      String(student.user_id).includes(studentSearch);
+    const matchesBatch = !studentBatchFilter || (student.courseName || '').toLowerCase() === studentBatchFilter.toLowerCase();
+    const matchesStatus = !studentStatusFilter || student.status === studentStatusFilter;
+    
+    let matchesExpiry = true;
+    if (studentExpiryFilter) {
+      const expiry = getAccessExpiry(student.joined || student.enrollmentDate || new Date().toISOString(), student.packageExpiryDate);
+      if (studentExpiryFilter === 'expired') {
+        matchesExpiry = expiry.relative === 'Expired';
+      } else if (studentExpiryFilter === 'active') {
+        matchesExpiry = expiry.relative !== 'Expired';
+      } else if (studentExpiryFilter === '30') {
+        if (!student.packageExpiryDate) {
+          matchesExpiry = false;
+        } else {
+          const expiryDate = new Date(student.packageExpiryDate);
+          const diffMs = expiryDate.getTime() - new Date().getTime();
+          const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+          matchesExpiry = diffDays >= 0 && diffDays <= 30;
+        }
+      }
+    }
+    
+    return matchesSearch && matchesBatch && matchesStatus && matchesExpiry;
+  });
+
+  const totalStudentPages = Math.max(1, Math.ceil(filteredStudents.length / studentsPerPage));
+  const paginatedStudents = filteredStudents.slice(
+    (studentPage - 1) * studentsPerPage,
+    studentPage * studentsPerPage
   );
+  const uniqueBatches = [...new Set(studentsList.map(s => s.courseName).filter(Boolean))];
+  const activeStudentsCount = studentsList.filter(s => s.status === 'active').length;
+  const suspendedStudentsCount = studentsList.filter(s => s.status === 'inactive' || s.status === 'suspended').length;
+  const inactiveStudentsCount = 0; // inactive database mapping represents suspended cohort-wise
+
+  const resetStudentFilters = () => { setStudentSearch(''); setStudentBatchFilter(''); setStudentStatusFilter(''); setStudentExpiryFilter(''); setStudentPage(1); };
+
+  const handleBulkToggleStatus = async (status: 'active' | 'inactive') => {
+    if (selectedStudentIds.length === 0) return alert('Select at least one student.');
+    try {
+      await Promise.all(
+        selectedStudentIds.map(studentId =>
+          apiFetch('/analytics/student-status', {
+            method: 'POST',
+            body: JSON.stringify({ studentId, status })
+          })
+        )
+      );
+      setSelectedStudentIds([]);
+      loadCrmData();
+      toast.success(`Selected students updated to ${status === 'active' ? 'Active' : 'Suspended'}.`);
+    } catch (err: any) {
+      alert(err.message || 'Bulk status update failed.');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedStudentIds.length === 0) return alert('Select at least one student.');
+    if (!window.confirm(`Are you sure you want to delete the ${selectedStudentIds.length} selected students and their related records?`)) return;
+    try {
+      await Promise.all(
+        selectedStudentIds.map(studentId =>
+          apiFetch(`/analytics/students/${studentId}`, { method: 'DELETE' })
+        )
+      );
+      setSelectedStudentIds([]);
+      loadCrmData();
+      toast.success('Selected students deleted successfully.');
+    } catch (err: any) {
+      alert(err.message || 'Bulk delete failed.');
+    }
+  };
+
+  const handleBulkAssignBatch = async () => {
+    if (selectedStudentIds.length === 0) return alert('Select at least one student.');
+    const batchName = window.prompt("Available Batches:\n" + coursesList.map(c => c.title).join(", ") + "\n\nEnter the Batch Name to assign to all selected students:");
+    if (!batchName) return;
+    const course = coursesList.find(c => c.title.toLowerCase() === batchName.trim().toLowerCase());
+    if (!course) return alert(`Batch "${batchName}" not found.`);
+
+    try {
+      await apiFetch('/purchases/admin/bulk-enroll', {
+        method: 'POST',
+        body: JSON.stringify({ courseId: course._id, studentIds: selectedStudentIds })
+      });
+      setSelectedStudentIds([]);
+      loadCrmData();
+      toast.success(`Selected students enrolled in Batch ${course.title}.`);
+    } catch (err: any) {
+      alert(err.message || 'Bulk batch assignment failed.');
+    }
+  };
+
+  const handleBulkRemoveBatch = async () => {
+    if (selectedStudentIds.length === 0) return alert('Select at least one student.');
+    const batchName = window.prompt("Available Batches:\n" + coursesList.map(c => c.title).join(", ") + "\n\nEnter the Batch Name to remove from all selected students:");
+    if (!batchName) return;
+    const course = coursesList.find(c => c.title.toLowerCase() === batchName.trim().toLowerCase());
+    if (!course) return alert(`Batch "${batchName}" not found.`);
+
+    try {
+      await Promise.all(
+        selectedStudentIds.map(studentId =>
+          apiFetch('/purchases/admin/remove-course', {
+            method: 'POST',
+            body: JSON.stringify({ studentId, courseId: course._id })
+          })
+        )
+      );
+      setSelectedStudentIds([]);
+      loadCrmData();
+      toast.success(`Selected students removed from Batch ${course.title}.`);
+    } catch (err: any) {
+      alert(err.message || 'Bulk batch removal failed.');
+    }
+  };
 
   return (
     <div className="flex min-h-screen overflow-hidden bg-background text-foreground">
       {/* Sidebar */}
       <aside className="hidden lg:flex flex-col w-72 bg-sidebar border-r border-sidebar-border">
         <div className="p-6 border-b border-sidebar-border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/20">
-              <GraduationCap className="w-6 h-6 text-white" />
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              {brandingLogo ? (
+                <img src={brandingLogo} alt="Institute" className="w-9 h-9 rounded-xl object-contain border border-border/50" />
+              ) : (
+                <div className="w-9 h-9 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/20">
+                  <GraduationCap className="w-5 h-5 text-white" />
+                </div>
+              )}
+              <div>
+                <h1 className="text-base font-bold leading-none">Trineo Stream</h1>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Institute Dashboard</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-bold leading-none">Trineo</h1>
-              <p className="text-xs text-violet-500 font-semibold tracking-wide mt-0.5">Admin Panel</p>
-            </div>
+            {brandingInstituteName && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium pl-1">
+                <span className="text-primary text-base leading-none">•</span>
+                <span>{brandingInstituteName}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -981,21 +1156,7 @@ export default function AdminDashboard() {
                 <Bell className="w-5 h-5" />
               </Button>
             </div>
-            <Button
-              size="icon"
-              className="sm:hidden h-11 w-11 bg-gradient-to-r from-violet-600 to-indigo-600 text-white"
-              onClick={() => setShowCourseModal(true)}
-              aria-label="Create course"
-            >
-              <Plus className="w-5 h-5" />
-            </Button>
-            <Button 
-              className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-500/20 hidden sm:inline-flex min-h-11"
-              onClick={() => setShowCourseModal(true)}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              <span>Create Course</span>
-            </Button>
+
 
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-border">
               <Avatar>
@@ -1022,312 +1183,200 @@ export default function AdminDashboard() {
 
             {/* TAB 1: OVERVIEW */}
             {activeTab === 'overview' && (
-              <>
-                {/* Stats Cards */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5 }}
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {[
-                      {
-                        title: 'Total Students',
-                        value: metrics.totalStudents,
-                        icon: Users,
-                        color: 'text-primary',
-                        bgColor: 'bg-primary/5',
-                      },
-                      {
-                        title: 'Active Courses',
-                        value: metrics.activeCourses,
-                        icon: BookOpen,
-                        color: 'text-slate-700',
-                        bgColor: 'bg-slate-100',
-                      },
-                      {
-                        title: 'Watch Hours',
-                        value: metrics.watchHours ?? 0,
-                        icon: Video,
-                        color: 'text-primary',
-                        bgColor: 'bg-primary/5',
-                      },
-                      {
-                        title: 'New Enrollments',
-                        value: metrics.newEnrollments ?? 0,
-                        icon: TrendingUp,
-                        color: 'text-green-600',
-                        bgColor: 'bg-green-500/10',
-                      },
-                      {
-                        title: 'Revenue',
-                        value: `$${metrics.totalRevenue}`,
-                        icon: DollarSign,
-                        color: 'text-slate-700',
-                        bgColor: 'bg-slate-100',
-                      },
-                      {
-                        title: 'Completion Rate',
-                        value: `${metrics.completionRate}%`,
-                        icon: Award,
-                        color: 'text-slate-700',
-                        bgColor: 'bg-slate-100',
-                      },
-                    ].map((stat, index) => (
-                      <Card key={index} className="border-border/50 bg-card">
-                        <CardContent className="p-6">
-                          <div className="flex items-center justify-between mb-4">
-                            <div className={`p-3 rounded-xl ${stat.bgColor}`}>
-                              <stat.icon className={`w-6 h-6 ${stat.color}`} />
-                            </div>
-                            <Badge variant="outline" className="text-green-400 border-green-500/20 bg-green-500/10">
-                              +10% vs last month
-                            </Badge>
-                          </div>
-                          <div className="text-3xl font-bold mb-1">{stat.value}</div>
-                          <div className="text-sm text-muted-foreground">{stat.title}</div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </motion.div>
-
-                {/* Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <Card className="border-border/50 bg-card">
-                    <CardHeader>
-                      <CardTitle>Institute Revenue Analytics</CardTitle>
-                      <CardDescription>Monthly growth indices</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="h-80">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={revenueData}>
-                            <defs>
-                              <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                            <XAxis dataKey="month" stroke="#666" />
-                            <YAxis stroke="#666" />
-                            <Area
-                              type="monotone"
-                              dataKey="revenue"
-                              stroke="#8b5cf6"
-                              fillOpacity={1}
-                              fill="url(#colorRevenue)"
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-border/50 bg-card">
-                    <CardHeader>
-                      <CardTitle>Course Popularity</CardTitle>
-                      <CardDescription>Active enrollments per course</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="h-80">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={topCourses}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                            <XAxis dataKey="name" stroke="#666" />
-                            <YAxis stroke="#666" />
-                            <Bar dataKey="enrollments" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Recent Notifications logs */}
-                <Card className="border-border/50 bg-card">
-                  <CardHeader>
-                    <CardTitle>Recent Activity Logs</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {recentActivity.map((activity) => (
-                        <div key={activity.id} className="flex items-start gap-4 pb-4 border-b border-border/50 last:border-0">
-                          <div className="p-2 bg-primary/5 rounded-lg">
-                            <Activity className="w-4 h-4 text-primary" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm">
-                              <span className="font-medium text-foreground">{activity.user}</span>{' '}
-                              <span className="text-muted-foreground">{activity.action}</span>
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">{activity.time}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </>
+              <AnalyticsUpgrade />
             )}
 
             {/* TAB 2: STUDENTS */}
             {activeTab === 'students' && (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                {/* Header Section */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-foreground">Student Access Control</h2>
+                    <p className="text-muted-foreground text-sm">Manage student status, profile details, and batch access.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button variant="outline" onClick={exportStudentsCSV} className="border-border bg-card">
+                      <FileText className="w-4 h-4 mr-2 text-muted-foreground" />
+                      Export CSV
+                    </Button>
+                    <Button onClick={() => setActiveTab('import')} className="bg-[#4f46e5] hover:bg-[#4338ca] text-white">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Import Students
+                    </Button>
+                    <Button onClick={openCreateStudentModal} className="bg-[#4f46e5] hover:bg-[#4338ca] text-white">
+                      <Plus className="w-4 h-4 mr-2" />
+                      New Student
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Stats Cards Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Total Students Card */}
                   <Card className="border-border/50 bg-card">
-                    <CardHeader>
-                      <CardTitle>{editingStudent ? 'Edit Student' : 'Add Student'}</CardTitle>
-                      <CardDescription>Create or update student profiles and access status.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <form className="space-y-4" onSubmit={handleSubmitStudent}>
-                        <div className="space-y-2">
-                          <Label>Name</Label>
-                          <Input value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Student name" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Email</Label>
-                          <Input value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} placeholder="student@school.edu" />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Phone</Label>
-                            <Input value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} placeholder="Phone number" />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Status</Label>
-                            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={newStudentStatus} onChange={(e) => setNewStudentStatus(e.target.value as 'active' | 'inactive')}>
-                              <option value="active">Active</option>
-                              <option value="inactive">Inactive</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Batch Name</Label>
-                            <Input value={newStudentBatch} onChange={(e) => setNewStudentBatch(e.target.value)} placeholder="e.g. Batch 2024-A" />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Branch</Label>
-                            <Input value={newStudentBranch} onChange={(e) => setNewStudentBranch(e.target.value)} placeholder="e.g. Main Campus" />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Program / Course Name</Label>
-                            <Input value={newStudentCourseName} onChange={(e) => setNewStudentCourseName(e.target.value)} placeholder="e.g. BSc Computer Science" />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Enrollment Date</Label>
-                            <Input type="date" value={newStudentEnrollmentDate} onChange={(e) => setNewStudentEnrollmentDate(e.target.value)} />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Password {editingStudent ? '(leave blank to keep current)' : ''}</Label>
-                          <Input type="password" value={newStudentPassword} onChange={(e) => setNewStudentPassword(e.target.value)} placeholder="Temp password" />
-                        </div>
-                        <Button type="submit" className="w-full bg-primary hover:bg-[#1f5fa7] text-white">
-                          {editingStudent ? 'Save Student' : 'Add Student'}
-                        </Button>
-                        {editingStudent && (
-                          <Button type="button" variant="outline" className="w-full" onClick={() => { setEditingStudent(null); openCreateStudentModal(); }}>
-                            Reset Form
-                          </Button>
-                        )}
-                      </form>
+                    <CardContent className="p-6 flex items-center gap-4">
+                      <div className="p-3 bg-violet-500/10 rounded-xl text-violet-500">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground font-medium">Total Students</p>
+                        <h3 className="text-2xl font-bold mt-0.5">{studentsList.length}</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">All students</p>
+                      </div>
                     </CardContent>
                   </Card>
 
-                  <Card className="xl:col-span-2 border-border/50 bg-card">
-                    <CardHeader>
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                          <CardTitle>Enrollment Control</CardTitle>
-                          <CardDescription>Assign, remove, or bulk enroll selected students into a course.</CardDescription>
-                        </div>
-                        <Button variant="outline" onClick={openCreateStudentModal}>
-                          <UserPlus className="w-4 h-4 mr-2" />
-                          New Student
-                        </Button>
+                  {/* Active Students Card */}
+                  <Card className="border-border/50 bg-card">
+                    <CardContent className="p-6 flex items-center gap-4">
+                      <div className="p-3 bg-green-500/10 rounded-xl text-green-500">
+                        <CheckCircle className="w-6 h-6" />
                       </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-2 md:col-span-2">
-                          <Label>Target Course</Label>
-                          <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={selectedCourseForEnrollment} onChange={(e) => setSelectedCourseForEnrollment(e.target.value)}>
-                            <option value="">Select a course</option>
-                            {coursesList.map((course) => (
-                              <option key={course._id} value={course._id}>{course.title}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Selected Students</Label>
-                          <div className="h-10 rounded-md border border-border bg-muted/20 px-3 flex items-center text-sm text-muted-foreground">
-                            {selectedStudentIds.length} selected
-                          </div>
-                        </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground font-medium">Active Students</p>
+                        <h3 className="text-2xl font-bold mt-0.5">{activeStudentsCount}</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Currently active</p>
                       </div>
-                      <div className="flex flex-wrap gap-3">
-                        <Button variant="outline" onClick={handleBulkEnroll}>
-                          <Layers3 className="w-4 h-4 mr-2" />
-                          Bulk Enroll
-                        </Button>
-                        <Button variant="outline" onClick={() => setSelectedStudentIds([])}>
-                          Clear Selection
-                        </Button>
+                    </CardContent>
+                  </Card>
+
+                  {/* Suspended Students Card */}
+                  <Card className="border-border/50 bg-card">
+                    <CardContent className="p-6 flex items-center gap-4">
+                      <div className="p-3 bg-amber-500/10 rounded-xl text-amber-500">
+                        <UserX className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground font-medium">Suspended Students</p>
+                        <h3 className="text-2xl font-bold mt-0.5">{suspendedStudentsCount}</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Temporarily suspended</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Inactive Students Card */}
+                  <Card className="border-border/50 bg-card">
+                    <CardContent className="p-6 flex items-center gap-4">
+                      <div className="p-3 bg-red-500/10 rounded-xl text-red-500">
+                        <XCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground font-medium">Inactive Students</p>
+                        <h3 className="text-2xl font-bold mt-0.5">{inactiveStudentsCount}</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Inactive accounts</p>
                       </div>
                     </CardContent>
                   </Card>
                 </div>
 
+                {/* Filters, Table and Pagination Card */}
                 <Card className="border-border/50 bg-card">
-                  <CardHeader>
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <CardTitle>Student Access Control</CardTitle>
-                        <CardDescription>Manage status, profile details, and course enrollment permissions.</CardDescription>
-                      </div>
-                      <div className="flex items-center gap-4 w-full md:w-auto">
-                        <div className="relative w-full md:w-72">
+                  <CardContent className="p-6 space-y-6">
+                    {/* Filters Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                      {/* Search Bar */}
+                      <div className="md:col-span-5 space-y-1.5">
+                        <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                           <Input
-                            placeholder="Search by name, email, ID..."
-                            className="pl-10 bg-background/50"
+                            placeholder="Search by name, email, or user ID..."
+                            className="pl-10 bg-background/50 border-border"
                             value={studentSearch}
-                            onChange={(e) => setStudentSearch(e.target.value)}
+                            onChange={(e) => { setStudentSearch(e.target.value); setStudentPage(1); }}
                           />
                         </div>
-                        <Button variant="outline" onClick={exportStudentsCSV} className="whitespace-nowrap">
-                          <FileText className="w-4 h-4 mr-2" />
-                          Export CSV
+                      </div>
+
+                      {/* Batch Select */}
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Batch</label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                          value={studentBatchFilter}
+                          onChange={(e) => { setStudentBatchFilter(e.target.value); setStudentPage(1); }}
+                        >
+                          <option value="">All Batches</option>
+                          {uniqueBatches.map(b => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Status Select */}
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                          value={studentStatusFilter}
+                          onChange={(e) => { setStudentStatusFilter(e.target.value); setStudentPage(1); }}
+                        >
+                          <option value="">All Status</option>
+                          <option value="active">Active</option>
+                          <option value="inactive">Suspended</option>
+                        </select>
+                      </div>
+
+                      {/* Access Expiry Select */}
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Access Expiry</label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                          value={studentExpiryFilter}
+                          onChange={(e) => { setStudentExpiryFilter(e.target.value); setStudentPage(1); }}
+                        >
+                          <option value="">All</option>
+                          <option value="active">Active Access</option>
+                          <option value="30">Expiring soon (30 days)</option>
+                          <option value="expired">Expired</option>
+                        </select>
+                      </div>
+
+                      {/* Reset Button */}
+                      <div className="md:col-span-1">
+                        <Button variant="outline" onClick={resetStudentFilters} className="w-full border-border bg-card">
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Reset
                         </Button>
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent>
+
+                    {/* Table View */}
                     <ResponsiveDataView
                       desktop={
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead className="w-10">Select</TableHead>
+                              <TableHead className="w-10">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedStudentIds.length > 0 && selectedStudentIds.length === paginatedStudents.length}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedStudentIds(paginatedStudents.map(s => s.id));
+                                    } else {
+                                      setSelectedStudentIds([]);
+                                    }
+                                  }}
+                                  className="h-4 w-4 rounded border-border"
+                                />
+                              </TableHead>
                               <TableHead>User ID</TableHead>
                               <TableHead>Student</TableHead>
                               <TableHead>Email</TableHead>
-                              <TableHead>Assigned Courses</TableHead>
-                              <TableHead>Avg Progress</TableHead>
+                              <TableHead>Batch</TableHead>
                               <TableHead>Joined Date</TableHead>
                               <TableHead>Status</TableHead>
+                              <TableHead>Access Expiry</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {filteredStudents.map((student) => {
+                            {paginatedStudents.map((student) => {
                               const checked = selectedStudentIds.includes(student.id);
+                              const expiry = getAccessExpiry(student.joined || student.enrollmentDate || new Date().toISOString(), student.packageExpiryDate);
+                              const statusDetails = getStatusDetails(student.status);
+                              
                               return (
                                 <TableRow key={student.id}>
                                   <TableCell>
@@ -1344,37 +1393,115 @@ export default function AdminDashboard() {
                                       className="h-4 w-4 rounded border-border"
                                     />
                                   </TableCell>
-                                  <TableCell className="font-mono text-primary">{student.user_id}</TableCell>
+                                  <TableCell className="font-mono text-primary font-medium">{student.user_id}</TableCell>
                                   <TableCell>
                                     <div className="flex items-center gap-3">
-                                      <Avatar className="w-8 h-8">
-                                        <AvatarImage src={student.avatar} />
+                                      <Avatar className="w-10 h-10 border border-border">
+                                        <AvatarImage src={student.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${student.name}`} />
                                         <AvatarFallback>ST</AvatarFallback>
                                       </Avatar>
-                                      <span className="font-medium">{student.name}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-foreground">{student.name}</span>
+                                        <Badge variant="outline" className={`${statusDetails.badgeClass} text-[10px] px-1.5 py-0`}>
+                                          {statusDetails.label}
+                                        </Badge>
+                                      </div>
                                     </div>
                                   </TableCell>
-                                  <TableCell className="text-muted-foreground">{student.email}</TableCell>
-                                  <TableCell>{student.courses} courses</TableCell>
-                                  <TableCell>{student.progress}%</TableCell>
-                                  <TableCell className="text-muted-foreground">{student.joined}</TableCell>
+                                  <TableCell className="text-muted-foreground font-medium">{student.email}</TableCell>
                                   <TableCell>
-                                    <Badge
-                                      variant="outline"
-                                      className={student.status === 'active' ? 'text-green-400 border-green-500/20 bg-green-500/10' : 'text-red-400 border-red-500/20 bg-red-500/10'}
-                                    >
-                                      {student.status}
+                                    <Badge variant="outline" className="text-blue-400 border-blue-500/20 bg-blue-500/5 font-semibold">
+                                      {student.courseName || 'Not Assigned'}
                                     </Badge>
                                   </TableCell>
+                                  <TableCell className="text-muted-foreground font-medium">{formatDate(student.joined)}</TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className={`${statusDetails.badgeClass} gap-1.5 font-medium`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${statusDetails.dotClass}`} />
+                                      {statusDetails.label}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-col">
+                                      <span className="font-semibold text-foreground text-sm">{expiry.date}</span>
+                                      <span className="text-xs text-muted-foreground">{expiry.relative}</span>
+                                    </div>
+                                  </TableCell>
                                   <TableCell className="text-right">
-                                    <div className="flex items-center justify-end gap-2 flex-wrap">
-                                      <Button variant="outline" size="sm" className="min-h-11" onClick={() => openEditStudentModal(student)}><PencilLine className="w-4 h-4 mr-1" />Edit</Button>
-                                      <Button variant="outline" size="sm" className="min-h-11" onClick={() => handleAssignCourse(student.id)}><UserPlus className="w-4 h-4 mr-1" />Assign</Button>
-                                      <Button variant="outline" size="sm" className="min-h-11" onClick={() => handleRemoveCourse(student.id)}><UserMinus className="w-4 h-4 mr-1" />Remove</Button>
-                                      <Button variant="ghost" size="sm" className="min-h-11 text-xs text-primary" onClick={() => handleToggleStatus(student.id, student.status)}>
-                                        {student.status === 'active' ? <><ToggleRight className="w-5 h-5 text-green-400" /><span>Suspend</span></> : <><ToggleLeft className="w-5 h-5" /><span>Activate</span></>}
+                                    <div className="flex items-center justify-end gap-2">
+                                      <Button variant="outline" size="sm" onClick={() => openEditStudentModal(student)} className="border-border">
+                                        <PencilLine className="w-3.5 h-3.5 mr-1" />
+                                        Edit
                                       </Button>
-                                      <Button variant="outline" size="sm" className="min-h-11 border-red-500/30 text-red-500" onClick={() => handleDeleteStudent(student.id)}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>
+                                      
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="outline" size="sm" className="border-border gap-1 bg-card">
+                                            Actions
+                                            <ChevronDown className="w-3 h-3" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="bg-card border-border">
+                                          <DropdownMenuItem onClick={() => handleResendWelcome(student.id)}>
+                                            <Mail className="w-4 h-4 mr-2" />
+                                            Resend Welcome Email
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleResetPassword(student.id)}>
+                                            <Key className="w-4 h-4 mr-2" />
+                                            Reset Password
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={async () => {
+                                            const batchName = window.prompt("Available Batches:\n" + coursesList.map(c => c.title).join(", ") + "\n\nEnter Batch Name to assign:");
+                                            if (batchName) {
+                                              const course = coursesList.find(c => c.title.toLowerCase() === batchName.trim().toLowerCase());
+                                              if (course) {
+                                                await apiFetch('/purchases/admin/assign-course', {
+                                                  method: 'POST',
+                                                  body: JSON.stringify({ studentId: student.id, courseId: course._id })
+                                                });
+                                                loadCrmData();
+                                                toast.success(`Assigned to Batch ${course.title}`);
+                                              } else {
+                                                alert(`Batch "${batchName}" not found.`);
+                                              }
+                                            }
+                                          }}>
+                                            <UserPlus className="w-4 h-4 mr-2" />
+                                            Assign Batch
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={async () => {
+                                            const batchName = window.prompt("Enter Batch Name to remove:", student.courseName || '');
+                                            if (batchName) {
+                                              const course = coursesList.find(c => c.title.toLowerCase() === batchName.trim().toLowerCase());
+                                              if (course) {
+                                                await apiFetch('/purchases/admin/remove-course', {
+                                                  method: 'POST',
+                                                  body: JSON.stringify({ studentId: student.id, courseId: course._id })
+                                                });
+                                                loadCrmData();
+                                                toast.success(`Removed from Batch ${course.title}`);
+                                              } else {
+                                                alert(`Batch "${batchName}" not found.`);
+                                              }
+                                            }
+                                          }}>
+                                            <UserMinus className="w-4 h-4 mr-2" />
+                                            Remove Batch
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleToggleStatus(student.id, student.status)}>
+                                            <AlertCircle className="w-4 h-4 mr-2" />
+                                            {student.status === 'active' ? 'Suspend Student' : 'Activate Student'}
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem variant="destructive" onClick={() => handleDeleteStudent(student.id)} className="text-red-500 focus:text-red-500">
+                                            <Trash2 className="w-4 h-4 mr-2" />
+                                            Delete Student
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+
+                                      <Button variant="outline" size="sm" className="border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-500" onClick={() => handleDeleteStudent(student.id)}>
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
                                     </div>
                                   </TableCell>
                                 </TableRow>
@@ -1383,37 +1510,185 @@ export default function AdminDashboard() {
                           </TableBody>
                         </Table>
                       }
-                      mobile={filteredStudents.map((student) => (
-                        <MobileRecordCard
-                          key={student.id}
-                          title={student.name}
-                          subtitle={student.email}
-                          badges={
-                            <Badge variant="outline" className={student.status === 'active' ? 'text-green-600 border-green-500/30' : 'text-red-600 border-red-500/30'}>
-                              {student.status}
-                            </Badge>
-                          }
-                          rows={[
-                            { label: 'User ID', value: student.user_id },
-                            { label: 'Courses', value: `${student.courses} enrolled` },
-                            { label: 'Progress', value: `${student.progress}%` },
-                            { label: 'Joined', value: student.joined },
-                          ]}
-                          actions={
-                            <>
-                              <Button variant="outline" size="sm" className="min-h-11 flex-1" onClick={() => openEditStudentModal(student)}>Edit</Button>
-                              <Button variant="outline" size="sm" className="min-h-11 flex-1" onClick={() => handleAssignCourse(student.id)}>Assign</Button>
-                              <Button variant="outline" size="sm" className="min-h-11" onClick={() => handleToggleStatus(student.id, student.status)}>
-                                {student.status === 'active' ? 'Suspend' : 'Activate'}
-                              </Button>
-                              <Button variant="outline" size="sm" className="min-h-11 text-red-500" onClick={() => handleDeleteStudent(student.id)}>Delete</Button>
-                            </>
-                          }
-                        />
-                      ))}
+                      mobile={paginatedStudents.map((student) => {
+                        const statusDetails = getStatusDetails(student.status);
+                        return (
+                          <MobileRecordCard
+                            key={student.id}
+                            title={student.name}
+                            subtitle={student.email}
+                            badges={
+                              <Badge variant="outline" className={statusDetails.badgeClass}>
+                                {statusDetails.label}
+                              </Badge>
+                            }
+                            rows={[
+                              { label: 'User ID', value: student.user_id },
+                              { label: 'Batch', value: student.courseName || 'Not Assigned' },
+                              { label: 'Joined', value: formatDate(student.joined) },
+                            ]}
+                            actions={
+                              <>
+                                <Button variant="outline" size="sm" className="min-h-11 flex-1 border-border bg-card" onClick={() => openEditStudentModal(student)}>Edit</Button>
+                                <Button variant="outline" size="sm" className="min-h-11 flex-1 border-border text-blue-400 bg-card" onClick={() => handleResendWelcome(student.id)}>Resend Welcome</Button>
+                                <Button variant="outline" size="sm" className="min-h-11 flex-1 border-border text-amber-400 bg-card" onClick={() => handleResetPassword(student.id)}>Reset Password</Button>
+                                <Button variant="outline" size="sm" className="min-h-11 border-border bg-card" onClick={() => handleToggleStatus(student.id, student.status)}>
+                                  {student.status === 'active' ? 'Suspend' : 'Activate'}
+                                </Button>
+                                <Button variant="outline" size="sm" className="min-h-11 border-red-500/30 text-red-500 bg-card" onClick={() => handleDeleteStudent(student.id)}>Delete</Button>
+                              </>
+                            }
+                          />
+                        );
+                      })}
                     />
+
+                    {/* Footer Row: Bulk Actions & Pagination */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-6 border-t border-border/50">
+                      {/* Bulk Actions */}
+                      <div className="flex items-center gap-3">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" disabled={selectedStudentIds.length === 0} className="border-border gap-1 text-sm bg-card">
+                              Bulk Actions
+                              <ChevronDown className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="bg-card border-border">
+                            <DropdownMenuItem onClick={handleBulkAssignBatch}>
+                              <UserPlus className="w-4 h-4 mr-2" />
+                              Bulk Assign Batch
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleBulkRemoveBatch}>
+                              <UserMinus className="w-4 h-4 mr-2" />
+                              Bulk Remove Batch
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleBulkToggleStatus('inactive')}>
+                              <UserX className="w-4 h-4 mr-2" />
+                              Bulk Suspend
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleBulkToggleStatus('active')}>
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Bulk Activate
+                            </DropdownMenuItem>
+                            <DropdownMenuItem variant="destructive" onClick={handleBulkDelete} className="text-red-500 focus:text-red-500">
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Bulk Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <span className="text-xs text-muted-foreground font-medium">
+                          {selectedStudentIds.length} selected
+                        </span>
+                      </div>
+
+                      {/* Rows per page & Pagination Controls */}
+                      <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">Rows per page</span>
+                          <select
+                            className="flex h-8 w-16 rounded-md border border-input bg-background px-2 py-1 text-sm"
+                            value={studentsPerPage}
+                            onChange={(e) => { setStudentsPerPage(Number(e.target.value)); setStudentPage(1); }}
+                          >
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                          </select>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="w-8 h-8 p-0"
+                            disabled={studentPage <= 1}
+                            onClick={() => setStudentPage((p) => Math.max(1, p - 1))}
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <div className="w-8 h-8 flex items-center justify-center border border-border rounded-md bg-card text-sm font-semibold">
+                            {studentPage}
+                          </div>
+                          <span className="text-sm text-muted-foreground">of {totalStudentPages}</span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="w-8 h-8 p-0"
+                            disabled={studentPage >= totalStudentPages}
+                            onClick={() => setStudentPage((p) => Math.min(totalStudentPages, p + 1))}
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
+
+                {/* Edit/Add Dialog Modal */}
+                <Dialog open={showStudentModal} onOpenChange={setShowStudentModal}>
+                  <DialogContent className="sm:max-w-[500px] bg-card border-border">
+                    <DialogHeader>
+                      <DialogTitle className="text-xl font-bold">{editingStudent ? 'Edit Student' : 'Add Student'}</DialogTitle>
+                      <DialogDescription>Create or update student profiles and access status.</DialogDescription>
+                    </DialogHeader>
+                    <form className="space-y-4 mt-2" onSubmit={handleSubmitStudent}>
+                      <div className="space-y-2">
+                        <Label>Student Name *</Label>
+                        <Input value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Student name" required />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Email Address *</Label>
+                        <Input type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} placeholder="student@school.edu" required />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Phone Number *</Label>
+                          <Input value={newStudentPhone} onChange={(e) => setNewStudentPhone(e.target.value)} placeholder="Phone number" required />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Status *</Label>
+                          <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={newStudentStatus} onChange={(e) => setNewStudentStatus(e.target.value as 'active' | 'inactive')} required>
+                            <option value="active">ACTIVE</option>
+                            <option value="inactive">SUSPENDED</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Batch *</Label>
+                          <select 
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" 
+                            value={newStudentCourseName} 
+                            onChange={(e) => setNewStudentCourseName(e.target.value)}
+                            required
+                          >
+                            <option value="">Select a Batch</option>
+                            {coursesList.map((course) => (
+                              <option key={course._id} value={course.title}>{course.title}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Campus *</Label>
+                          <Input value={newStudentBranch} disabled placeholder="e.g. Main Campus" required />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Admission Date *</Label>
+                        <Input type="date" value={newStudentEnrollmentDate} onChange={(e) => setNewStudentEnrollmentDate(e.target.value)} required />
+                      </div>
+                      <div className="flex gap-3 justify-end pt-4">
+                        <Button type="button" variant="outline" onClick={() => setShowStudentModal(false)}>Cancel</Button>
+                        <Button type="submit" className="bg-primary hover:bg-[#1f5fa7] text-white">
+                          {editingStudent ? 'Save Student' : 'Add Student'}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </div>
             )}
 
@@ -1424,13 +1699,9 @@ export default function AdminDashboard() {
                   <CardHeader>
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <CardTitle>Course Catalog</CardTitle>
-                        <CardDescription>Create, edit, delete, publish, or unpublish institute courses.</CardDescription>
+                        <CardTitle>Batch Catalog</CardTitle>
+                        <CardDescription>View, edit, delete, publish, or unpublish institute batches.</CardDescription>
                       </div>
-                      <Button onClick={openCreateCourseModal} className="bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create Course
-                      </Button>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -1438,9 +1709,7 @@ export default function AdminDashboard() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Course</TableHead>
-                            <TableHead>Instructor</TableHead>
-                            <TableHead>Price</TableHead>
+                            <TableHead>Batch</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
@@ -1452,27 +1721,35 @@ export default function AdminDashboard() {
                                 <div className="flex items-center gap-3">
                                   <img src={course.thumbnail} alt={course.title} className="h-10 w-10 rounded-lg object-cover border border-border" />
                                   <div>
-                                    <div className="font-medium">{course.title}</div>
-                                    <div className="text-xs text-muted-foreground line-clamp-1">{course.duration || 'Self-paced'}</div>
+                                    <div className="font-medium">{course.title || course.name}</div>
                                   </div>
                                 </div>
                               </TableCell>
-                              <TableCell className="text-muted-foreground">{course.instructor}</TableCell>
-                              <TableCell>${course.price}</TableCell>
                               <TableCell>
-                                <Badge variant="outline" className={course.status === 'active' ? 'text-green-500 border-green-500/20 bg-green-500/10' : 'text-amber-500 border-amber-500/20 bg-amber-500/10'}>
-                                  {course.status === 'active' ? 'Published' : 'Unpublished'}
-                                </Badge>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className={course.status === 'active' ? 'text-green-500 border-green-500/20 bg-green-500/10' : 'text-amber-500 border-amber-500/20 bg-amber-500/10'}>
+                                    {course.status === 'active' ? 'Published' : 'Unpublished'}
+                                  </Badge>
+                                  {course.isLocked && (
+                                    <Badge variant="outline" className="text-red-500 border-red-500/20 bg-red-50/10">
+                                      Locked
+                                    </Badge>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-2">
-                                  <Button size="sm" variant="outline" onClick={() => openEditCourseModal(course)}>
+                                  <Button size="sm" variant="outline" onClick={() => handleEditBatchFromDashboard(course._id)}>
                                     <PencilLine className="w-4 h-4 mr-1" />
                                     Edit
                                   </Button>
                                   <Button size="sm" variant="outline" onClick={() => handleToggleCourseStatus(course)}>
                                     {course.status === 'active' ? <ToggleLeft className="w-4 h-4 mr-1" /> : <ToggleRight className="w-4 h-4 mr-1" />}
                                     {course.status === 'active' ? 'Unpublish' : 'Publish'}
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => handleToggleCourseLock(course)}>
+                                    {course.isLocked ? <Unlock className="w-4 h-4 mr-1" /> : <Lock className="w-4 h-4 mr-1" />}
+                                    {course.isLocked ? 'Unlock' : 'Lock'}
                                   </Button>
                                   <Button size="sm" variant="outline" className="border-red-500/30 text-red-500 hover:bg-red-500/10" onClick={() => handleDeleteCourse(course._id)}>
                                     <Trash2 className="w-4 h-4 mr-1" />
@@ -1488,12 +1765,12 @@ export default function AdminDashboard() {
                   </CardContent>
                 </Card>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div>
                   {/* Form column */}
-                <Card className="lg:col-span-2 border-border/50 bg-card">
+                <Card className="border-border/50 bg-card">
                   <CardHeader>
-                    <CardTitle>Upload & Link Lesson Video</CardTitle>
-                    <CardDescription>Upload video files and assign them directly to lessons during upload.</CardDescription>
+                    <CardTitle>Upload & Link Topic Content</CardTitle>
+                    <CardDescription>Upload videos and PDF resources and link them to a topic within the selected Batch hierarchy.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <form onSubmit={handleVideoUpload} className="space-y-4">
@@ -1506,37 +1783,37 @@ export default function AdminDashboard() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="video-course">Course *</Label>
+                          <Label htmlFor="video-program">Choose Batch *</Label>
                           <select
-                            id="video-course"
+                            id="video-program"
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            value={selectedUploadCourseId}
-                            onChange={(e) => handleUploadCourseChange(e.target.value)}
+                            value={selectedUploadProgramId}
+                            onChange={(e) => handleUploadProgramChange(e.target.value)}
                             required
                           >
-                            <option value="">-- Choose Course --</option>
-                            {coursesList.map((c) => (
-                              <option key={c._id} value={c._id}>
-                                {c.title}
+                            <option value="">-- Choose Batch --</option>
+                            {programsList.map((p) => (
+                              <option key={p._id} value={p._id}>
+                                {p.name}
                               </option>
                             ))}
                           </select>
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="video-module">Module *</Label>
+                          <Label htmlFor="video-subject">Choose Subject *</Label>
                           <select
-                            id="video-module"
+                            id="video-subject"
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            value={selectedUploadModule}
-                            onChange={(e) => handleUploadModuleChange(e.target.value)}
+                            value={selectedUploadSubjectId}
+                            onChange={(e) => handleUploadSubjectChange(e.target.value)}
                             required
-                            disabled={!selectedUploadCourseId}
+                            disabled={!selectedUploadProgramId}
                           >
-                            <option value="">-- Choose Module --</option>
-                            {availableModules.map((m) => (
-                              <option key={m} value={m}>
-                                {m}
+                            <option value="">-- Choose Subject --</option>
+                            {availableUploadSubjects.map((s) => (
+                              <option key={s._id} value={s._id}>
+                                {s.subjectCode} - {s.subjectName}
                               </option>
                             ))}
                           </select>
@@ -1545,29 +1822,72 @@ export default function AdminDashboard() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="video-lesson">Lesson / Unit *</Label>
+                          <Label htmlFor="video-unit">Choose Unit *</Label>
+                          <select
+                            id="video-unit"
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            value={selectedUploadUnitId}
+                            onChange={(e) => handleUploadUnitChange(e.target.value)}
+                            required
+                            disabled={!selectedUploadSubjectId}
+                          >
+                            <option value="">-- Choose Unit --</option>
+                            {availableUploadUnits.map((u) => (
+                              <option key={u._id} value={u._id}>
+                                {u.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="video-lesson">Choose Topic *</Label>
                           <select
                             id="video-lesson"
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                             value={selectedUploadLessonId}
                             onChange={(e) => setSelectedUploadLessonId(e.target.value)}
                             required
-                            disabled={!selectedUploadModule}
+                            disabled={!selectedUploadUnitId}
                           >
-                            <option value="">-- Choose Lesson --</option>
-                            {availableLessons.map((l) => {
-                              const isReady = l.youtubeVideoId && l.uploadStatus === 'ready';
-                              const isProcessing = l.videoAssetId && l.uploadStatus !== 'ready';
-                              const labelSuffix = isReady ? ' (✓ Video Linked)' : isProcessing ? ' (⏳ Processing)' : ' (🔴 Video Missing)';
-                              return (
-                                <option key={l._id} value={l._id}>
-                                  {l.title}{labelSuffix}
-                                </option>
-                              );
-                            })}
+                            <option value="">-- Choose Topic --</option>
+                             {availableLessons.map((l) => {
+                               const hasVideo = l.contents && Array.isArray(l.contents)
+                                 ? l.contents.some((item: any) => item.type === 'video' && item.isDeleted !== true)
+                                 : (!!l.videoAssetId || !!l.youtubeVideoId);
+                               
+                               const videoContent = l.contents && Array.isArray(l.contents)
+                                 ? l.contents.find((item: any) => item.type === 'video' && item.isDeleted !== true)
+                                 : null;
+                               
+                               const uploadStatus = videoContent ? videoContent.uploadStatus : l.uploadStatus;
+                               const youtubeVideoId = videoContent ? videoContent.youtubeVideoId : l.youtubeVideoId;
+
+                               const isReady = youtubeVideoId && uploadStatus === 'ready';
+                               
+                               let labelSuffix = ' (🔴 Video Missing)';
+                               if (hasVideo) {
+                                 if (isReady) {
+                                   labelSuffix = ' (🟢 Video Linked)';
+                                 } else {
+                                   labelSuffix = ' (⏳ Upload Processing)';
+                                 }
+                               }
+
+                               // ROOT CAUSE AUDIT DEBUG:
+                               console.log(`[DEBUG] Topic: ${l.title} | topicId: ${l._id} | contentCount: ${l.contentCount} | videoCount: ${l.videoCount} | contents:`, l.contents, `| uploadStatus: ${uploadStatus} | labelSuffix: ${labelSuffix}`);
+
+                               return (
+                                 <option key={l._id} value={l._id}>
+                                   {l.title}{labelSuffix}
+                                 </option>
+                               );
+                             })}
                           </select>
                         </div>
+                      </div>
 
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="video-title">Video Title *</Label>
                           <Input
@@ -1576,53 +1896,58 @@ export default function AdminDashboard() {
                             value={uploadTitle}
                             onChange={(e) => setUploadTitle(e.target.value)}
                             required
+                            disabled={!selectedUploadLessonId}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="video-duration">Duration</Label>
+                          <Input
+                            id="video-duration"
+                            placeholder="e.g. 14:25"
+                            value={uploadDuration}
+                            onChange={(e) => setUploadDuration(e.target.value)}
+                            disabled={!selectedUploadLessonId}
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="video-duration">Video Duration</Label>
+                          <Label htmlFor="video-attachment-name">PDF Title</Label>
                           <Input
-                            id="video-duration"
-                            placeholder="e.g. 14:25"
-                            value={uploadDuration}
-                            onChange={(e) => setUploadDuration(e.target.value)}
+                            id="video-attachment-name"
+                            placeholder="e.g. Pointer Notes PDF"
+                            value={uploadAttachmentName}
+                            onChange={(e) => setUploadAttachmentName(e.target.value)}
+                            disabled={!selectedUploadLessonId}
                           />
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="video-attachment-name">Attachment Name</Label>
+                          <Label htmlFor="video-attachment-url">PDF URL</Label>
                           <Input
-                            id="video-attachment-name"
-                            placeholder="e.g. Class 12 Cost Accounting Notes (PDF)"
-                            value={uploadAttachmentName}
-                            onChange={(e) => setUploadAttachmentName(e.target.value)}
+                            id="video-attachment-url"
+                            placeholder="e.g. https://drive.google.com/file/d/..."
+                            value={uploadAttachmentUrl}
+                            onChange={(e) => setUploadAttachmentUrl(e.target.value)}
+                            disabled={!selectedUploadLessonId}
                           />
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="video-attachment-url">Attachment URL</Label>
-                        <Input
-                          id="video-attachment-url"
-                          placeholder="e.g. https://drive.google.com/file/d/..."
-                          value={uploadAttachmentUrl}
-                          onChange={(e) => setUploadAttachmentUrl(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
                         <Label>Select MP4 Video File *</Label>
-                        <div className="border border-dashed border-border/80 rounded-2xl p-6 text-center hover:border-primary/30 transition-colors">
+                        <div className={`border border-dashed border-border/80 rounded-2xl p-6 text-center hover:border-primary/30 transition-colors ${!selectedUploadLessonId ? 'opacity-50' : ''}`}>
                           <input
                             type="file"
                             accept="video/*"
                             id="file-input"
                             className="hidden"
                             onChange={handleFileChange}
+                            disabled={!selectedUploadLessonId}
                           />
-                          <label htmlFor="file-input" className="cursor-pointer space-y-2 block">
+                          <label htmlFor="file-input" className={`space-y-2 block ${selectedUploadLessonId ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                             <Upload className="w-10 h-10 text-muted-foreground mx-auto" />
                             <div className="text-sm font-medium">
                               {selectedFile ? selectedFile.name : 'Click to select MP4 file'}
@@ -1635,7 +1960,7 @@ export default function AdminDashboard() {
                       {uploading && (
                         <div className="space-y-1">
                           <div className="flex justify-between text-xs font-semibold">
-                            <span>{uploadProgress === 100 ? 'Streaming to YouTube...' : 'Uploading video file...'}</span>
+                            <span>{uploadProgress === 100 ? 'Preparing Video...' : 'Uploading Video...'}</span>
                             <span>{uploadProgress}%</span>
                           </div>
                           <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
@@ -1650,12 +1975,12 @@ export default function AdminDashboard() {
                       <Button
                         type="submit"
                         className="w-full bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10"
-                        disabled={uploading}
+                        disabled={uploading || !selectedUploadProgramId || !selectedUploadSubjectId || !selectedUploadUnitId || !selectedUploadLessonId}
                       >
                         {uploading ? (
                           <div className="flex items-center gap-2">
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>{uploadProgress === 100 ? 'Processing...' : 'Uploading...'}</span>
+                            <span>{uploadProgress === 100 ? 'Preparing Video...' : 'Uploading Video...'}</span>
                           </div>
                         ) : (
                           <span>Upload & Link</span>
@@ -1665,50 +1990,13 @@ export default function AdminDashboard() {
                   </CardContent>
                 </Card>
 
-                {/* Info Card column */}
-                <Card className="border-border/50 bg-card">
-                  <CardHeader>
-                    <CardTitle>Categories & Integrations</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6 text-sm text-muted-foreground leading-relaxed">
-                    <div className="flex flex-wrap gap-2">
-                      {['Accounting', 'AI', 'Data Science', 'Programming'].map((category) => (
-                        <Badge key={category} variant="outline" className="rounded-full border-border/60 bg-muted/20 px-3 py-1 text-foreground">
-                          {category}
-                        </Badge>
-                      ))}
-                    </div>
-
-                    <div className="space-y-3">
-                      <p>
-                        When you submit a lesson, Trineo Stream streams it to your institute’s YouTube channel as an <strong>unlisted</strong> video.
-                      </p>
-                      <p>
-                        <strong>Zero server storage:</strong> no permanent video files are stored locally.
-                      </p>
-                      <p>
-                        <strong>HLS ready:</strong> the same lesson pipeline can support HLS manifests when you attach a stream URL.
-                      </p>
-                    </div>
-
-                    <div className="pt-4 border-t border-border space-y-3">
-                      <h4 className="font-semibold text-foreground">YouTube Connection</h4>
-                      <p className="text-xs">
-                        Manage channel connection from Settings → YouTube Integration. Uploads are blocked until a channel is connected.
-                      </p>
-                      <Button variant="outline" className="w-full border-primary/30 text-primary hover:bg-primary/5" onClick={() => setActiveTab('youtubeIntegration')}>
-                        Open YouTube Integration Settings
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
               </div>
 
               {/* Video Processing Status Table */}
               <Card className="mt-8 border-border/50 bg-card">
                 <CardHeader>
-                  <CardTitle>Video Library Assets</CardTitle>
-                  <CardDescription>Manage independent video library assets, track YouTube processing, or replace video files.</CardDescription>
+                  <CardTitle>Video Library</CardTitle>
+                  <CardDescription>Manage independent video library videos, track video status, or replace video files.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -1716,7 +2004,7 @@ export default function AdminDashboard() {
                       <TableRow>
                         <TableHead>Video Title</TableHead>
                         <TableHead>Upload Date</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>Video Status</TableHead>
                         <TableHead>Progress</TableHead>
                         <TableHead>System Message</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -1725,18 +2013,18 @@ export default function AdminDashboard() {
                     <TableBody>
                       {videoJobs.map((job) => {
                         const progress = job.uploadStatus === 'ready' ? 100 : job.uploadProgressPercent || 0;
-                        const isUploaded = job.uploadStatus === 'ready' || (job.uploadStatus === 'youtube_processing' && progress >= 100);
+                        const isUploaded = job.uploadStatus === 'ready';
 
                         return (
                           <TableRow key={job._id}>
                             <TableCell className="font-medium">{job.title}</TableCell>
                             <TableCell className="text-muted-foreground">{new Date(job.createdAt).toLocaleString()}</TableCell>
                             <TableCell>
-                              {job.uploadStatus === 'pending' && <Badge variant="outline" className="text-muted-foreground bg-muted/10">Pending</Badge>}
-                              {job.uploadStatus === 'uploading' && <Badge variant="outline" className="text-amber-400 border-amber-500/20 bg-amber-500/10">Uploading</Badge>}
-                              {job.uploadStatus === 'youtube_processing' && !isUploaded && <Badge variant="outline" className="text-blue-400 border-blue-500/20 bg-blue-500/10 animate-pulse">YouTube Processing</Badge>}
-                              {isUploaded && <Badge variant="outline" className="text-green-400 border-green-500/20 bg-green-500/10">Uploaded</Badge>}
-                              {job.uploadStatus === 'failed' && <Badge variant="outline" className="text-red-400 border-red-500/20 bg-red-500/10">Failed</Badge>}
+                              {job.uploadStatus === 'pending' && <Badge variant="outline" className="text-muted-foreground bg-muted/10">Waiting</Badge>}
+                              {job.uploadStatus === 'uploading' && <Badge variant="outline" className="text-amber-400 border-amber-500/20 bg-amber-500/10">Uploading {progress}%</Badge>}
+                              {(job.uploadStatus === 'processing' || job.uploadStatus === 'youtube_processing') && <Badge variant="outline" className="text-blue-400 border-blue-500/20 bg-blue-500/10 animate-pulse">Preparing Video</Badge>}
+                              {isUploaded && <Badge variant="outline" className="text-green-400 border-green-500/20 bg-green-500/10">Uploaded Successfully</Badge>}
+                              {job.uploadStatus === 'failed' && <Badge variant="outline" className="text-red-400 border-red-500/20 bg-red-500/10">Upload Failed</Badge>}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -1750,11 +2038,11 @@ export default function AdminDashboard() {
                               </div>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]">
-                              {job.uploadStatus === 'failed' ? job.errorMessage : isUploaded ? 'Uploaded successfully' : job.uploadStatus === 'youtube_processing' ? 'YouTube is processing video metadata...' : 'Streaming video to YouTube...'}
+                              {job.uploadStatus === 'failed' ? (job.errorMessage || 'Upload failed') : isUploaded ? 'Uploaded successfully' : (job.uploadStatus === 'processing' || job.uploadStatus === 'youtube_processing') ? 'Preparing Video...' : `Uploading Video... (${progress}%)`}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-2">
-                                {(job.uploadStatus === 'uploading' || job.uploadStatus === 'youtube_processing') && (
+                                {(job.uploadStatus === 'uploading' || job.uploadStatus === 'processing' || job.uploadStatus === 'youtube_processing') && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -1792,7 +2080,7 @@ export default function AdminDashboard() {
                                     className="text-xs min-h-9 px-2.5"
                                     disabled={job.uploadStatus === 'uploading'}
                                   >
-                                    Replace
+                                    Replace Video
                                   </Button>
                                 </div>
                               </div>
@@ -1816,7 +2104,10 @@ export default function AdminDashboard() {
             )}
 
             {activeTab === 'lessons' && (
-              <LessonManagementSuite />
+              <LessonManagementSuite
+                initialSelectedProgramId={curriculumBuilderProgramId}
+                onClearInitialProgram={() => setCurriculumBuilderProgramId(undefined)}
+              />
             )}
 
             {activeTab === 'import' && (
@@ -2225,162 +2516,93 @@ export default function AdminDashboard() {
             )}
 
             {/* TAB 7: YOUTUBE INTEGRATION */}
-            {activeTab === 'youtubeIntegration' && (
+            {activeTab === 'youtube' && (
               <div className="space-y-6 max-w-3xl">
-                <Card className="border-border/50 bg-card">
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-primary/10 rounded-xl">
-                        <Link2 className="w-5 h-5 text-primary" />
-                      </div>
-                      <div>
-                        <CardTitle>YouTube Integration</CardTitle>
-                        <CardDescription>Connect your institute YouTube channel in one click. No Google Cloud setup required.</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    {!youtubeIntegration.youtubeConnected ? (
-                      <div className="p-5 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-3">
-                        <p className="font-semibold text-amber-500">YouTube Channel Not Connected</p>
-                        <p className="text-sm text-muted-foreground">Connect your YouTube channel to upload and manage videos through Trineo Stream.</p>
-                        <Button className="bg-primary hover:bg-[#1f5fa7] text-white" onClick={handleAuthorizeYouTube}>
-                          Connect YouTube Channel
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="p-5 rounded-xl border border-green-500/30 bg-green-500/10 space-y-4">
-                        <div className="flex items-center gap-2 text-green-600 font-semibold">
-                          <CheckCircle className="w-4 h-4" />
-                          Connected
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                >
+                  <Card className="border-border/50 bg-card overflow-hidden relative group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 via-transparent to-transparent pointer-events-none" />
+                    <CardHeader className="pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-red-600/10 rounded-xl flex items-center justify-center text-red-600">
+                          <Youtube className="w-5 h-5" />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                          <div><span className="text-muted-foreground">Channel Name:</span> {youtubeIntegration.youtubeChannelName || 'N/A'}</div>
-                          <div><span className="text-muted-foreground">Channel ID:</span> {youtubeIntegration.youtubeChannelId || 'N/A'}</div>
-                          <div><span className="text-muted-foreground">Connected Date:</span> {youtubeIntegration.youtubeConnectedAt ? new Date(youtubeIntegration.youtubeConnectedAt).toLocaleString() : 'N/A'}</div>
-                          <div><span className="text-muted-foreground">Videos Uploaded:</span> {youtubeIntegration.videosUploaded || 0}</div>
-                          <div><span className="text-muted-foreground">Last Sync:</span> {youtubeIntegration.youtubeLastSync ? new Date(youtubeIntegration.youtubeLastSync).toLocaleString() : 'N/A'}</div>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                          <Button variant="outline" onClick={handleAuthorizeYouTube} disabled={youtubeActionLoading}>
-                            <Link2 className="w-4 h-4 mr-2" />
-                            Reconnect Channel
-                          </Button>
-                          <Button variant="outline" onClick={syncYouTubeChannel} disabled={youtubeActionLoading}>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Sync Channel
-                          </Button>
-                          <Button variant="outline" className="border-red-500/30 text-red-500 hover:bg-red-500/10" onClick={disconnectYouTubeChannel} disabled={youtubeActionLoading}>
-                            <Unlink2 className="w-4 h-4 mr-2" />
-                            Disconnect Channel
-                          </Button>
+                        <div>
+                          <CardTitle className="text-base font-bold">YouTube Channel Integration</CardTitle>
+                          <CardDescription>Link your YouTube channel to manage and stream secure video lectures.</CardDescription>
                         </div>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    </CardHeader>
+                    <CardContent>
+                      {youtubeIntegration?.youtubeConnected ? (
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-4 rounded-xl border border-red-500/10 bg-red-500/5">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm text-foreground">{youtubeIntegration.youtubeChannelName || 'Connected Channel'}</span>
+                              <Badge className="bg-green-500/10 text-green-700 border-green-500/20 hover:bg-green-500/10 text-[10px]">Connected 🟢</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Channel ID: <span className="font-mono">{youtubeIntegration.youtubeChannelId || 'N/A'}</span></p>
+                            {youtubeIntegration.youtubeLastSync && (
+                              <p className="text-[10px] text-muted-foreground">Last Synced: {new Date(youtubeIntegration.youtubeLastSync).toLocaleString()}</p>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="text-xs min-h-9" 
+                              onClick={syncYouTubeChannel}
+                              disabled={youtubeActionLoading}
+                            >
+                              {youtubeActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+                              Sync Videos
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="text-xs min-h-9 border-red-500/30 text-red-500 hover:bg-red-500/5" 
+                              onClick={disconnectYouTubeChannel}
+                              disabled={youtubeActionLoading}
+                            >
+                              Disconnect
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-4 rounded-xl border border-border bg-muted/20">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm text-foreground">No YouTube Channel Connected</span>
+                              <Badge variant="outline" className="text-muted-foreground text-[10px]">Not Connected 🔴</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Link your channel to allow course and topic videos to stream via the player.</p>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            className="bg-red-600 hover:bg-red-700 text-white text-xs min-h-9" 
+                            onClick={handleAuthorizeYouTube}
+                            disabled={youtubeActionLoading}
+                          >
+                            {youtubeActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Video className="w-3.5 h-3.5 mr-1" />}
+                            Connect YouTube Account
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
               </div>
             )}
+
 
           </div>
         </div>
       </div>
 
-      {/* CREATE COURSE DIALOG MODAL */}
-      {showCourseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-lg max-h-[92dvh] bg-card border border-border shadow-2xl rounded-2xl overflow-y-auto"
-          >
-            <CardHeader>
-              <CardTitle>{editingCourse ? 'Edit Course' : 'Create Premium Course'}</CardTitle>
-              <CardDescription>{editingCourse ? 'Update the course details and publishing status.' : 'Add a new course curriculum module to the institute catalogue.'}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmitCourse} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="course-title">Course Title</Label>
-                  <Input
-                    id="course-title"
-                    value={newCourseTitle}
-                    onChange={(e) => setNewCourseTitle(e.target.value)}
-                    placeholder="e.g. Master React in 30 Days"
-                    required
-                  />
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="course-desc">Description</Label>
-                  <Input
-                    id="course-desc"
-                    value={newCourseDesc}
-                    onChange={(e) => setNewCourseDesc(e.target.value)}
-                    placeholder="Detailed syllabus outline..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="course-instructor">Instructor Name</Label>
-                    <Input
-                      id="course-instructor"
-                      value={newCourseInstructor}
-                      onChange={(e) => setNewCourseInstructor(e.target.value)}
-                      placeholder="e.g. John Smith"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="course-price">Price ($)</Label>
-                    <Input
-                      id="course-price"
-                      type="number"
-                      value={newCoursePrice}
-                      onChange={(e) => setNewCoursePrice(e.target.value)}
-                      placeholder="99"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="course-duration">Syllabus Hours</Label>
-                    <Input
-                      id="course-duration"
-                      value={newCourseDuration}
-                      onChange={(e) => setNewCourseDuration(e.target.value)}
-                      placeholder="e.g. 14h 20m"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="course-thumbnail">Thumbnail Image URL</Label>
-                    <Input
-                      id="course-thumbnail"
-                      value={newCourseThumbnail}
-                      onChange={(e) => setNewCourseThumbnail(e.target.value)}
-                      placeholder="Unsplash image URL..."
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap justify-end gap-3 pt-4 sticky bottom-0 bg-card pb-1">
-                  <Button variant="ghost" type="button" className="min-h-11 w-full sm:w-auto" onClick={() => setShowCourseModal(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" className="min-h-11 w-full sm:w-auto bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10">
-                    {editingCourse ? 'Save Changes' : 'Submit'}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }

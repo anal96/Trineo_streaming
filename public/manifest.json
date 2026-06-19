@@ -1,0 +1,16 @@
+{
+  "name": "Trineo Stream",
+  "short_name": "Trineo",
+  "description": "Modern Learning Management & Streaming Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/trineo-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

@@ -205,7 +205,7 @@ export default function LiveClassesManagement() {
                 className="pl-10" 
                 value={filterSearch} 
                 onChange={(e) => setFilterSearch(e.target.value)} 
-                placeholder="Search by lecture name or course..." 
+                placeholder="Search by lecture name or batch..." 
               />
             </div>
             <select
@@ -213,7 +213,7 @@ export default function LiveClassesManagement() {
               value={filterCourse}
               onChange={(e) => setFilterCourse(e.target.value)}
             >
-              <option value="">All Courses</option>
+              <option value="">All Batches</option>
               {courses.map((course) => (
                 <option key={course._id} value={course._id}>{course.title}</option>
               ))}
@@ -241,7 +241,7 @@ export default function LiveClassesManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Lecture Info</TableHead>
-                      <TableHead>Course</TableHead>
+                      <TableHead>Batch</TableHead>
                       <TableHead>Faculty</TableHead>
                       <TableHead>Timing</TableHead>
                       <TableHead>Attendance</TableHead>
@@ -265,7 +265,7 @@ export default function LiveClassesManagement() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium text-sm">{lc.courseId?.title || 'Unknown Course'}</div>
+                          <div className="font-medium text-sm">{lc.courseId?.title || 'Unknown Batch'}</div>
                         </TableCell>
                         <TableCell>
                           <div className="text-sm font-medium">{lc.facultyId?.name || 'Assigned Lecturer'}</div>
@@ -328,7 +328,7 @@ export default function LiveClassesManagement() {
                     <MobileRecordCard
                       key={lc._id}
                       title={lc.title}
-                      subtitle={lc.courseId?.title || 'Unknown Course'}
+                      subtitle={lc.courseId?.title || 'Unknown Batch'}
                       badges={
                         <div className="flex gap-1">
                           <Badge variant="outline">{lc.platform}</Badge>
@@ -410,7 +410,7 @@ export default function LiveClassesManagement() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="lc-course">Course *</Label>
+                  <Label htmlFor="lc-course">Batch *</Label>
                   <select
                     id="lc-course"
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -418,7 +418,7 @@ export default function LiveClassesManagement() {
                     onChange={(e) => setCourseId(e.target.value)}
                     required
                   >
-                    <option value="">Select a Course</option>
+                    <option value="">Select a Batch</option>
                     {courses.map((c) => (
                       <option key={c._id} value={c._id}>{c.title}</option>
                     ))}
@@ -548,7 +548,7 @@ export default function LiveClassesManagement() {
                   Attendance Log
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  Class: "{attendanceClass?.title}" · Enrolled Course: "{attendanceClass?.courseId?.title}"
+                  Class: "{attendanceClass?.title}" · Enrolled Batch: "{attendanceClass?.courseId?.title}"
                 </DialogDescription>
               </div>
               <Button 

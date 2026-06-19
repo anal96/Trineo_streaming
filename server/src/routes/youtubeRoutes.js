@@ -19,8 +19,9 @@ import { getStreamFile } from '../controllers/uploadController.js';
 import { upload } from '../middleware/upload.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 import { tenantGuard } from '../middleware/tenantGuard.js';
-import { Course } from '../models/Course.js';
+import { Program } from '../models/Program.js';
 import { Lesson } from '../models/Lesson.js';
+import { Content } from '../models/Content.js';
 
 const router = express.Router();
 
@@ -35,7 +36,7 @@ router.post('/youtube/integration/sync', protect, adminOnly, syncInstituteYouTub
 router.post('/youtube/integration/disconnect', protect, adminOnly, disconnectInstituteYouTubeChannel);
 
 // ── Admin: Upload & Manage ──
-router.post('/youtube/upload', protect, adminOnly, tenantGuard({ model: Course, bodyParam: 'courseId' }), upload.single('video'), uploadVideoToYouTube);
+router.post('/youtube/upload', protect, adminOnly, tenantGuard({ model: Program, bodyParam: 'courseId' }), upload.single('video'), uploadVideoToYouTube);
 router.get('/youtube/status/:lessonId', protect, adminOnly, tenantGuard({ model: Lesson, idParam: 'lessonId' }), getYouTubeUploadStatus);
 router.post('/youtube/sync/:lessonId', protect, adminOnly, tenantGuard({ model: Lesson, idParam: 'lessonId' }), syncYouTubeMetadata);
 router.post('/youtube/lessons/sync', protect, adminOnly, syncAllInstituteLessonsMetadata);
@@ -47,7 +48,16 @@ router.post('/assets/:id/retry-upload', protect, adminOnly, retryVideoAssetUploa
 router.post('/assets/:id/cancel-upload', protect, adminOnly, cancelVideoAssetUpload);
 
 // ── Student: Enrollment-gated watch access ──
-// Returns youtubeVideoId (never raw URL) — frontend builds embed
-router.get('/watch/:lessonId', protect, tenantGuard({ model: Lesson, idParam: 'lessonId' }), getWatchToken);
+router.get('/watch/:lessonId', protect, tenantGuard({
+  idParam: 'lessonId',
+  resolveResource: async (req, resourceId) => {
+    let res = await Lesson.findById(resourceId);
+    if (!res) {
+      res = await Content.findById(resourceId);
+    }
+    return res;
+  }
+}), getWatchToken);
 
 export default router;
+// reload nodemon

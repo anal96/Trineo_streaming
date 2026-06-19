@@ -26,6 +26,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const [lastInstitute, setLastInstitute] = useState(() => localStorage.getItem('trineo_last_institute') || '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [securityAlert, setSecurityAlert] = useState<string | null>(null);
@@ -50,6 +51,10 @@ export default function LoginPage() {
           if (freshUser) {
             localStorage.setItem('token', 'session_active');
             localStorage.setItem('user', JSON.stringify(freshUser));
+            if (freshUser.institute?.name) {
+              localStorage.setItem('trineo_last_institute', freshUser.institute.name);
+              setLastInstitute(freshUser.institute.name);
+            }
             if (freshUser.role === 'owner') { navigate('/owner', { replace: true }); return; }
             if (freshUser.role === 'admin') { navigate('/admin', { replace: true }); return; }
             navigate('/student', { replace: true });
@@ -212,8 +217,14 @@ export default function LoginPage() {
             name: data.name,
             email: data.email,
             role: data.role,
-            phone: data.phone
+            phone: data.phone,
+            institute: data.institute
           }));
+
+          if (data.institute?.name) {
+            localStorage.setItem('trineo_last_institute', data.institute.name);
+            setLastInstitute(data.institute.name);
+          }
 
           if (data.role === 'owner') {
             navigate('/owner');
@@ -535,16 +546,20 @@ export default function LoginPage() {
       <div class="auth-card">
         <div class="card-body p-5 p-sm-7">
           <div class="text-center mb-6">
-            <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none">
+            <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none justify-content-center">
               <img src="${trineoLogoImg}" alt="Trineo Logo" width="34" height="34" class="img-fluid rounded-circle" style="object-fit: contain;">
-              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">trineo<span class="text-primary">.</span></span>
+              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">Trineo Stream</span>
             </a>
-            <p class="text-muted mt-2 mb-0" style="font-size: 0.9rem; font-weight: 500;">Welcome back! Please sign in to your account.</p>
+            <p class="text-muted mt-2 mb-1" style="font-size: 0.95rem; font-weight: 600; color: var(--primary, #7c3aed) !important;">Learning Platform by Trineo Stream</p>
+            <h2 class="text-dark fw-bold mt-3 mb-1" style="font-size: 1.25rem; letter-spacing: -0.5px; font-weight: 700;">
+              ${lastInstitute ? `Welcome to ${lastInstitute}` : 'Modern Learning Management Platform'}
+            </h2>
+            <p class="text-muted mt-1 mb-0" style="font-size: 0.85rem; font-weight: 500;">Please sign in to your account.</p>
           </div>
 
           <div id="alert-placeholder"></div>
 
-          <form id="login-form">
+          <form id="login-form" onsubmit="event.preventDefault();">
             <div class="auth-input-container">
               <label for="exampleInputEmail1" class="auth-label">Email Address</label>
               <input type="email" class="auth-input" id="exampleInputEmail1" placeholder="name@example.com" required>
@@ -585,9 +600,9 @@ export default function LoginPage() {
       <div class="auth-card">
         <div class="card-body p-5 p-sm-7">
           <div class="text-center mb-6">
-            <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none">
+            <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none justify-content-center">
               <img src="${trineoLogoImg}" alt="Trineo Logo" width="34" height="34" class="img-fluid rounded-circle" style="object-fit: contain;">
-              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">trineo<span class="text-primary">.</span></span>
+              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">Trineo Stream</span>
             </a>
             <h4 class="text-dark fw-bold mt-4 mb-1" style="letter-spacing: -0.5px;">Reset Password</h4>
             <p class="text-muted" style="font-size: 0.9rem;">Please enter your new password below.</p>
@@ -595,7 +610,7 @@ export default function LoginPage() {
 
           <div id="alert-placeholder"></div>
 
-          <form id="reset-password-form">
+          <form id="reset-password-form" onsubmit="event.preventDefault();">
             <div class="auth-input-container">
               <label for="newPasswordInput" class="auth-label">New Password</label>
               <input type="password" class="auth-input" id="newPasswordInput" placeholder="••••••••" required>

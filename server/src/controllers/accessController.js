@@ -1,11 +1,11 @@
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
-import { Course } from '../models/Course.js';
+import { Program } from '../models/Program.js';
+import { Subject } from '../models/Subject.js';
+import { Unit } from '../models/Unit.js';
 import { Lesson } from '../models/Lesson.js';
+import { StudentContentAccess } from '../models/StudentContentAccess.js';
 import { StudentAccess } from '../models/StudentAccess.js';
-import { AccessPackage } from '../models/AccessPackage.js';
-import { BatchAccess } from '../models/BatchAccess.js';
-import { Purchase } from '../models/Purchase.js';
 
 // Middleware permission check helper inside controller
 const checkAdminOrOwner = (req) => {
@@ -19,397 +19,131 @@ export const getStudents = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: Admin access required' });
     }
     const query = { role: 'student', institute: req.user.institute };
-    const students = await User.find(query).select('name email user_id batchName courseName status assignedPackage packageExpiryDate').populate('assignedPackage', 'name');
+    const students = await User.find(query).select('name email user_id batchName status packageExpiryDate program courseName phone branchName enrollmentDate');
     res.json(students);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// 2. Direct Student Access Rules
-export const getStudentAccessRules = async (req, res) => {
-  try {
-    const { studentId } = req.params;
-    if (req.user.role !== 'admin' && req.user.role !== 'owner' && req.user._id.toString() !== studentId) {
-      return res.status(403).json({ message: 'Forbidden: Admin access or self-query required' });
-    }
-    const rules = await StudentAccess.find({ studentId, institute: req.user.institute })
-      .populate('courseId', 'title')
-      .populate('lessonId', 'title');
-    res.json(rules);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const updateStudentAccessRule = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const {
-      studentId,
-      courseId,
-      subjectId,
-      moduleId,
-      lessonId,
-      accessType,
-      status,
-      startDate,
-      expiryDate
-    } = req.body;
-
-    if (!studentId || !courseId || !accessType) {
-      return res.status(400).json({ message: 'studentId, courseId, and accessType are required.' });
-    }
-
-    if (!expiryDate) {
-      return res.status(400).json({ message: 'Expiry date is required for all access grants.' });
-    }
-
-    if (accessType === 'course' && !startDate) {
-      return res.status(400).json({ message: 'Expiry date is required for all access grants.' });
-    }
-
-    // Tenant safety check on student
-    const student = await User.findOne({ _id: studentId, institute: req.user.institute });
-    if (!student) {
-      return res.status(404).json({ message: 'Student not found in this institute.' });
-    }
-
-    const query = {
-      studentId,
-      courseId,
-      accessType,
-      subjectId: subjectId || '',
-      moduleId: moduleId || '',
-      lessonId: lessonId || null,
-      institute: req.user.institute
-    };
-
-    const update = {
-      status,
-      startDate: startDate || null,
-      expiryDate: expiryDate || null
-    };
-
-    const rule = await StudentAccess.findOneAndUpdate(
-      query,
-      { $set: update },
-      { upsert: true, new: true }
-    );
-
-    res.json(rule);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Edit student access rule by document _id (PUT route)
+// 2. Edit student status/expiry directly
 export const editStudentAccessRuleById = async (req, res) => {
   try {
     if (!checkAdminOrOwner(req)) {
       return res.status(403).json({ message: 'Forbidden: Admin access required' });
     }
-    const { id } = req.params;
-    const { status, startDate, expiryDate } = req.body;
+    const { id } = req.params; // student user _id
+    const { status, packageExpiryDate } = req.body;
 
-    if (!expiryDate) {
-      return res.status(400).json({ message: 'Expiry date is required for all access grants.' });
+    const student = await User.findOne({ _id: id, institute: req.user.institute });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found in this institute.' });
     }
 
-    const rule = await StudentAccess.findOne({ _id: id, institute: req.user.institute });
-    if (!rule) {
-      return res.status(404).json({ message: 'Access rule not found.' });
+    if (status !== undefined) student.status = status;
+    if (packageExpiryDate !== undefined) {
+      student.packageExpiryDate = packageExpiryDate ? new Date(packageExpiryDate) : null;
     }
 
-    rule.status = status || rule.status;
-    rule.startDate = startDate || null;
-    rule.expiryDate = expiryDate || null;
-
-    const saved = await rule.save();
+    const saved = await student.save();
     res.json(saved);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-export const deleteStudentAccessRule = async (req, res) => {
+// 3. Bulk status update
+export const bulkToggleAccess = async (req, res) => {
   try {
     if (!checkAdminOrOwner(req)) {
       return res.status(403).json({ message: 'Forbidden: Admin access required' });
     }
-    const { id } = req.params;
-    const rule = await StudentAccess.findOneAndDelete({ _id: id, institute: req.user.institute });
-    if (!rule) {
-      return res.status(404).json({ message: 'Access rule not found.' });
+    const { studentIds, status } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ message: 'studentIds array is required.' });
     }
-    res.json({ message: 'Access rule deleted successfully' });
+    if (!['active', 'inactive'].includes(status)) {
+      return res.status(400).json({ message: 'Valid status is required.' });
+    }
+
+    await User.updateMany(
+      { _id: { $in: studentIds }, institute: req.user.institute, role: 'student' },
+      { $set: { status } }
+    );
+
+    res.json({ success: true, message: `Successfully updated status to ${status} for ${studentIds.length} students.` });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// 3. Package CRUD
-export const getAccessPackages = async (req, res) => {
+// 4. Bulk set expiry date
+export const bulkSetExpiry = async (req, res) => {
   try {
     if (!checkAdminOrOwner(req)) {
       return res.status(403).json({ message: 'Forbidden: Admin access required' });
     }
-    const packages = await AccessPackage.find({ institute: req.user.institute })
-      .populate('courseIds', 'title')
-      .populate('lessonIds', 'title');
-    res.json(packages);
+    const { studentIds, packageExpiryDate } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ message: 'studentIds array is required.' });
+    }
+
+    const expiry = packageExpiryDate ? new Date(packageExpiryDate) : null;
+
+    await User.updateMany(
+      { _id: { $in: studentIds }, institute: req.user.institute, role: 'student' },
+      { $set: { packageExpiryDate: expiry } }
+    );
+
+    res.json({ success: true, message: `Successfully updated expiry date for ${studentIds.length} students.` });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-export const createAccessPackage = async (req, res) => {
+// 5. Bulk extend expiry date (e.g. by 30 or 90 days)
+export const bulkExtendExpiry = async (req, res) => {
   try {
     if (!checkAdminOrOwner(req)) {
       return res.status(403).json({ message: 'Forbidden: Admin access required' });
     }
-    const { name, description, courseIds, subjectIds, moduleIds, lessonIds } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ message: 'Package name is required.' });
+    const { studentIds, days } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ message: 'studentIds array is required.' });
+    }
+    const daysNum = parseInt(days, 10);
+    if (isNaN(daysNum)) {
+      return res.status(400).json({ message: 'Valid days parameter is required.' });
     }
 
-    const pkg = new AccessPackage({
-      name,
-      description: description || '',
-      courseIds: courseIds || [],
-      subjectIds: subjectIds || [],
-      moduleIds: moduleIds || [],
-      lessonIds: lessonIds || [],
-      institute: req.user.institute
+    const students = await User.find({ _id: { $in: studentIds }, institute: req.user.institute, role: 'student' });
+    
+    const bulkOps = students.map(student => {
+      let currentExpiry = student.packageExpiryDate ? new Date(student.packageExpiryDate) : new Date();
+      if (isNaN(currentExpiry.getTime()) || currentExpiry < new Date()) {
+        currentExpiry = new Date();
+      }
+      currentExpiry.setDate(currentExpiry.getDate() + daysNum);
+      
+      return {
+        updateOne: {
+          filter: { _id: student._id },
+          update: { $set: { packageExpiryDate: currentExpiry } }
+        }
+      };
     });
 
-    const saved = await pkg.save();
-    res.status(201).json(saved);
+    if (bulkOps.length > 0) {
+      await User.bulkWrite(bulkOps);
+    }
+
+    res.json({ success: true, message: `Successfully extended access by ${daysNum} days for ${students.length} students.` });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-export const updateAccessPackage = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { id } = req.params;
-    const { name, description, courseIds, subjectIds, moduleIds, lessonIds } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ message: 'Package name is required.' });
-    }
-
-    const pkg = await AccessPackage.findOne({ _id: id, institute: req.user.institute });
-    if (!pkg) {
-      return res.status(404).json({ message: 'Access Package not found.' });
-    }
-
-    pkg.name = name;
-    pkg.description = description || '';
-    pkg.courseIds = courseIds || [];
-    pkg.subjectIds = subjectIds || [];
-    pkg.moduleIds = moduleIds || [];
-    pkg.lessonIds = lessonIds || [];
-
-    const saved = await pkg.save();
-    res.json(saved);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const deleteAccessPackage = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { id } = req.params;
-    const pkg = await AccessPackage.findOneAndDelete({ _id: id, institute: req.user.institute });
-    if (!pkg) {
-      return res.status(404).json({ message: 'Package not found' });
-    }
-
-    // Clean up references in User model
-    await User.updateMany(
-      { assignedPackage: id, institute: req.user.institute },
-      { $set: { assignedPackage: null, packageExpiryDate: null } }
-    );
-
-    res.json({ message: 'Package deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const assignPackageToStudent = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { studentId } = req.params;
-    const { packageId, packageExpiryDate } = req.body;
-
-    if (packageId && !packageExpiryDate) {
-      return res.status(400).json({ message: 'Expiry date is required for all access grants.' });
-    }
-
-    const student = await User.findOne({ _id: studentId, institute: req.user.institute });
-    if (!student) {
-      return res.status(404).json({ message: 'Student not found.' });
-    }
-
-    if (packageId) {
-      const pkg = await AccessPackage.findOne({ _id: packageId, institute: req.user.institute });
-      if (!pkg) {
-        return res.status(404).json({ message: 'Access Package not found.' });
-      }
-    }
-
-    student.assignedPackage = packageId || null;
-    student.packageExpiryDate = packageExpiryDate ? new Date(packageExpiryDate) : null;
-    await student.save();
-
-    res.json({ message: 'Package assigned successfully', student });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 4. Batch Access CRUD
-export const getBatchAccessRules = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const rules = await BatchAccess.find({ institute: req.user.institute })
-      .populate('courseIds', 'title')
-      .populate('lessonIds', 'title');
-    res.json(rules);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const updateBatchAccessRule = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { batchName, courseIds, subjectIds, moduleIds, lessonIds, status, startDate, expiryDate } = req.body;
-
-    if (!batchName) {
-      return res.status(400).json({ message: 'batchName is required.' });
-    }
-
-    if (!expiryDate) {
-      return res.status(400).json({ message: 'Expiry date is required for all access grants.' });
-    }
-
-    const query = { batchName, institute: req.user.institute };
-    const update = {
-      courseIds: courseIds || [],
-      subjectIds: subjectIds || [],
-      moduleIds: moduleIds || [],
-      lessonIds: lessonIds || [],
-      status: status || 'active',
-      startDate: startDate || null,
-      expiryDate: expiryDate || null
-    };
-
-    const rule = await BatchAccess.findOneAndUpdate(
-      query,
-      { $set: update },
-      { upsert: true, new: true }
-    );
-
-    res.json(rule);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Edit batch access rule by document _id (PUT route)
-export const editBatchAccessRuleById = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { id } = req.params;
-    const { courseIds, subjectIds, moduleIds, lessonIds, status, startDate, expiryDate } = req.body;
-
-    if (!expiryDate) {
-      return res.status(400).json({ message: 'Expiry date is required for all access grants.' });
-    }
-
-    const rule = await BatchAccess.findOne({ _id: id, institute: req.user.institute });
-    if (!rule) {
-      return res.status(404).json({ message: 'Batch access rule not found.' });
-    }
-
-    rule.courseIds = courseIds || [];
-    rule.subjectIds = subjectIds || [];
-    rule.moduleIds = moduleIds || [];
-    rule.lessonIds = lessonIds || [];
-    rule.status = status || 'active';
-    rule.startDate = startDate || null;
-    rule.expiryDate = expiryDate || null;
-
-    const saved = await rule.save();
-    res.json(saved);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const deleteBatchAccessRule = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { id } = req.params;
-    const rule = await BatchAccess.findOneAndDelete({ _id: id, institute: req.user.institute });
-    if (!rule) {
-      return res.status(404).json({ message: 'Batch access rule not found.' });
-    }
-    res.json({ message: 'Batch access rule deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 5. Distinct dynamic curriculum selectors
-export const getCurriculumMeta = async (req, res) => {
-  try {
-    if (!checkAdminOrOwner(req)) {
-      return res.status(403).json({ message: 'Forbidden: Admin access required' });
-    }
-    const { courseId } = req.params;
-
-    const lessons = await Lesson.find({ courseId, institute: req.user.institute });
-    
-    // Dynamic mapping of distinct subjects & modules
-    const subjects = [...new Set(lessons.map(l => l.subjectTitle || 'General'))];
-    const modules = [...new Set(lessons.map(l => l.moduleTitle || 'Module 1'))];
-    const lessonMeta = lessons.map(l => ({
-      _id: l._id,
-      title: l.title,
-      subjectTitle: l.subjectTitle || 'General',
-      moduleTitle: l.moduleTitle || 'Module 1'
-    }));
-
-    res.json({ subjects, modules, lessons: lessonMeta });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 6. Access Analytics Reports
+// 6. Get Data Health summary analytics
 export const getAccessAnalytics = async (req, res) => {
   try {
     if (!checkAdminOrOwner(req)) {
@@ -418,145 +152,636 @@ export const getAccessAnalytics = async (req, res) => {
     const instituteId = req.user.institute;
     const now = new Date();
 
-    // Students summary
-    const totalStudents = await User.countDocuments({ role: 'student', institute: instituteId });
-    const inactiveStudents = await User.countDocuments({ role: 'student', institute: instituteId, status: 'inactive' });
-    
-    // Direct Access rule totals
-    const directLocksCount = await StudentAccess.countDocuments({
-      institute: instituteId,
-      status: { $in: ['locked', 'suspended', 'expired'] }
-    });
+    const students = await User.find({ role: 'student', institute: instituteId });
 
-    const activeDirectCount = await StudentAccess.countDocuments({
-      institute: instituteId,
-      status: 'active',
-      $or: [
-        { expiryDate: null },
-        { expiryDate: { $gte: now } }
-      ]
-    });
-
-    // Package subscriptions
-    const packages = await AccessPackage.find({ institute: instituteId });
-    const packageStats = [];
-    for (const pkg of packages) {
-      const studentCount = await User.countDocuments({
-        role: 'student',
-        institute: instituteId,
-        assignedPackage: pkg._id,
-        $or: [
-          { packageExpiryDate: null },
-          { packageExpiryDate: { $gte: now } }
-        ]
-      });
-      packageStats.push({
-        name: pkg.name,
-        count: studentCount
-      });
-    }
-
-    // Sort by count descending
-    packageStats.sort((a, b) => b.count - a.count);
-
-    // Expired packages summary
-    const expiredPackagesCount = await User.countDocuments({
-      role: 'student',
-      institute: instituteId,
-      assignedPackage: { $ne: null },
-      packageExpiryDate: { $lt: now }
-    });
-
-    // Total active packages summary
-    const activePackagesCount = await User.countDocuments({
-      role: 'student',
-      institute: instituteId,
-      assignedPackage: { $ne: null },
-      $or: [
-        { packageExpiryDate: null },
-        { packageExpiryDate: { $gte: now } }
-      ]
-    });
+    let validRules = 0;
+    let requiringReview = 0;
+    let expiringWithin7Days = 0;
+    let suspendedRules = 0;
+    let expiredRules = 0;
 
     const sevenDaysLater = new Date();
     sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
 
-    // 1. Student overrides expiring in 7 days
-    const upcomingStudentOverrides = await StudentAccess.find({
-      institute: instituteId,
-      status: 'active',
-      expiryDate: { $gte: now, $lte: sevenDaysLater }
-    }).populate('studentId', 'name email user_id').populate('courseId', 'title');
+    for (const student of students) {
+      const isSuspended = student.status !== 'active';
+      const isExpired = student.packageExpiryDate && new Date(student.packageExpiryDate) <= now;
+      const isExpiringSoon = student.packageExpiryDate && 
+                             new Date(student.packageExpiryDate) > now && 
+                             new Date(student.packageExpiryDate) <= sevenDaysLater;
 
-    // 2. Student packages expiring in 7 days
-    const upcomingUserPackages = await User.find({
-      role: 'student',
-      institute: instituteId,
-      assignedPackage: { $ne: null },
-      packageExpiryDate: { $gte: now, $lte: sevenDaysLater }
-    }).populate('assignedPackage', 'name');
+      // Rules Requiring Review (e.g. status is active, but missing program/batch or invalid/missing expiry)
+      const isInvalidExpiry = !student.packageExpiryDate || isNaN(new Date(student.packageExpiryDate).getTime());
+      const isMissingProgram = !student.program && !student.courseName;
 
-    // 3. Batch access rules expiring in 7 days
-    const upcomingBatchRules = await BatchAccess.find({
-      institute: instituteId,
-      status: 'active',
-      expiryDate: { $gte: now, $lte: sevenDaysLater }
-    });
+      if (isSuspended) {
+        suspendedRules++;
+      } else if (isExpired) {
+        expiredRules++;
+      } else {
+        // Active & not expired
+        validRules++;
+        if (isExpiringSoon) {
+          expiringWithin7Days++;
+        }
+      }
 
-    const upcomingExpirationsList = [
-      ...upcomingStudentOverrides.map(o => ({
-        type: 'override',
-        studentName: o.studentId?.name || 'N/A',
-        studentId: o.studentId?.user_id || 'N/A',
-        target: o.accessType === 'lesson' ? `Lesson` : o.accessType === 'module' ? `Module` : o.accessType === 'subject' ? `Subject` : `Course: ${o.courseId?.title}`,
-        expiryDate: o.expiryDate
-      })),
-      ...upcomingUserPackages.map(u => ({
-        type: 'package',
-        studentName: u.name,
-        studentId: u.user_id,
-        target: `Package: ${u.assignedPackage?.name || 'N/A'}`,
-        expiryDate: u.packageExpiryDate
-      })),
-      ...upcomingBatchRules.map(b => ({
-        type: 'batch',
-        studentName: 'Entire Batch',
-        studentId: b.batchName,
-        target: `Batch Rule`,
-        expiryDate: b.expiryDate
-      }))
-    ];
-
-    // Expired student overrides
-    const expiredStudentOverrides = await StudentAccess.find({
-      institute: instituteId,
-      $or: [
-        { status: 'expired' },
-        { expiryDate: { $lt: now } }
-      ]
-    }).populate('studentId', 'name email user_id').populate('courseId', 'title');
-
-    const expiredOverridesList = expiredStudentOverrides.map(o => ({
-      _id: o._id,
-      studentName: o.studentId?.name || 'N/A',
-      studentId: o.studentId?.user_id || 'N/A',
-      target: o.accessType === 'lesson' ? `Lesson` : o.accessType === 'module' ? `Module` : o.accessType === 'subject' ? `Subject` : `Course: ${o.courseId?.title}`,
-      expiryDate: o.expiryDate,
-      status: o.status
-    }));
+      if (isMissingProgram || isInvalidExpiry) {
+        requiringReview++;
+      }
+    }
 
     res.json({
-      totalStudents,
-      inactiveStudents,
-      activeDirectCount,
-      directLocksCount,
-      activePackagesCount,
-      expiredPackagesCount,
-      popularPackages: packageStats.slice(0, 5),
-      upcomingExpirations: upcomingExpirationsList,
-      expiredOverrides: expiredOverridesList
+      validRules,
+      requiringReview,
+      expiringWithin7Days,
+      suspendedRules,
+      expiredRules
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
+// 7. Get content access restrictions list and hierarchy tree for a student
+export const getStudentRestrictions = async (req, res) => {
+  try {
+    if (!checkAdminOrOwner(req)) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    const { studentId } = req.params;
+    const student = await User.findOne({ _id: studentId, institute: req.user.institute });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found in this institute.' });
+    }
+
+    // Resolve program/batch the student belongs to
+    const batchName = student.program || student.courseName;
+    if (!batchName) {
+      return res.json({
+        student: {
+          id: student._id,
+          name: student.name,
+          email: student.email,
+          user_id: student.user_id,
+          batchName: 'N/A',
+          status: student.status
+        },
+        restrictions: [],
+        hierarchy: null
+      });
+    }
+
+    const program = await Program.findOne({ name: batchName, institute: req.user.institute, isDeleted: false });
+    if (!program) {
+      return res.json({
+        student: {
+          id: student._id,
+          name: student.name,
+          email: student.email,
+          user_id: student.user_id,
+          batchName: batchName,
+          status: student.status
+        },
+        restrictions: [],
+        hierarchy: null
+      });
+    }
+
+    // Get the syllabus hierarchy
+    const subjects = await Subject.find({ programId: program._id, isDeleted: false }).sort({ displayOrder: 1 });
+    const subjectIds = subjects.map(s => s._id);
+    const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false }).sort({ displayOrder: 1 });
+    const unitIds = units.map(u => u._id);
+    const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false }).sort({ order: 1 });
+
+    // Fetch existing restrictions
+    const restrictions = await StudentContentAccess.find({
+      studentId: student._id,
+      batchId: program._id
+    });
+
+    res.json({
+      student: {
+        id: student._id,
+        name: student.name,
+        email: student.email,
+        user_id: student.user_id,
+        batchName: batchName,
+        status: student.status
+      },
+      program: {
+        id: program._id,
+        name: program.name
+      },
+      restrictions,
+      hierarchy: {
+        subjects: subjects.map(s => {
+          const subUnits = units.filter(u => u.subjectId.toString() === s._id.toString()).map(u => {
+            const unitLessons = lessons.filter(l => l.unitId.toString() === u._id.toString()).map(l => ({
+              id: l._id,
+              title: l.title
+            }));
+            return {
+              id: u._id,
+              name: u.name,
+              lessons: unitLessons
+            };
+          });
+          return {
+            id: s._id,
+            subjectCode: s.subjectCode,
+            subjectName: s.subjectName,
+            units: subUnits
+          };
+        })
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 8. Toggle student block/allow restriction for a specific node
+export const toggleStudentRestriction = async (req, res) => {
+  try {
+    if (!checkAdminOrOwner(req)) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    const { studentId } = req.params;
+    const { batchId, subjectId, unitId, topicId, status } = req.body;
+
+    if (!batchId || !status || !['allowed', 'blocked'].includes(status)) {
+      return res.status(400).json({ message: 'batchId and valid status are required.' });
+    }
+
+    const student = await User.findOne({ _id: studentId, institute: req.user.institute });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found in this institute.' });
+    }
+
+    const query = {
+      studentId: student._id,
+      batchId: new mongoose.Types.ObjectId(batchId),
+      subjectId: subjectId ? new mongoose.Types.ObjectId(subjectId) : null,
+      unitId: unitId ? new mongoose.Types.ObjectId(unitId) : null,
+      topicId: topicId ? new mongoose.Types.ObjectId(topicId) : null
+    };
+
+    if (status === 'allowed') {
+      await StudentContentAccess.deleteOne(query);
+      return res.json({ success: true, message: 'Access allowed (restriction removed).' });
+    } else {
+      const update = {
+        institute: req.user.institute,
+        status: 'blocked'
+      };
+      const result = await StudentContentAccess.findOneAndUpdate(
+        query,
+        { $set: update },
+        { upsert: true, new: true }
+      );
+      return res.json({ success: true, restriction: result });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 9. Apply bulk Quick Action to student access
+export const applyQuickAction = async (req, res) => {
+  try {
+    if (!checkAdminOrOwner(req)) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    const { studentId } = req.params;
+    const { batchId, action } = req.body;
+
+    if (!batchId || !action) {
+      return res.status(400).json({ message: 'batchId and action are required.' });
+    }
+
+    const student = await User.findOne({ _id: studentId, institute: req.user.institute });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found in this institute.' });
+    }
+
+    const studentObjId = student._id;
+    const programObjId = new mongoose.Types.ObjectId(batchId);
+
+    if (action === 'allow_all') {
+      await StudentContentAccess.deleteMany({
+        studentId: studentObjId,
+        batchId: programObjId
+      });
+      return res.json({ success: true, message: 'Cleared all restrictions.' });
+    }
+
+    if (action === 'block_all' || action === 'block_batch') {
+      await StudentContentAccess.deleteMany({
+        studentId: studentObjId,
+        batchId: programObjId
+      });
+      await StudentContentAccess.create({
+        institute: req.user.institute,
+        studentId: studentObjId,
+        batchId: programObjId,
+        status: 'blocked'
+      });
+      return res.json({ success: true, message: 'Blocked entire batch.' });
+    }
+
+    if (action === 'block_subject') {
+      const subjects = await Subject.find({ programId: programObjId, isDeleted: false });
+      const bulkOps = subjects.map(s => ({
+        updateOne: {
+          filter: {
+            studentId: studentObjId,
+            batchId: programObjId,
+            subjectId: s._id,
+            unitId: null,
+            topicId: null
+          },
+          update: {
+            $set: {
+              institute: req.user.institute,
+              status: 'blocked'
+            }
+          },
+          upsert: true
+        }
+      }));
+      if (bulkOps.length > 0) {
+        await StudentContentAccess.bulkWrite(bulkOps);
+      }
+      return res.json({ success: true, message: `Blocked all ${subjects.length} subjects.` });
+    }
+
+    if (action === 'block_unit') {
+      const subjects = await Subject.find({ programId: programObjId, isDeleted: false });
+      const subjectIds = subjects.map(s => s._id);
+      const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false });
+      const bulkOps = [];
+      
+      for (const u of units) {
+        bulkOps.push({
+          updateOne: {
+            filter: {
+              studentId: studentObjId,
+              batchId: programObjId,
+              subjectId: u.subjectId,
+              unitId: u._id,
+              topicId: null
+            },
+            update: {
+              $set: {
+                institute: req.user.institute,
+                status: 'blocked'
+              }
+            },
+            upsert: true
+          }
+        });
+      }
+      if (bulkOps.length > 0) {
+        await StudentContentAccess.bulkWrite(bulkOps);
+      }
+      return res.json({ success: true, message: `Blocked all ${units.length} units.` });
+    }
+
+    if (action === 'block_topic') {
+      const subjects = await Subject.find({ programId: programObjId, isDeleted: false });
+      const subjectIds = subjects.map(s => s._id);
+      const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false });
+      const unitIds = units.map(u => u._id);
+      const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false });
+      const bulkOps = [];
+
+      for (const l of lessons) {
+        const unit = units.find(u => u._id.toString() === l.unitId.toString());
+        if (unit) {
+          bulkOps.push({
+            updateOne: {
+              filter: {
+                studentId: studentObjId,
+                batchId: programObjId,
+                subjectId: unit.subjectId,
+                unitId: unit._id,
+                topicId: l._id
+              },
+              update: {
+                $set: {
+                  institute: req.user.institute,
+                  status: 'blocked'
+                }
+              },
+              upsert: true
+            }
+          });
+        }
+      }
+      if (bulkOps.length > 0) {
+        await StudentContentAccess.bulkWrite(bulkOps);
+      }
+      return res.json({ success: true, message: `Blocked all ${lessons.length} topics.` });
+    }
+
+    return res.status(400).json({ message: 'Invalid quick action.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 10. Bulk toggle content restriction for multiple students
+export const bulkToggleRestriction = async (req, res) => {
+  try {
+    if (!checkAdminOrOwner(req)) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    const { studentIds, batchId, subjectId, unitId, topicId, status } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ message: 'studentIds array is required.' });
+    }
+    if (!batchId || !status || !['allowed', 'blocked'].includes(status)) {
+      return res.status(400).json({ message: 'batchId and valid status are required.' });
+    }
+
+    const programObjId = new mongoose.Types.ObjectId(batchId);
+    let successCount = 0;
+
+    for (const sid of studentIds) {
+      const student = await User.findOne({ _id: sid, institute: req.user.institute, role: 'student' });
+      if (!student) continue;
+
+      const query = {
+        studentId: student._id,
+        batchId: programObjId,
+        subjectId: subjectId ? new mongoose.Types.ObjectId(subjectId) : null,
+        unitId: unitId ? new mongoose.Types.ObjectId(unitId) : null,
+        topicId: topicId ? new mongoose.Types.ObjectId(topicId) : null
+      };
+
+      if (status === 'allowed') {
+        await StudentContentAccess.deleteOne(query);
+      } else {
+        await StudentContentAccess.findOneAndUpdate(
+          query,
+          { $set: { institute: req.user.institute, status: 'blocked' } },
+          { upsert: true, new: true }
+        );
+      }
+      successCount++;
+    }
+
+    res.json({ success: true, message: `Access updated for ${successCount} students.` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 11. Bulk quick action for multiple students
+export const bulkQuickAction = async (req, res) => {
+  try {
+    if (!checkAdminOrOwner(req)) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    const { studentIds, batchId, action } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ message: 'studentIds array is required.' });
+    }
+    if (!batchId || !action) {
+      return res.status(400).json({ message: 'batchId and action are required.' });
+    }
+
+    const programObjId = new mongoose.Types.ObjectId(batchId);
+    const instituteId = req.user.institute;
+
+    // Pre-fetch hierarchy data once (shared across all students)
+    let subjects = [], units = [], lessons = [];
+    if (['block_subject', 'block_unit', 'block_topic'].includes(action)) {
+      subjects = await Subject.find({ programId: programObjId, isDeleted: false });
+      const subjectIds = subjects.map(s => s._id);
+      if (['block_unit', 'block_topic'].includes(action)) {
+        units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false });
+        if (action === 'block_topic') {
+          const unitIds = units.map(u => u._id);
+          lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false });
+        }
+      }
+    }
+
+    // Validate all student IDs belong to the institute
+    const validStudents = await User.find({
+      _id: { $in: studentIds },
+      institute: instituteId,
+      role: 'student'
+    }).select('_id');
+    const validIds = validStudents.map(s => s._id);
+
+    if (validIds.length === 0) {
+      return res.status(404).json({ message: 'No valid students found.' });
+    }
+
+    if (action === 'allow_all') {
+      await StudentContentAccess.deleteMany({
+        studentId: { $in: validIds },
+        batchId: programObjId
+      });
+      return res.json({ success: true, message: `Cleared all restrictions for ${validIds.length} students.` });
+    }
+
+    if (action === 'block_all' || action === 'block_batch') {
+      // Clear existing then create batch-level block for each student
+      await StudentContentAccess.deleteMany({
+        studentId: { $in: validIds },
+        batchId: programObjId
+      });
+      const docs = validIds.map(sid => ({
+        institute: instituteId,
+        studentId: sid,
+        batchId: programObjId,
+        status: 'blocked'
+      }));
+      await StudentContentAccess.insertMany(docs);
+      return res.json({ success: true, message: `Blocked entire batch for ${validIds.length} students.` });
+    }
+
+    if (action === 'block_subject') {
+      const bulkOps = [];
+      for (const sid of validIds) {
+        for (const s of subjects) {
+          bulkOps.push({
+            updateOne: {
+              filter: { studentId: sid, batchId: programObjId, subjectId: s._id, unitId: null, topicId: null },
+              update: { $set: { institute: instituteId, status: 'blocked' } },
+              upsert: true
+            }
+          });
+        }
+      }
+      if (bulkOps.length > 0) await StudentContentAccess.bulkWrite(bulkOps);
+      return res.json({ success: true, message: `Blocked all subjects for ${validIds.length} students.` });
+    }
+
+    if (action === 'block_unit') {
+      const bulkOps = [];
+      for (const sid of validIds) {
+        for (const u of units) {
+          bulkOps.push({
+            updateOne: {
+              filter: { studentId: sid, batchId: programObjId, subjectId: u.subjectId, unitId: u._id, topicId: null },
+              update: { $set: { institute: instituteId, status: 'blocked' } },
+              upsert: true
+            }
+          });
+        }
+      }
+      if (bulkOps.length > 0) await StudentContentAccess.bulkWrite(bulkOps);
+      return res.json({ success: true, message: `Blocked all units for ${validIds.length} students.` });
+    }
+
+    if (action === 'block_topic') {
+      const bulkOps = [];
+      for (const sid of validIds) {
+        for (const l of lessons) {
+          const unit = units.find(u => u._id.toString() === l.unitId.toString());
+          if (unit) {
+            bulkOps.push({
+              updateOne: {
+                filter: { studentId: sid, batchId: programObjId, subjectId: unit.subjectId, unitId: unit._id, topicId: l._id },
+                update: { $set: { institute: instituteId, status: 'blocked' } },
+                upsert: true
+              }
+            });
+          }
+        }
+      }
+      if (bulkOps.length > 0) await StudentContentAccess.bulkWrite(bulkOps);
+      return res.json({ success: true, message: `Blocked all topics for ${validIds.length} students.` });
+    }
+
+    return res.status(400).json({ message: 'Invalid quick action.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 12. Get hierarchy for a given batch (program) - used for bulk controls
+export const getBatchHierarchy = async (req, res) => {
+  try {
+    if (!checkAdminOrOwner(req)) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+    const { batchName } = req.params;
+    if (!batchName) {
+      return res.status(400).json({ message: 'batchName is required.' });
+    }
+
+    const program = await Program.findOne({ name: batchName, institute: req.user.institute, isDeleted: false });
+    if (!program) {
+      return res.json({ program: null, hierarchy: null });
+    }
+
+    const subjects = await Subject.find({ programId: program._id, isDeleted: false }).sort({ displayOrder: 1 });
+    const subjectIds = subjects.map(s => s._id);
+    const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false }).sort({ displayOrder: 1 });
+    const unitIds = units.map(u => u._id);
+    const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false }).sort({ order: 1 });
+
+    res.json({
+      program: { id: program._id, name: program.name },
+      hierarchy: {
+        subjects: subjects.map(s => {
+          const subUnits = units.filter(u => u.subjectId.toString() === s._id.toString()).map(u => {
+            const unitLessons = lessons.filter(l => l.unitId.toString() === u._id.toString()).map(l => ({
+              id: l._id,
+              title: l.title
+            }));
+            return { id: u._id, name: u.name, lessons: unitLessons };
+          });
+          return { id: s._id, subjectCode: s.subjectCode, subjectName: s.subjectName, units: subUnits };
+        })
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 13. Get all access overrides & content restrictions for a student
+export const getStudentAccessRules = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+
+    const isSelf = req.user._id.toString() === studentId;
+    const isStaff = ['admin', 'owner', 'faculty'].includes(req.user.role);
+
+    if (!isSelf && !isStaff) {
+      return res.status(403).json({ message: 'Forbidden: Access denied' });
+    }
+
+    const overrides = await StudentAccess.find({ studentId })
+      .populate('programId')
+      .populate('subjectId');
+
+    const mappedOverrides = overrides.map(rule => {
+      const courseObj = rule.programId ? {
+        _id: rule.programId._id,
+        title: rule.programId.title || rule.programId.name || 'Unknown Batch'
+      } : null;
+
+      const subjectNameStr = rule.subjectId ? (rule.subjectId.name || rule.subjectId.title || rule.subjectId.subjectName || String(rule.subjectId._id || rule.subjectId)) : '';
+
+      return {
+        _id: rule._id,
+        accessType: rule.accessLevel === 'program' ? 'course' : rule.accessLevel,
+        courseId: courseObj,
+        subjectId: subjectNameStr,
+        status: rule.status,
+        expiryDate: rule.expiryDate,
+        createdAt: rule.createdAt
+      };
+    });
+
+    const blocks = await StudentContentAccess.find({ studentId, status: 'blocked' })
+      .populate('batchId')
+      .populate('subjectId')
+      .populate('unitId')
+      .populate('topicId');
+
+    const mappedBlocks = blocks.map(rule => {
+      const accessType = rule.topicId ? 'lesson' : (rule.unitId ? 'module' : (rule.subjectId ? 'subject' : 'course'));
+      
+      const courseObj = rule.batchId ? {
+        _id: rule.batchId._id,
+        title: rule.batchId.title || rule.batchId.name || 'Unknown Batch'
+      } : null;
+
+      const lessonObj = rule.topicId ? {
+        _id: rule.topicId._id,
+        title: rule.topicId.title || ''
+      } : null;
+
+      const moduleIdStr = rule.unitId ? (rule.unitId.name || rule.unitId.title || '') : '';
+      const subjectNameStr = rule.subjectId ? (rule.subjectId.name || rule.subjectId.title || rule.subjectId.subjectName || '') : '';
+
+      return {
+        _id: rule._id,
+        accessType,
+        courseId: courseObj,
+        lessonId: lessonObj,
+        moduleId: moduleIdStr,
+        subjectId: subjectNameStr,
+        status: 'locked',
+        expiryDate: null,
+        createdAt: rule.createdAt
+      };
+    });
+
+    const allRules = [...mappedOverrides, ...mappedBlocks];
+    res.json(allRules);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+

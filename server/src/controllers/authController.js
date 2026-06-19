@@ -5,8 +5,15 @@ import { AuditLog } from '../models/AuditLog.js';
 import { Institute } from '../models/Institute.js';
 import { UsedSSOToken } from '../models/UsedSSOToken.js';
 import { SecuritySession } from '../models/SecuritySession.js';
+import { SecurityEvent } from '../models/SecurityEvent.js';
 import { upsertSecuritySessionFromRequest } from './securityCenterController.js';
 import { syncStudentProfile } from '../services/crmSyncService.js';
+
+const parseAgent = (ua = '') => {
+  const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
+  const device = ua.includes('Android') ? 'Android' : ua.includes('iPhone') ? 'iPhone' : ua.includes('Mac') ? 'Mac' : ua.includes('Windows') ? 'Windows' : 'Device';
+  return { browser, device };
+};
 
 // Exported dependency wrapper — allows tests to inject mocks without needing
 // module-level monkey-patching (ES module bindings are read-only).
@@ -87,9 +94,9 @@ export const registerUser = async (req, res) => {
 
     res.cookie('token', token, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      sameSite: 'none'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     });
 
     res.status(201).json({
@@ -137,6 +144,20 @@ export const loginUser = async (req, res) => {
           ipAddress: normalizedIp,
           userAgent
         });
+
+        // Also log to SecurityEvent for V3 Security Center
+        const { browser, device } = parseAgent(userAgent);
+        await SecurityEvent.create({
+          studentId: user._id,
+          institute: user.institute || null,
+          eventType: 'concurrent_session_violation',
+          details: `Active session terminated due to concurrent login from ${userAgent}`,
+          ipAddress: normalizedIp,
+          browser,
+          device,
+          riskLevel: 'medium',
+          actionTaken: 'session_terminated'
+        });
       }
 
       // Enforce one-device login
@@ -172,9 +193,9 @@ export const loginUser = async (req, res) => {
 
       res.cookie('token', token, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === 'production',
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        sameSite: 'none'
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
       });
 
       res.json({
@@ -216,7 +237,7 @@ export const getUserProfile = async (req, res) => {
 
 export const heartbeatUser = async (req, res) => {
   const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-  await securityCenterController.upsertSecuritySessionFromRequest({
+  await _deps.upsertSecuritySessionFromRequest({
     user: req.user,
     token: req.token,
     userAgent: req.headers['user-agent'] || 'Unknown Browser',
@@ -244,22 +265,38 @@ export const getSecurityLogs = async (req, res) => {
     const normalizedIp = currentIp === '::1' ? '127.0.0.1' : currentIp;
     const currentUA = req.headers['user-agent'] || 'Unknown Browser/OS';
 
-    // Fetch AuditLog details matching this user. Some DRM events include the
-    // student identifiers inside JSON details, so include that fallback too.
-    const fallbackMatches = [];
-    if (req.user.email) fallbackMatches.push({ details: { $regex: escapeRegex(req.user.email), $options: 'i' } });
-    if (req.user.user_id) fallbackMatches.push({ details: { $regex: escapeRegex(String(req.user.user_id)), $options: 'i' } });
-
-    const dbLogs = await AuditLog.find({
+    // Fetch system audit logs for logins / logouts
+    const dbAuditLogs = await AuditLog.find({
       ...(req.user.role === 'owner' ? {} : { institute: req.user.institute }),
-      $or: [
-        { userId },
-        ...fallbackMatches
-      ]
+      userId,
+      eventType: { $in: ['login', 'logout', 'LOGIN_SUCCESS', 'LOGOUT'] }
     }).sort({ createdAt: -1 });
 
-    const loginHistory = dbLogs.filter(l => l.eventType === 'login' || l.eventType === 'logout');
-    const securityViolations = dbLogs.filter(l => l.eventType !== 'login' && l.eventType !== 'logout');
+    // Fetch security center violations
+    const dbSecurityEvents = await SecurityEvent.find({
+      ...(req.user.role === 'owner' ? {} : { institute: req.user.institute }),
+      studentId: userId
+    }).sort({ createdAt: -1 });
+
+    const loginHistory = dbAuditLogs.map(l => ({
+      _id: l._id,
+      eventType: l.eventType === 'LOGIN_SUCCESS' || l.eventType === 'login' ? 'login' : 'logout',
+      ipAddress: l.ipAddress,
+      userAgent: l.userAgent,
+      details: l.details,
+      createdAt: l.createdAt
+    }));
+
+    const securityViolations = dbSecurityEvents.map(e => ({
+      _id: e._id,
+      eventType: e.eventType,
+      ipAddress: e.ipAddress,
+      userAgent: `${e.device} / ${e.browser}`,
+      details: e.details || `Action Taken: ${e.actionTaken}`,
+      createdAt: e.createdAt,
+      topicTitle: e.topicTitle,
+      batchName: e.batchName
+    }));
 
     // If loginHistory is empty (e.g. fresh database), let's construct realistic simulated history records
     const finalLoginHistory = [...loginHistory];
@@ -684,9 +721,9 @@ export const ssoLogin = async (req, res) => {
 
     res.cookie('token', sessionToken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: 'none'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     });
 
     let redirectPath = '/student';
@@ -824,8 +861,8 @@ export const logoutUser = async (req, res) => {
 
     res.clearCookie('token', {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none'
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     });
     res.json({ message: 'Logged out successfully' });
   } catch (error) {

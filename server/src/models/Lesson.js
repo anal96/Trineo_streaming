@@ -1,16 +1,6 @@
 import mongoose from 'mongoose';
 import { slugify, uniqueSlug } from '../utils/slugify.js';
 
-/**
- * Lesson Schema — YouTube Provider Edition
- *
- * Removed: videoUrl (HLS), transcodingProgress, processingStage
- * Added:   youtubeVideoId, youtubeThumbnail, youtubeDuration, videoProvider
- *
- * videoProvider abstraction layer allows future migration to
- * Cloudflare Stream, Bunny Stream, or self-hosted HLS without
- * changing any frontend pages.
- */
 const lessonSchema = new mongoose.Schema({
   institute: {
     type: mongoose.Schema.Types.ObjectId,
@@ -18,10 +8,22 @@ const lessonSchema = new mongoose.Schema({
     default: null,
     index: true
   },
+  instituteId: {
+    type: String,
+    index: true,
+    default: ''
+  },
+  // New relationship
+  unitId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Unit',
+    default: null
+  },
+  // Legacy relationship (optional during migration)
   courseId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Course',
-    required: true
+    default: null
   },
   title: {
     type: String,
@@ -35,6 +37,24 @@ const lessonSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  order: {
+    type: Number,
+    default: 0
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date,
+    default: null
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+
+  // --- Legacy Video/Attachment Fields (retained for migration lookup) ---
   thumbnail: {
     type: String,
     default: null
@@ -76,16 +96,6 @@ const lessonSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
-  order: {
-    type: Number,
-    default: 0
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-
-  // --- YouTube / Video Provider Fields ---
   youtubeVideoId: {
     type: String,
     default: null
@@ -100,11 +110,9 @@ const lessonSchema = new mongoose.Schema({
   },
   videoProvider: {
     type: String,
-    enum: ['youtube', 'cloudflare', 'bunny', 'hls'],
+    enum: ['youtube', 'vimeo', 'upload', 'cloudflare', 'bunny', 'hls'],
     default: 'youtube'
   },
-
-  // --- Upload Lifecycle ---
   uploadStatus: {
     type: String,
     enum: ['pending', 'uploading', 'processing', 'youtube_processing', 'ready', 'failed'],
@@ -159,14 +167,32 @@ lessonSchema.set('toJSON', {
   }
 });
 
-lessonSchema.index({ institute: 1, courseId: 1 });
-lessonSchema.index({ institute: 1, courseId: 1, moduleOrder: 1, order: 1 });
-lessonSchema.index({ courseId: 1, slug: 1 }, { unique: true });
+lessonSchema.index({ unitId: 1, slug: 1 }, { unique: true, partialFilterExpression: { isDeleted: false, unitId: { $exists: true } } });
+lessonSchema.index({ courseId: 1, slug: 1 }, { partialFilterExpression: { isDeleted: false, courseId: { $exists: true } } });
 
 lessonSchema.pre('validate', async function nextSlug() {
   if (!this.isModified('title') && this.slug) return;
   const baseSlug = slugify(this.title);
-  this.slug = await uniqueSlug(mongoose.models.Lesson, baseSlug, { courseId: this.courseId }, this._id);
+  if (this.unitId) {
+    this.slug = await uniqueSlug(mongoose.models.Lesson, baseSlug, { unitId: this.unitId }, this._id);
+  } else if (this.courseId) {
+    this.slug = await uniqueSlug(mongoose.models.Lesson, baseSlug, { courseId: this.courseId }, this._id);
+  }
+});
+
+lessonSchema.pre('save', async function (next) {
+  if (this.institute && !this.instituteId) {
+    try {
+      const InstituteModel = mongoose.model('Institute');
+      const inst = await InstituteModel.findById(this.institute);
+      if (inst) {
+        this.instituteId = inst.instituteId;
+      }
+    } catch (err) {
+      console.error('Error populating instituteId in lesson pre-save:', err);
+    }
+  }
+  next();
 });
 
 export const Lesson = mongoose.model('Lesson', lessonSchema);

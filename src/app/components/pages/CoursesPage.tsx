@@ -12,16 +12,30 @@ import {
   Award,
   TrendingUp,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Home,
+  Settings,
+  Bell,
+  LogOut,
+  GraduationCap,
+  Video,
+  Building2,
+  Users,
+  ShieldCheck,
+  FileText,
+  Key,
+  Bookmark
 } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import { Progress } from '../ui/progress';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { MobileNav, studentNavItems } from '../MobileNav';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { apiFetch } from '../../utils/api';
 
 const categories = ['All', 'Development', 'Data Science', 'Design', 'Cloud', 'Business'];
@@ -34,10 +48,31 @@ export default function CoursesPage() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLevel, setSelectedLevel] = useState('All Levels');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('enrolled');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  const [user, setUser] = useState<any>(null);
+  
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const freshUser = await apiFetch('/auth/profile');
+        setUser(freshUser);
+        localStorage.setItem('user', JSON.stringify(freshUser));
+      } catch (err) {
+        console.error('Failed to fetch profile:', err);
+        const cachedUser = localStorage.getItem('user');
+        if (cachedUser) {
+          setUser(JSON.parse(cachedUser));
+        } else {
+          navigate('/');
+        }
+      }
+    };
+    fetchProfile();
+  }, [navigate]);
 
   const loadCourses = async () => {
     setLoading(true);
@@ -74,12 +109,12 @@ export default function CoursesPage() {
 
   const handleCourseClick = async (course: any) => {
     if (course.slug && course.slug !== 'undefined') {
-      navigate(`/course/${course.slug}`);
+      navigate(`/program/${course.slug}`);
     } else {
       try {
         const data = await apiFetch(`/courses/${course._id}`);
         if (data?.slug && data.slug !== 'undefined') {
-          navigate(`/course/${data.slug}`);
+          navigate(`/program/${data.slug}`);
         } else {
           alert('Course path could not be resolved.');
         }
@@ -97,319 +132,436 @@ export default function CoursesPage() {
     const matchesCategory = selectedCategory === 'All' || courseCategory === selectedCategory;
     const matchesLevel = selectedLevel === 'All Levels' || courseLevel === selectedLevel;
     const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          course.instructor.toLowerCase().includes(searchQuery.toLowerCase());
+                          (course.instructor || '').toLowerCase().includes(searchQuery.toLowerCase());
     
     // course.isPurchased is added in backend for student role
     const matchesTab = activeTab === 'all' || (activeTab === 'enrolled' && course.isPurchased);
     return matchesCategory && matchesLevel && matchesSearch && matchesTab;
   });
 
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/');
+  };
+
   return (
-    <div className="min-h-screen bg-background text-foreground pb-safe-nav lg:pb-0">
-      {/* Header */}
-      <header className="sticky top-0 z-50 h-14 border-b border-border bg-card/80 backdrop-blur-xl">
-        <div className="container mx-auto h-full flex items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3 min-w-0">
-            <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0" onClick={() => navigate('/student')}>
-              <ChevronLeft className="w-5 h-5" />
-            </Button>
-            <h1 className="text-lg sm:text-xl font-bold truncate">Explore Courses</h1>
-          </div>
-          <ThemeToggleButton />
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <div className="relative bg-sidebar border-b border-sidebar-border">
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-violet-600/10 via-background/0 to-background/0"></div>
-        <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="max-w-3xl"
-          >
-            <h1 className="text-4xl md:text-5xl font-bold mb-4">
-              Discover Your Next<br />Learning Adventure
-            </h1>
-            <p className="text-lg text-muted-foreground mb-8">
-              Access premium courses from world-class instructors and accelerate your career
-            </p>
-
-            {/* Search Bar */}
-            <div className="relative max-w-2xl">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              <Input
-                placeholder="Search for courses, instructors, topics..."
-                className="pl-12 h-14 bg-card/80 border-border/50 backdrop-blur"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+    <div className="flex min-h-screen overflow-hidden bg-background text-foreground pb-safe-nav lg:pb-0">
+      {/* Sidebar */}
+      <aside className="hidden lg:flex flex-col w-72 bg-sidebar border-r border-sidebar-border shrink-0">
+        <div className="p-6 border-b border-sidebar-border">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              {user?.institute?.logo ? (
+                <img src={user.institute.logo} alt="Institute" className="w-9 h-9 rounded-xl object-contain border border-border/50" />
+              ) : (
+                <div className="w-9 h-9 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/20">
+                  <GraduationCap className="w-5 h-5 text-white" />
+                </div>
+              )}
+              <div>
+                <h1 className="text-base font-bold leading-none">Trineo Stream</h1>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Student Portal</p>
+              </div>
             </div>
-          </motion.div>
+            {user?.institute?.name && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium pl-1">
+                <span className="text-primary text-base leading-none">•</span>
+                <span>{user.institute.name}</span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {error && (
-          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-xl flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" />
-            <span>{error}</span>
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          <div className="mb-3">
+            <span className="px-2 py-0.5 text-xs font-semibold uppercase tracking-widest rounded-full border text-muted-foreground bg-muted border-border">Navigation</span>
           </div>
-        )}
-
-        {/* Tabs */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-6"
-        >
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-card border border-border w-full max-w-full flex flex-wrap h-auto gap-1 p-1">
-              <TabsTrigger value="all" className="min-h-11 flex-1 sm:flex-none">
-                <BookOpen className="w-4 h-4 mr-2" />
-                All Courses
-              </TabsTrigger>
-              <TabsTrigger value="enrolled" className="min-h-11 flex-1 sm:flex-none">
-                <PlayCircle className="w-4 h-4 mr-2" />
-                My Courses
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </motion.div>
-
-        {/* Filters */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="flex flex-wrap gap-4 mb-8"
-        >
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Filters:</span>
-          </div>
-
-          {/* Category Filter */}
-          <div className="flex flex-wrap gap-2">
-            {categories.map((category) => (
-              <Button
-                key={category}
-                variant={selectedCategory === category ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedCategory(category)}
-                className={
-                  selectedCategory === category
-                    ? 'bg-primary text-white shadow-sm shadow-primary/10'
-                    : ''
-                }
+          <div className="space-y-1">
+            {[
+              { icon: Home, label: 'Dashboard', id: 'home' },
+              { icon: BookOpen, label: 'My Batches', id: 'courses' },
+              { icon: Video, label: 'Live Classes', id: 'live-classes' },
+              { icon: FileText, label: 'Study Materials', id: 'materials' },
+              { icon: Key, label: 'Access Management', id: 'access' },
+              { icon: Bell, label: 'Notifications', id: 'notifications' },
+              { icon: Users, label: 'Faculty Contacts', id: 'faculty' },
+              { icon: ShieldCheck, label: 'Security & Devices', id: 'security' },
+              { icon: Settings, label: 'Settings', id: 'settings' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === 'courses') {
+                    // Already here
+                  } else {
+                    localStorage.setItem('trineo_student_active_tab', item.id);
+                    navigate('/student');
+                  }
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative ${
+                  item.id === 'courses'
+                    ? 'bg-gradient-to-r from-violet-600/20 to-indigo-600/10 text-foreground border border-violet-500/30 shadow-sm font-semibold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
               >
-                {category}
-              </Button>
+                <item.icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </button>
             ))}
           </div>
+        </nav>
 
-          {/* Level Filter */}
-          <div className="flex flex-wrap gap-2">
-            {levels.map((level) => (
-              <Button
-                key={level}
-                variant={selectedLevel === level ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedLevel(level)}
-                className={
-                  selectedLevel === level
-                    ? 'bg-primary text-white shadow-sm shadow-primary/10'
-                    : ''
-                }
-              >
-                {level}
-              </Button>
-            ))}
+        <div className="p-4 border-t border-sidebar-border">
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive"
+            onClick={handleLogout}
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Logout</span>
+          </Button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="h-14 border-b border-border bg-card/80 backdrop-blur-xl flex items-center justify-between px-4 lg:px-6">
+          <div className="flex items-center gap-3 lg:hidden">
+            {user?.institute?.logo ? (
+              <img src={user.institute.logo} alt="Institute" className="w-7 h-7 rounded-lg object-contain" />
+            ) : (
+              <div className="w-7 h-7 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                <GraduationCap className="w-4 h-4 text-white" />
+              </div>
+            )}
+            <h1 className="text-lg font-bold truncate max-w-[150px]">Trineo Stream</h1>
           </div>
-        </motion.div>
 
-        {/* Course Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map((n) => (
-            <div key={n} className="h-80 bg-muted rounded-2xl animate-pulse" />
-            ))}
+          <div className="hidden lg:flex flex-1 max-w-xl">
+            {/* Search Placeholder */}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredCourses.map((course, index) => {
-              const lessonsForCourse = watchHistory.filter(h => h.courseId?._id === course._id);
-              const progressVal = lessonsForCourse.length > 0 
-                ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
-                : 0;
 
-              return (
-                <motion.div
-                  key={course._id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: Math.min(index * 0.05, 0.5) }}
-                >
-                  <Card 
-                    className="group cursor-pointer overflow-hidden border-border/50 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/10 transition-all bg-card"
-                    onClick={() => handleCourseClick(course)}
+          <div className="flex items-center gap-1 sm:gap-2 lg:gap-4 relative">
+            <ThemeToggleButton />
+            <div className="hidden lg:flex items-center gap-3 pl-4 border-l border-border">
+              <Avatar>
+                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+                <AvatarFallback>ST</AvatarFallback>
+              </Avatar>
+              <div className="hidden md:block">
+                <div className="text-sm font-medium">{user?.name || 'Student'}</div>
+                <div className="text-xs text-muted-foreground">ID: {user?.user_id || 'N/A'}</div>
+              </div>
+            </div>
+
+            <Avatar className="lg:hidden w-8 h-8">
+              <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+              <AvatarFallback>ST</AvatarFallback>
+            </Avatar>
+          </div>
+        </header>
+
+        {/* Content Scroll Area */}
+        <ScrollArea className="flex-1">
+          <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+            
+            {/* Illustration Banner */}
+            <div className="relative bg-gradient-to-r from-blue-50/60 via-indigo-50/20 to-purple-50/40 dark:from-indigo-950/10 dark:via-purple-950/5 dark:to-transparent border border-border/60 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden">
+              <div className="max-w-xl space-y-4 relative z-10 flex-1">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  My Learning Batches
+                </span>
+                <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
+                  My Learning Batches
+                </h1>
+                <p className="text-sm sm:text-base text-muted-foreground max-w-md">
+                  Access your enrolled training cohorts and continue learning
+                </p>
+
+                {/* Search Input */}
+                <div className="relative max-w-md w-full pt-2">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search your batches, instructors, topics..."
+                    className="pl-12 h-12 bg-card/80 border-border/60 backdrop-blur"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Laptop Student Illustration */}
+              <div className="relative shrink-0 z-10 pr-4">
+                <img 
+                  src="/student_laptop_beanbag.png" 
+                  alt="Student on beanbag with laptop" 
+                  className="w-52 sm:w-60 md:w-64 h-auto object-contain drop-shadow-md"
+                />
+              </div>
+            </div>
+
+            {/* Error handling */}
+            {error && (
+              <div className="p-4 bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Filters Row */}
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                <Filter className="w-4 h-4" />
+                <span>Filters:</span>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap gap-1.5">
+                {categories.map((category) => (
+                  <Button
+                    key={category}
+                    variant={selectedCategory === category ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSelectedCategory(category)}
+                    className={`rounded-full px-4 text-xs font-medium ${
+                      selectedCategory === category
+                        ? 'bg-primary text-white shadow-sm shadow-primary/10'
+                        : 'border-border/60'
+                    }`}
                   >
-                    {/* Thumbnail */}
-                    <div className="relative aspect-video overflow-hidden">
-                      <img
-                        src={course.thumbnail}
-                        alt={course.title}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                    {category}
+                  </Button>
+                ))}
+              </div>
 
-                      {/* Badges */}
-                      <div className="absolute top-3 left-3 flex gap-2">
-                        {course.isLocked && (
-                          <Badge className="bg-red-500/90 text-white border-0 font-bold">
-                            🔒 Locked
-                          </Badge>
-                        )}
-                        {course.price > 80 && (
-                          <Badge className="bg-yellow-500/90 text-black border-0">
-                            <Award className="w-3 h-3 mr-1" />
-                            Bestseller
-                          </Badge>
-                        )}
-                      </div>
+              {/* Level Filter Pills */}
+              <div className="flex flex-wrap gap-1.5">
+                {levels.map((level) => (
+                  <Button
+                    key={level}
+                    variant={selectedLevel === level ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSelectedLevel(level)}
+                    className={`rounded-full px-4 text-xs font-medium ${
+                      selectedLevel === level
+                        ? 'bg-primary text-white shadow-sm shadow-primary/10'
+                        : 'border-border/60'
+                    }`}
+                  >
+                    {level}
+                  </Button>
+                ))}
+              </div>
+            </div>
 
-                      {/* Enrolled Progress */}
-                      {course.isPurchased && !course.isLocked && (
-                        <div className="absolute bottom-3 left-3 right-3">
-                          <div className="bg-black/50 backdrop-blur-xl rounded-lg p-2">
-                            <div className="flex items-center justify-between mb-1 text-xs text-white">
-                              <span>Your Progress</span>
-                              <span>{progressVal}%</span>
+            {/* Course cards grid */}
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} className="h-80 bg-muted rounded-2xl animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredCourses.map((course, index) => {
+                  const lessonsForCourse = watchHistory.filter(h => h.courseId?._id === course._id);
+                  const progressVal = lessonsForCourse.length > 0 
+                    ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
+                    : 0;
+
+                  // Dynamic gradient backgrounds for card banners matching mockup
+                  const gradientBanners = [
+                    'from-amber-400 to-yellow-500 text-amber-950',
+                    'from-indigo-600 via-purple-600 to-pink-600 text-white',
+                    'from-slate-900 via-slate-800 to-indigo-900 text-white',
+                    'from-emerald-500 via-teal-600 to-cyan-600 text-white'
+                  ];
+                  const bannerGradient = course.title.toLowerCase().includes('bca')
+                    ? 'from-yellow-200 via-yellow-100 to-amber-200 border border-amber-500/20 text-amber-950'
+                    : gradientBanners[index % gradientBanners.length];
+
+                  return (
+                    <motion.div
+                      key={course._id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.4) }}
+                    >
+                      <Card 
+                        className="group cursor-pointer overflow-hidden border-border/50 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all bg-card flex flex-col h-full rounded-2xl"
+                        onClick={() => handleCourseClick(course)}
+                      >
+                        <div className={`relative aspect-video flex flex-col justify-between p-4 overflow-hidden bg-gradient-to-br ${bannerGradient}`}>
+                          <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          
+                          <div className="flex justify-between items-start w-full z-10">
+                            {course.isLocked ? (
+                              <Badge className="bg-red-500/90 text-white border-0 font-bold text-[10px]">
+                                🔒 Locked
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-white/20 backdrop-blur-md text-foreground font-bold border-0 text-[10px]">
+                                🟢 Active
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="flex-1 flex flex-col items-center justify-center text-center z-10 py-2">
+                            {course.title.toLowerCase().includes('bca') ? (
+                              <div className="space-y-0.5">
+                                <h1 className="text-4xl font-black text-red-600 tracking-wider">BCA</h1>
+                                <p className="text-[10px] text-amber-900 font-bold">Bachelor of Computer Applications</p>
+                              </div>
+                            ) : (
+                              <h2 className="text-base font-black px-2 line-clamp-2 leading-snug tracking-wide text-center">
+                                {course.title}
+                              </h2>
+                            )}
+                          </div>
+
+                          {course.isPurchased && !course.isLocked && (
+                            <div className="w-full bg-black/40 backdrop-blur-md rounded-lg p-2 z-10">
+                              <div className="flex items-center justify-between mb-1 text-[10px] text-white font-bold">
+                                <span>Your Progress</span>
+                                <span>{progressVal}%</span>
+                              </div>
+                              <Progress value={progressVal} className="h-1 bg-white/20" />
                             </div>
-                            <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-primary to-slate-700"
-                                style={{ width: `${progressVal}%` }}
-                              ></div>
+                          )}
+
+                          {course.isPurchased && !course.isLocked && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                              <div className="w-12 h-12 rounded-full bg-white/25 backdrop-blur-md flex items-center justify-center">
+                                <PlayCircle className="w-8 h-8 text-white fill-current" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <CardContent className="p-4 flex-1 flex flex-col justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Badge variant="outline" className="text-[10px] font-semibold">
+                                {course.category || 'Development'}
+                              </Badge>
+                              <Badge variant="outline" className="text-[10px] font-semibold">
+                                {course.level || 'Beginner'}
+                              </Badge>
+                            </div>
+
+                            <h3 className="font-bold text-sm text-foreground line-clamp-1 leading-snug">
+                              {course.title}
+                            </h3>
+
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>{course.instructor || 'GFI Faculty'}</span>
+                              <div className="flex items-center gap-0.5">
+                                <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
+                                <span className="font-bold text-foreground">{(course.rating || 4.5).toFixed(1)}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
 
-                      {/* Play Button Overlay */}
-                      {course.isPurchased && !course.isLocked && (
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center">
-                            <PlayCircle className="w-10 h-10 text-white" />
+                          <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-medium">
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" />
+                                {course.duration || '12h 30m'}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <BookOpen className="w-3.5 h-3.5" />
+                                {course.lessonsCount !== undefined ? `${course.lessonsCount} Topics` : '2 Topics'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <Button 
+                                variant="outline" 
+                                size="icon" 
+                                className="h-8 w-8 border-border/60 flex-shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  alert('Bookmarked!');
+                                }}
+                              >
+                                <Bookmark className="w-3.5 h-3.5" />
+                              </Button>
+
+                              {course.isLocked ? (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="text-muted-foreground flex items-center gap-1 bg-muted font-bold text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCourseClick(course);
+                                  }}
+                                >
+                                  <span>🔒 Locked</span>
+                                </Button>
+                              ) : course.isPurchased ? (
+                                <Button
+                                  size="sm"
+                                  className="bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10 font-bold text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCourseClick(course);
+                                  }}
+                                >
+                                  Continue Learning
+                                </Button>
+                              ) : (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  className="text-xs font-semibold border-primary/30"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAccessRequest(course._id);
+                                  }}
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 mr-1 text-primary" />
+                                  Request
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
 
-                    {/* Content */}
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="outline" className="text-xs">
-                          {course.category || 'Development'}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {course.level || 'Beginner'}
-                        </Badge>
-                      </div>
+            {/* Bottom info banner */}
+            {!loading && courses.length > 0 && (
+              <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl p-4 flex items-center justify-center gap-2 text-center text-xs sm:text-sm font-semibold text-primary">
+                <Star className="w-4 h-4 fill-primary text-primary" />
+                Keep learning! Complete your batches and unlock new achievements.
+              </div>
+            )}
 
-                      <h3 className="font-semibold mb-2 line-clamp-2 min-h-[3rem]">
-                        {course.title}
-                      </h3>
-
-                      <p className="text-sm text-muted-foreground mb-3">{course.instructor}</p>
-
-                      <div className="flex items-center gap-4 mb-3 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Star className="w-4 h-4 fill-yellow-500 text-yellow-500" />
-                          <span className="font-medium text-foreground">{(course.rating || 0).toFixed(1)}</span>
-                          <span>Rating</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4 mb-4 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {course.duration || '12h 30m'}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <BookOpen className="w-3 h-3" />
-                          {course.lessonsCount !== undefined ? `${course.lessonsCount} Lesson${course.lessonsCount !== 1 ? 's' : ''}` : '0 Lessons'}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-3 border-t border-border">
-                        <span className="text-sm font-semibold text-muted-foreground">Course Access</span>
-                        {course.isLocked ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="text-muted-foreground flex items-center gap-1 bg-muted font-bold"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCourseClick(course);
-                            }}
-                          >
-                            <span>🔒 Locked</span>
-                          </Button>
-                        ) : course.isPurchased ? (
-                          <Button
-                            size="sm"
-                            className="bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10 font-bold"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCourseClick(course);
-                            }}
-                          >
-                            ▶ Continue Learning
-                          </Button>
-                        ) : (
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAccessRequest(course._id);
-                            }}
-                          >
-                            <Sparkles className="w-4 h-4 mr-1 text-primary" />
-                            Request Access
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              );
-            })}
+            {/* Empty State */}
+            {!loading && courses.length === 0 && (
+              <div className="text-center py-16">
+                <BookOpen className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-xl font-semibold mb-2">No Batches Assigned</h3>
+                <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+                  You have not been assigned to a batch yet. Please contact your institute administrator.
+                </p>
+              </div>
+            )}
           </div>
-        )}
-
-        {/* Empty State */}
-        {!loading && filteredCourses.length === 0 && (
-          <div className="text-center py-16">
-            <BookOpen className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <h3 className="text-xl font-semibold mb-2">No courses found</h3>
-            <p className="text-muted-foreground mb-4">
-              Try adjusting your filters or search query
-            </p>
-            <Button
-              onClick={() => {
-                setSelectedCategory('All');
-                setSelectedLevel('All Levels');
-                setSearchQuery('');
-              }}
-            >
-              Clear Filters
-            </Button>
-          </div>
-        )}
+        </ScrollArea>
       </div>
 
       {/* Mobile Bottom Navigation */}

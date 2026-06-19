@@ -283,7 +283,7 @@ export const getVideoMetadata = async (videoId, authSource = null) => {
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
   const res = await youtube.videos.list({
-    part: ['snippet', 'contentDetails', 'status'],
+    part: ['snippet', 'contentDetails', 'status', 'processingDetails'],
     id: [videoId]
   });
 
@@ -297,13 +297,18 @@ export const getVideoMetadata = async (videoId, authSource = null) => {
     video.snippet?.thumbnails?.default?.url ||
     `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
+  let processingStatus = video.processingDetails?.processingStatus || video.status?.uploadStatus || 'unknown';
+  if (processingStatus === 'processed') {
+    processingStatus = 'succeeded';
+  }
+
   return {
     title: video.snippet?.title || '',
     rawDuration: iso8601Duration,
     duration: parseISO8601Duration(iso8601Duration),
     durationSeconds: parseISO8601DurationToSeconds(iso8601Duration),
     thumbnail,
-    processingStatus: video.status?.uploadStatus || 'unknown',
+    processingStatus,
     privacyStatus: video.status?.privacyStatus || 'unknown'
   };
 };

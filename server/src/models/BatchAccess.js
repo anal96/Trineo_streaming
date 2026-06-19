@@ -1,43 +1,38 @@
 import mongoose from 'mongoose';
 
 const batchAccessSchema = new mongoose.Schema({
-  batchName: {
-    type: String,
-    required: true,
-    index: true
-  },
-  courseIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Course'
-  }],
-  subjectIds: [{
-    type: String
-  }],
-  moduleIds: [{
-    type: String
-  }],
-  lessonIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Lesson'
-  }],
-  status: {
-    type: String,
-    enum: ['active', 'locked', 'expired', 'suspended'],
-    default: 'active'
-  },
-  startDate: {
-    type: Date,
-    default: null
-  },
-  expiryDate: {
-    type: Date,
-    default: null
-  },
   institute: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Institute',
     required: true,
     index: true
+  },
+  instituteId: {
+    type: String,
+    index: true,
+    default: ''
+  },
+  batchName: {
+    type: String,
+    required: true,
+    index: true
+  },
+  programIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Program'
+  }],
+  subjectIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Subject'
+  }],
+  status: {
+    type: String,
+    enum: ['active', 'suspended'],
+    default: 'active'
+  },
+  expiryDate: {
+    type: Date,
+    required: true
   },
   createdAt: {
     type: Date,

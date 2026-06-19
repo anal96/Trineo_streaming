@@ -1,7 +1,9 @@
 import fs from 'fs';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import { Lesson } from '../models/Lesson.js';
-import { Course } from '../models/Course.js';
+import { Program } from '../models/Program.js';
+import { Content } from '../models/Content.js';
 import { VideoUploadJob } from '../models/VideoUploadJob.js';
 import { Notification } from '../models/Notification.js';
 import { Purchase } from '../models/Purchase.js';
@@ -51,6 +53,8 @@ const markLessonAndJobReady = async (lesson, job, meta = {}) => {
 
 const markVideoAssetAndJobReady = async (videoAsset, job, meta = {}) => {
   videoAsset.uploadStatus = 'ready';
+  videoAsset.uploadProgress = 100;
+  videoAsset.youtubeProcessingStatus = 'succeeded';
   videoAsset.youtubeDuration = meta.duration || videoAsset.youtubeDuration;
   videoAsset.durationSeconds = meta.durationSeconds || videoAsset.durationSeconds || 0;
   videoAsset.youtubeThumbnail =
@@ -62,16 +66,15 @@ const markVideoAssetAndJobReady = async (videoAsset, job, meta = {}) => {
   if (job) {
     job.status = 'ready';
     job.uploadProgressPercent = 100;
-    job.youtubeProcessingStatus = 'processed';
+    job.youtubeProcessingStatus = 'succeeded';
     job.error = null;
     await job.save();
   }
 };
 
 const isYouTubeReady = (meta) =>
-  meta.processingStatus === 'processed' ||
-  meta.processingStatus === 'uploaded' ||
-  meta.privacyStatus === 'unlisted';
+  meta.processingStatus === 'succeeded' ||
+  meta.processingStatus === 'processed';
 
 const YOUTUBE_OAUTH_STATE_SECRET = process.env.YOUTUBE_OAUTH_STATE_SECRET || process.env.JWT_SECRET || 'trineo_youtube_state_secret';
 
@@ -469,13 +472,13 @@ export const uploadVideoToYouTube = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
 
-    // Validate course exists
+    // Validate program exists
     const course = req.user.role === 'owner'
-      ? await Course.findById(courseId).populate('institute')
-      : await Course.findOne({ _id: courseId, institute: req.user.institute }).populate('institute');
+      ? await Program.findById(courseId).populate('institute')
+      : await Program.findOne({ _id: courseId, institute: req.user.institute }).populate('institute');
     if (!course) {
       if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      return res.status(404).json({ message: 'Course not found' });
+      return res.status(404).json({ message: 'Program not found' });
     }
 
     // Validate lesson exists and belongs to institute
@@ -500,14 +503,39 @@ export const uploadVideoToYouTube = async (req, res) => {
     });
     const savedAsset = await videoAsset.save();
 
-    // Link VideoAsset to selected lesson and save other lesson video metadata
-    lesson.videoAssetId = savedAsset._id;
-    if (attachmentName !== undefined) lesson.attachmentName = attachmentName || null;
-    if (attachmentUrl !== undefined) lesson.attachmentUrl = attachmentUrl || null;
-    if (duration) {
-      lesson.duration = duration;
-      lesson.durationSeconds = parseDurationToSeconds(duration);
+    // Link VideoAsset to selected lesson content and save other content video metadata
+    let videoContent = await Content.findOne({ lessonId: lesson._id, type: 'video', isDeleted: false });
+    if (!videoContent) {
+      videoContent = new Content({
+        lessonId: lesson._id,
+        type: 'video',
+        title: title || (lesson.title + ' Video'),
+        institute: lesson.institute,
+        instituteId: lesson.instituteId,
+        order: 1
+      });
     }
+    videoContent.videoAssetId = savedAsset._id;
+    videoContent.youtubeVideoId = null;
+    videoContent.uploadStatus = 'uploading';
+    if (duration) {
+      videoContent.youtubeDuration = duration;
+    }
+    
+    // ROOT CAUSE AUDIT - STEP 1
+    console.log('[DEBUG] STEP 1 - Before Saving Content:', {
+      lessonId: lesson._id,
+      topicId: lesson._id,
+      contentId: videoContent._id,
+      youtubeVideoId: videoContent.youtubeVideoId,
+      uploadStatus: videoContent.uploadStatus
+    });
+
+    await videoContent.save();
+
+    // Link VideoAsset to selected lesson for backward compatibility with frontend checks
+    lesson.videoAssetId = savedAsset._id;
+    lesson.uploadStatus = 'uploading';
     await lesson.save();
 
     // Create upload job record for tracking
@@ -545,6 +573,9 @@ export const uploadVideoToYouTube = async (req, res) => {
               job.totalBytes = total;
               job.uploadProgressPercent = pct;
               await job.save().catch(() => {});
+
+              savedAsset.uploadProgress = pct;
+              await savedAsset.save().catch(() => {});
             }
           },
           institute
@@ -552,14 +583,25 @@ export const uploadVideoToYouTube = async (req, res) => {
 
         // YouTube upload complete — update records
         job.youtubeVideoId = youtubeVideoId;
-        job.status = 'youtube_processing';
+        job.status = 'processing';
         job.uploadProgressPercent = 100;
+        job.youtubeProcessingStatus = 'processing';
         await job.save();
 
         savedAsset.youtubeVideoId = youtubeVideoId;
-        savedAsset.uploadStatus = 'youtube_processing';
+        savedAsset.uploadStatus = 'processing';
+        savedAsset.uploadProgress = 100;
+        savedAsset.youtubeProcessingStatus = 'processing';
         savedAsset.youtubeThumbnail = getThumbnailUrl(youtubeVideoId, 'youtube');
         await savedAsset.save();
+
+        const cUpload = await Content.findOne({ videoAssetId: savedAsset._id, isDeleted: false });
+        if (cUpload) {
+          cUpload.youtubeVideoId = youtubeVideoId;
+          cUpload.uploadStatus = 'processing';
+          cUpload.youtubeThumbnail = getThumbnailUrl(youtubeVideoId, 'youtube');
+          await cUpload.save().catch(() => {});
+        }
 
         // Poll YouTube until processing is done (max 30 mins)
         let attempts = 0;
@@ -579,15 +621,44 @@ export const uploadVideoToYouTube = async (req, res) => {
                 message: `YouTube video ready: "${title}" — ID: ${youtubeVideoId}`,
                 type: 'upload'
               });
+              
+              const cReady = await Content.findOne({ videoAssetId: savedAsset._id, isDeleted: false });
+              if (cReady) {
+                cReady.uploadStatus = 'ready';
+                cReady.youtubeDuration = meta.duration || cReady.youtubeDuration;
+                cReady.youtubeThumbnail = meta.thumbnail || cReady.youtubeThumbnail || getThumbnailUrl(youtubeVideoId, 'youtube');
+                await cReady.save().catch(() => {});
+              }
 
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {
               clearInterval(pollInterval);
               savedAsset.uploadStatus = 'failed';
+              savedAsset.youtubeProcessingStatus = meta.processingStatus || 'failed';
               savedAsset.errorMessage = `YouTube processing status: ${meta.processingStatus}`;
               await savedAsset.save();
               job.status = 'failed';
-              job.youtubeProcessingStatus = meta.processingStatus;
+              job.youtubeProcessingStatus = meta.processingStatus || 'failed';
               await job.save();
+
+              const cFailed = await Content.findOne({ videoAssetId: savedAsset._id, isDeleted: false });
+              if (cFailed) {
+                cFailed.uploadStatus = 'failed';
+                await cFailed.save().catch(() => {});
+              }
+            } else {
+              savedAsset.uploadStatus = 'processing';
+              savedAsset.youtubeProcessingStatus = meta.processingStatus || 'processing';
+              await savedAsset.save().catch(() => {});
+
+              job.status = 'processing';
+              job.youtubeProcessingStatus = meta.processingStatus || 'processing';
+              await job.save().catch(() => {});
+
+              const cProcessing = await Content.findOne({ videoAssetId: savedAsset._id, isDeleted: false });
+              if (cProcessing) {
+                cProcessing.uploadStatus = 'processing';
+                await cProcessing.save().catch(() => {});
+              }
             }
           } catch (pollErr) {
             console.error('[YouTube Poll Error]', pollErr.message);
@@ -599,6 +670,12 @@ export const uploadVideoToYouTube = async (req, res) => {
               job.status = 'failed';
               job.error = pollErr.message;
               await job.save().catch(() => {});
+
+              const cPollFail = await Content.findOne({ videoAssetId: savedAsset._id, isDeleted: false });
+              if (cPollFail) {
+                cPollFail.uploadStatus = 'failed';
+                await cPollFail.save().catch(() => {});
+              }
             }
           }
         }, 20000); // Poll every 20 seconds
@@ -611,6 +688,12 @@ export const uploadVideoToYouTube = async (req, res) => {
         job.status = 'failed';
         job.error = uploadErr.message;
         await job.save().catch(() => {});
+
+        const cUploadFail = await Content.findOne({ videoAssetId: savedAsset._id, isDeleted: false });
+        if (cUploadFail) {
+          cUploadFail.uploadStatus = 'failed';
+          await cUploadFail.save().catch(() => {});
+        }
       } finally {
         // Always delete temp file from server
         if (fs.existsSync(tempFilePath)) {
@@ -635,19 +718,24 @@ export const getYouTubeUploadStatus = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
     const lesson = req.user.role === 'owner'
-      ? await Lesson.findById(req.params.lessonId).populate('videoAssetId')
-      : await Lesson.findOne({ _id: req.params.lessonId, institute: req.user.institute }).populate('videoAssetId');
+      ? await Lesson.findById(req.params.lessonId)
+      : await Lesson.findOne({ _id: req.params.lessonId, institute: req.user.institute });
     if (!lesson) return res.status(404).json({ message: 'Lesson not found' });
+
+    const content = await Content.findOne({ lessonId: lesson._id, type: 'video' }).populate('videoAssetId');
 
     const jobFilter = { lessonId: lesson._id };
     if (req.user.role !== 'owner') jobFilter.institute = req.user.institute;
     const job = await VideoUploadJob.findOne(jobFilter).sort({ createdAt: -1 });
 
-    const uploadStatus = (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.uploadStatus : null) || lesson.uploadStatus;
-    const youtubeVideoId = (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.youtubeVideoId : null) || lesson.youtubeVideoId;
-    const youtubeThumbnail = (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.youtubeThumbnail : null) || lesson.youtubeThumbnail;
-    const youtubeDuration = (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.youtubeDuration : null) || lesson.youtubeDuration;
-    const errorMessage = (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.errorMessage : null) || lesson.errorMessage;
+    const uploadStatus = (content?.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.uploadStatus : null) || content?.uploadStatus || 'pending';
+    const youtubeVideoId = (content?.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.youtubeVideoId : null) || content?.youtubeVideoId || null;
+    const youtubeThumbnail = (content?.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.youtubeThumbnail : null) || content?.youtubeThumbnail || null;
+    const youtubeDuration = (content?.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.youtubeDuration : null) || content?.youtubeDuration || null;
+    const errorMessage = (content?.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.errorMessage : null) || '';
+
+    const assetProgress = (content?.videoAssetId && typeof content.videoAssetId === 'object') ? content.videoAssetId.uploadProgress : null;
+    const assetProcessingStatus = (content?.videoAssetId && typeof content.videoAssetId === 'object') ? content.videoAssetId.youtubeProcessingStatus : null;
 
     res.json({
       lessonId: lesson._id,
@@ -656,8 +744,8 @@ export const getYouTubeUploadStatus = async (req, res) => {
       youtubeVideoId,
       youtubeThumbnail,
       youtubeDuration,
-      uploadProgressPercent: job?.uploadProgressPercent || 0,
-      youtubeProcessingStatus: job?.youtubeProcessingStatus || null,
+      uploadProgressPercent: assetProgress ?? job?.uploadProgressPercent ?? 0,
+      youtubeProcessingStatus: assetProcessingStatus || job?.youtubeProcessingStatus || null,
       error: errorMessage || null
     });
   } catch (error) {
@@ -676,12 +764,15 @@ export const syncYouTubeMetadata = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
     const lesson = req.user.role === 'owner'
-      ? await Lesson.findById(req.params.lessonId).populate('videoAssetId')
-      : await Lesson.findOne({ _id: req.params.lessonId, institute: req.user.institute }).populate('videoAssetId');
+      ? await Lesson.findById(req.params.lessonId)
+      : await Lesson.findOne({ _id: req.params.lessonId, institute: req.user.institute });
     if (!lesson) return res.status(404).json({ message: 'Lesson not found' });
     
-    const youtubeVideoId = (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.youtubeVideoId : null) || lesson.youtubeVideoId;
-    if (!youtubeVideoId) return res.status(400).json({ message: 'No YouTube video ID on this lesson' });
+    const content = await Content.findOne({ lessonId: lesson._id, type: 'video' }).populate('videoAssetId');
+    if (!content) return res.status(404).json({ message: 'Video content not found for this lesson' });
+
+    const youtubeVideoId = content.videoAssetId?.youtubeVideoId || content.youtubeVideoId;
+    if (!youtubeVideoId) return res.status(400).json({ message: 'No YouTube video ID on this content' });
 
     let authSource = null;
     if (lesson.institute) {
@@ -697,29 +788,27 @@ export const syncYouTubeMetadata = async (req, res) => {
     const job = await VideoUploadJob.findOne(jobFilter).sort({ createdAt: -1 });
     
     if (isYouTubeReady(meta)) {
-      if (lesson.videoAssetId && typeof lesson.videoAssetId === 'object') {
-        await markVideoAssetAndJobReady(lesson.videoAssetId, job, meta);
-        lesson.uploadStatus = 'ready';
-        lesson.youtubeDuration = meta.duration || lesson.youtubeDuration;
-        lesson.duration = meta.duration || lesson.duration;
-        lesson.durationSeconds = meta.durationSeconds || lesson.durationSeconds || 0;
-        lesson.youtubeThumbnail = meta.thumbnail || lesson.youtubeThumbnail;
-        await lesson.save();
-      } else {
-        await markLessonAndJobReady(lesson, job, meta);
+      const oldStatus = content.uploadStatus;
+      if (content.videoAssetId && typeof content.videoAssetId === 'object') {
+        await markVideoAssetAndJobReady(content.videoAssetId, job, meta);
       }
+      content.uploadStatus = 'ready';
+      content.youtubeVideoId = youtubeVideoId;
+      content.youtubeDuration = meta.duration || content.youtubeDuration;
+      content.youtubeThumbnail = meta.thumbnail || content.youtubeThumbnail;
+      await content.save();
+      console.log(`[VIDEO-SYNC]\ncontentId: ${content._id}\nvideoAssetId: ${content.videoAssetId?._id || content.videoAssetId}\noldStatus: ${oldStatus}\nnewStatus: ready`);
     } else {
-      if (lesson.videoAssetId && typeof lesson.videoAssetId === 'object') {
-        lesson.videoAssetId.youtubeDuration = meta.duration;
-        lesson.videoAssetId.durationSeconds = meta.durationSeconds || 0;
-        lesson.videoAssetId.youtubeThumbnail = meta.thumbnail;
-        await lesson.videoAssetId.save();
+      if (content.videoAssetId && typeof content.videoAssetId === 'object') {
+        content.videoAssetId.youtubeDuration = meta.duration;
+        content.videoAssetId.durationSeconds = meta.durationSeconds || 0;
+        content.videoAssetId.youtubeThumbnail = meta.thumbnail;
+        await content.videoAssetId.save();
       }
-      lesson.youtubeDuration = meta.duration;
-      lesson.duration = meta.duration;
-      lesson.durationSeconds = meta.durationSeconds || 0;
-      lesson.youtubeThumbnail = meta.thumbnail;
-      await lesson.save();
+      content.youtubeVideoId = youtubeVideoId;
+      content.youtubeDuration = meta.duration;
+      content.youtubeThumbnail = meta.thumbnail;
+      await content.save();
 
       if (job) {
         job.youtubeProcessingStatus = meta.processingStatus;
@@ -758,9 +847,9 @@ export const getYouTubeJobs = async (req, res) => {
       assets.map(async (asset) => {
         const job = jobMap[asset._id.toString()];
         const shouldRefresh =
-          asset.uploadStatus === 'youtube_processing' &&
+          (asset.uploadStatus === 'youtube_processing' || asset.uploadStatus === 'processing') &&
           asset.youtubeVideoId &&
-          (job?.uploadProgressPercent || 0) >= 100 &&
+          (asset.uploadProgress >= 100 || (job?.uploadProgressPercent || 0) >= 100) &&
           (!job?.updatedAt || now - new Date(job.updatedAt).getTime() > 60000);
 
         if (!shouldRefresh) return;
@@ -779,6 +868,8 @@ export const getYouTubeJobs = async (req, res) => {
           } else if (job) {
             job.youtubeProcessingStatus = meta.processingStatus;
             await job.save();
+            asset.youtubeProcessingStatus = meta.processingStatus;
+            await asset.save();
           }
         } catch (syncErr) {
           if (job) {
@@ -792,8 +883,8 @@ export const getYouTubeJobs = async (req, res) => {
     const result = assets.map(asset => {
       const obj = asset.toObject();
       const job = jobMap[asset._id.toString()];
-      obj.uploadProgressPercent = job?.uploadProgressPercent || 0;
-      obj.youtubeProcessingStatus = job?.youtubeProcessingStatus || null;
+      obj.uploadProgressPercent = asset.uploadProgress ?? job?.uploadProgressPercent ?? 0;
+      obj.youtubeProcessingStatus = asset.youtubeProcessingStatus || job?.youtubeProcessingStatus || null;
       return obj;
     });
 
@@ -855,18 +946,24 @@ export const replaceVideoAsset = async (req, res) => {
               job.totalBytes = total;
               job.uploadProgressPercent = pct;
               await job.save().catch(() => {});
+
+              videoAsset.uploadProgress = pct;
+              await videoAsset.save().catch(() => {});
             }
           },
           institute
         );
 
         job.youtubeVideoId = youtubeVideoId;
-        job.status = 'youtube_processing';
+        job.status = 'processing';
         job.uploadProgressPercent = 100;
+        job.youtubeProcessingStatus = 'processing';
         await job.save();
 
         videoAsset.youtubeVideoId = youtubeVideoId;
-        videoAsset.uploadStatus = 'youtube_processing';
+        videoAsset.uploadStatus = 'processing';
+        videoAsset.uploadProgress = 100;
+        videoAsset.youtubeProcessingStatus = 'processing';
         videoAsset.youtubeThumbnail = getThumbnailUrl(youtubeVideoId, 'youtube');
         await videoAsset.save();
 
@@ -889,11 +986,20 @@ export const replaceVideoAsset = async (req, res) => {
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {
               clearInterval(pollInterval);
               videoAsset.uploadStatus = 'failed';
+              videoAsset.youtubeProcessingStatus = meta.processingStatus || 'failed';
               videoAsset.errorMessage = `YouTube processing status: ${meta.processingStatus}`;
               await videoAsset.save();
               job.status = 'failed';
-              job.youtubeProcessingStatus = meta.processingStatus;
+              job.youtubeProcessingStatus = meta.processingStatus || 'failed';
               await job.save();
+            } else {
+              videoAsset.uploadStatus = 'processing';
+              videoAsset.youtubeProcessingStatus = meta.processingStatus || 'processing';
+              await videoAsset.save().catch(() => {});
+
+              job.status = 'processing';
+              job.youtubeProcessingStatus = meta.processingStatus || 'processing';
+              await job.save().catch(() => {});
             }
           } catch (pollErr) {
             if (attempts >= maxAttempts) {
@@ -990,18 +1096,71 @@ export const getWatchToken = async (req, res) => {
     if (req.user.role !== 'owner' && !req.user.institute) {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
-    const lesson = req.user.role === 'owner'
+    let lesson = req.user.role === 'owner'
       ? await Lesson.findById(req.params.lessonId).populate('videoAssetId')
       : await Lesson.findOne({ _id: req.params.lessonId, institute: req.user.institute }).populate('videoAssetId');
-    if (!lesson) return res.status(404).json({ message: 'Lesson not found' });
+
+    let resolvedLessonId = req.params.lessonId;
+
+    if (!lesson) {
+      const content = req.user.role === 'owner'
+        ? await Content.findById(req.params.lessonId).populate('videoAssetId')
+        : await Content.findOne({ _id: req.params.lessonId, institute: req.user.institute }).populate('videoAssetId');
+      
+      if (content) {
+        resolvedLessonId = content.lessonId.toString();
+        lesson = {
+          _id: content._id,
+          title: content.title,
+          youtubeVideoId: content.youtubeVideoId,
+          youtubeThumbnail: content.youtubeThumbnail,
+          youtubeDuration: content.youtubeDuration,
+          videoProvider: content.videoProvider,
+          videoAssetId: content.videoAssetId,
+          attachmentUrl: content.attachmentUrl,
+          attachmentName: content.attachmentName,
+          unitId: null,
+          courseId: null
+        };
+      }
+    }
+
+    if (!lesson) return res.status(404).json({ message: 'Lesson or Content not found' });
+
+    let targetProgramId = lesson.courseId;
+    if (lesson.unitId) {
+      const UnitModel = mongoose.model('Unit');
+      const SubjectModel = mongoose.model('Subject');
+      const unit = await UnitModel.findById(lesson.unitId);
+      if (unit) {
+        const subject = await SubjectModel.findById(unit.subjectId);
+        if (subject) {
+          targetProgramId = subject.programId;
+        }
+      }
+    } else if (!lesson.courseId && resolvedLessonId) {
+      // Find parent lesson and resolve its programId
+      const LessonModel = mongoose.model('Lesson');
+      const parentLesson = await LessonModel.findById(resolvedLessonId);
+      if (parentLesson && parentLesson.unitId) {
+        const UnitModel = mongoose.model('Unit');
+        const SubjectModel = mongoose.model('Subject');
+        const unit = await UnitModel.findById(parentLesson.unitId);
+        if (unit) {
+          const subject = await SubjectModel.findById(unit.subjectId);
+          if (subject) {
+            targetProgramId = subject.programId;
+          }
+        }
+      }
+    }
 
     // Enforce hierarchical content access management
     const access = await verifyStudentAccess({
       user: req.user,
-      courseId: lesson.courseId,
-      subjectTitle: lesson.subjectTitle || 'General',
-      moduleTitle: lesson.moduleTitle || 'Module 1',
-      lessonId: lesson._id
+      programId: targetProgramId,
+      courseId: targetProgramId,
+      lessonId: resolvedLessonId
     });
 
     if (!access.granted) {
@@ -1017,6 +1176,13 @@ export const getWatchToken = async (req, res) => {
     const encryptedVideoId = encryptVideoId(targetVideoId, userId, lessonId);
 
     // Return only the ID — frontend builds the embed URL
+    console.log('[WATCH-ENDPOINT-DIAGNOSTIC]', {
+      contentId: req.params.lessonId,
+      lessonId: resolvedLessonId,
+      youtubeVideoId: targetVideoId,
+      uploadStatus: (lesson.videoAssetId && typeof lesson.videoAssetId === 'object' ? lesson.videoAssetId.uploadStatus : null) || lesson.uploadStatus
+    });
+
     res.json({
       youtubeVideoId: encryptedVideoId,
       isEncrypted: true,
@@ -1169,18 +1335,24 @@ export const replaceLessonVideo = async (req, res) => {
               job.totalBytes = total;
               job.uploadProgressPercent = pct;
               await job.save().catch(() => {});
+
+              videoAsset.uploadProgress = pct;
+              await videoAsset.save().catch(() => {});
             }
           },
           institute
         );
 
         job.youtubeVideoId = youtubeVideoId;
-        job.status = 'youtube_processing';
+        job.status = 'processing';
         job.uploadProgressPercent = 100;
+        job.youtubeProcessingStatus = 'processing';
         await job.save();
 
         videoAsset.youtubeVideoId = youtubeVideoId;
-        videoAsset.uploadStatus = 'youtube_processing';
+        videoAsset.uploadStatus = 'processing';
+        videoAsset.uploadProgress = 100;
+        videoAsset.youtubeProcessingStatus = 'processing';
         videoAsset.youtubeThumbnail = getThumbnailUrl(youtubeVideoId, 'youtube');
         await videoAsset.save();
 
@@ -1203,11 +1375,20 @@ export const replaceLessonVideo = async (req, res) => {
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {
               clearInterval(pollInterval);
               videoAsset.uploadStatus = 'failed';
+              videoAsset.youtubeProcessingStatus = meta.processingStatus || 'failed';
               videoAsset.errorMessage = `YouTube processing status: ${meta.processingStatus}`;
               await videoAsset.save();
               job.status = 'failed';
-              job.youtubeProcessingStatus = meta.processingStatus;
+              job.youtubeProcessingStatus = meta.processingStatus || 'failed';
               await job.save();
+            } else {
+              videoAsset.uploadStatus = 'processing';
+              videoAsset.youtubeProcessingStatus = meta.processingStatus || 'processing';
+              await videoAsset.save().catch(() => {});
+
+              job.status = 'processing';
+              job.youtubeProcessingStatus = meta.processingStatus || 'processing';
+              await job.save().catch(() => {});
             }
           } catch (pollErr) {
             if (attempts >= maxAttempts) {

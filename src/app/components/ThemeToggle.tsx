@@ -52,6 +52,8 @@ export function ThemeToggle() {
     pathname.startsWith('/student') ||
     pathname.startsWith('/watch') ||
     pathname.startsWith('/admin') ||
+    pathname.startsWith('/course') ||
+    pathname.startsWith('/program') ||
     pathname === '/owner';
 
   if (!mounted || hideFloating) return null;

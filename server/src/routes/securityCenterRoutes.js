@@ -6,7 +6,9 @@ import {
   getSecurityEvents,
   forceLogoutSession,
   revokeAllSessions,
-  setStudentSecurityStatus
+  setStudentSecurityStatus,
+  ignoreSecurityEvent,
+  resolveSecurityEvent
 } from '../controllers/securityCenterController.js';
 
 const router = express.Router();
@@ -17,5 +19,7 @@ router.get('/events', protect, adminOnly, getSecurityEvents);
 router.post('/sessions/:sessionId/terminate', protect, adminOnly, forceLogoutSession);
 router.post('/revoke-all', protect, adminOnly, revokeAllSessions);
 router.post('/student-action', protect, adminOnly, setStudentSecurityStatus);
+router.post('/events/:eventId/ignore', protect, adminOnly, ignoreSecurityEvent);
+router.post('/events/:eventId/resolve', protect, adminOnly, resolveSecurityEvent);
 
 export default router;

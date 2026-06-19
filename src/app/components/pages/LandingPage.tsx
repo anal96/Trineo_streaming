@@ -19,11 +19,11 @@ const LANDING_HTML = `
         <div class="logo">
           <a href="/" class="logo-white text-decoration-none d-flex align-items-center gap-2">
             <img src="${trineoLogoImg}" alt="Trineo Logo" width="30" height="30" class="img-fluid rounded-circle" style="object-fit: contain;">
-            <span class="text-logo mb-0 fw-bold text-white">trineo<span class="text-primary dot">.</span></span>
+            <span class="text-logo mb-0 fw-bold text-white">Trineo Stream</span>
           </a>
           <a href="/" class="logo-dark text-decoration-none d-flex align-items-center gap-2">
             <img src="${trineoLogoImg}" alt="Trineo Logo" width="30" height="30" class="img-fluid rounded-circle" style="object-fit: contain;">
-            <span class="text-logo mb-0 fw-bold text-dark">trineo<span class="text-primary dot">.</span></span>
+            <span class="text-logo mb-0 fw-bold text-dark">Trineo Stream</span>
           </a>
         </div>
         <div class="d-flex align-items-center gap-4">
@@ -106,8 +106,7 @@ const LANDING_HTML = `
             </div>
           </div>
             <div class="d-flex align-items-end gap-3" data-aos="fade-up" data-aos-delay="200" data-aos-duration="1000">
-            <h1 class="mb-0 fs-16 text-white lh-1">trineo<span
-                    class="text-primary">.</span></h1>
+            <h1 class="mb-0 fs-16 text-white lh-1">Trineo Stream</h1>
             <a href="/signup" class="p-1 ps-7 bg-primary rounded-pill" data-nav="signup">
               <span class="bg-white round-52 rounded-circle d-flex align-items-center justify-content-center">
                 <iconify-icon icon="lucide:arrow-up-right" class="fs-8 text-dark"></iconify-icon>
@@ -615,7 +614,7 @@ const LANDING_HTML = `
                 <div class="card-body d-flex flex-column gap-5 gap-xl-11 justify-content-between">
                   <div class="d-flex flex-column gap-4">
                     <p class="mb-0">Coaching Institutes</p>
-                    <h4 class="mb-0">Launch secure online batches and manage student learning journeys.</h4>
+                    <h4 class="mb-0">Launch secure online cohorts and manage student learning journeys.</h4>
                   </div>
                   <div class="hstack gap-3">
                     <img src="${ASSET_BASE}/images/testimonial/testimonial-1.jpg" alt=""

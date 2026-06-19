@@ -104,7 +104,9 @@ export const getCourses = async (req, res) => {
         courseObj.lessonsCount = lessonCountMap[course._id.toString()] || 0;
         return courseObj;
       }));
-      return res.json(coursesWithPurchaseStatus);
+      
+      const assignedCourses = coursesWithPurchaseStatus.filter(c => c.isPurchased);
+      return res.json(assignedCourses);
     }
 
     const coursesWithCounts = courses.map(course => {

@@ -8,7 +8,7 @@
   --card-foreground: #0f172a;
   --popover: #ffffff;
   --popover-foreground: #0f172a;
-  --primary: #7c3aed;
+  --primary: #2563eb;
   --primary-foreground: #ffffff;
   --secondary: #f1f5f9;
   --secondary-foreground: #1f2a2e;
@@ -24,21 +24,21 @@
   --switch-background: #cbd5e1;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #8b5cf6;
-  --chart-1: #7c3aed;
-  --chart-2: #6366f1;
+  --ring: #3b82f6;
+  --chart-1: #2563eb;
+  --chart-2: #3b82f6;
   --chart-3: #0f172a;
   --chart-4: #14b8a6;
   --chart-5: #f59e0b;
   --radius: 0.875rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #0f172a;
-  --sidebar-primary: #7c3aed;
+  --sidebar-primary: #2563eb;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f8fafc;
   --sidebar-accent-foreground: #0f172a;
   --sidebar-border: #e2e8f0;
-  --sidebar-ring: #8b5cf6;
+  --sidebar-ring: #3b82f6;
 }
 
 .dark {
@@ -48,37 +48,37 @@
   --card-foreground: #f8fafc;
   --popover: #111827;
   --popover-foreground: #f8fafc;
-  --primary: #7c3aed;
+  --primary: #2563eb;
   --primary-foreground: #ffffff;
   --secondary: rgba(255, 255, 255, 0.06);
   --secondary-foreground: #f8fafc;
   --muted: rgba(255, 255, 255, 0.05);
   --muted-foreground: rgba(255, 255, 255, 0.42);
-  --accent: rgba(124, 58, 237, 0.14);
+  --accent: rgba(37, 99, 235, 0.14);
   --accent-foreground: #f8fafc;
   --destructive: #f87171;
   --destructive-foreground: #ffffff;
   --border: rgba(255, 255, 255, 0.06);
   --input: rgba(255, 255, 255, 0.08);
   --input-background: rgba(255, 255, 255, 0.04);
-  --ring: #8b5cf6;
+  --ring: #3b82f6;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --chart-1: #7c3aed;
-  --chart-2: #6366f1;
+  --chart-1: #2563eb;
+  --chart-2: #3b82f6;
   --chart-3: #34d399;
   --chart-4: #fbbf24;
   --chart-5: #fb7185;
   --sidebar: #0a0a1a;
   --sidebar-foreground: #f8fafc;
-  --sidebar-primary: #7c3aed;
+  --sidebar-primary: #2563eb;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: rgba(255, 255, 255, 0.04);
   --sidebar-accent-foreground: #f8fafc;
   --sidebar-border: rgba(255, 255, 255, 0.06);
-  --sidebar-ring: #8b5cf6;
-  --gradient-brand: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
-  --gradient-accent: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  --sidebar-ring: #3b82f6;
+  --gradient-brand: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  --gradient-accent: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
 }
 
 @theme inline {
@@ -139,8 +139,8 @@
   body {
     @apply bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(circle at top left, rgba(124, 58, 237, 0.08), transparent 28%),
-      radial-gradient(circle at top right, rgba(99, 102, 241, 0.06), transparent 22%),
+      radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 28%),
+      radial-gradient(circle at top right, rgba(59, 130, 246, 0.06), transparent 22%),
       linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     background-attachment: fixed;
     text-rendering: optimizeLegibility;
@@ -157,8 +157,8 @@
 
   .dark body {
     background-image:
-      radial-gradient(circle at top left, rgba(124, 58, 237, 0.12), transparent 26%),
-      radial-gradient(circle at top right, rgba(99, 102, 241, 0.08), transparent 22%),
+      radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 26%),
+      radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 22%),
       linear-gradient(180deg, #06060f 0%, #08081a 100%);
   }
 
@@ -241,7 +241,7 @@
   }
 
   .gradient-text {
-    background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
