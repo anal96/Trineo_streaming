@@ -28,6 +28,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  avatar: {
+    type: String,
+    default: ''
+  },
+  recoveryEmail: {
+    type: String,
+    default: ''
+  },
   institute: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Institute',

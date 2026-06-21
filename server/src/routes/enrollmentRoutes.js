@@ -10,7 +10,8 @@ import {
   purchaseCourse, 
   purchaseCourseManual, 
   getPendingPayments, 
-  verifyManualPayment 
+  verifyManualPayment,
+  getStudentPayments
 } from '../controllers/purchaseController.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 
@@ -22,6 +23,7 @@ router.route('/')
 
 router.get('/my-courses', protect, getEnrollments);
 router.get('/my-programs', protect, getEnrollments);
+router.get('/my-payments', protect, getStudentPayments);
 
 // Student Checkout / Access Request
 router.post('/checkout', protect, purchaseCourse);

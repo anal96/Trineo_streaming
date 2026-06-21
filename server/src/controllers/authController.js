@@ -6,6 +6,7 @@ import { Institute } from '../models/Institute.js';
 import { UsedSSOToken } from '../models/UsedSSOToken.js';
 import { SecuritySession } from '../models/SecuritySession.js';
 import { SecurityEvent } from '../models/SecurityEvent.js';
+import { SecurityState } from '../models/SecurityState.js';
 import { upsertSecuritySessionFromRequest } from './securityCenterController.js';
 import { syncStudentProfile } from '../services/crmSyncService.js';
 
@@ -96,7 +97,8 @@ export const registerUser = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      path: '/'
     });
 
     res.status(201).json({
@@ -124,6 +126,17 @@ export const loginUser = async (req, res) => {
     if (user && (await user.matchPassword(password))) {
       if (user.status !== 'active') {
         return res.status(403).json({ message: 'Your account is deactivated' });
+      }
+
+      const securityState = await SecurityState.findOne({ userId: user._id });
+      if (securityState && securityState.accountLocked) {
+        return res.status(403).json({ message: 'Account locked due to security violations.', accountLocked: true });
+      }
+
+      if (securityState && (securityState.forceLogout || securityState.penaltyUntil)) {
+        securityState.forceLogout = false;
+        securityState.penaltyUntil = null;
+        await securityState.save();
       }
 
       const hasPreviousSession = !!user.activeSessionToken;
@@ -195,7 +208,8 @@ export const loginUser = async (req, res) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        path: '/'
       });
 
       res.json({
@@ -634,6 +648,28 @@ export const ssoLogin = async (req, res) => {
       }
     }
 
+    const securityState = await SecurityState.findOne({ userId: user._id });
+    if (securityState && securityState.accountLocked) {
+      const error = new Error(`User account ${email} is locked due to security violations`);
+      console.error('SSO FAILURE REASON:', error.message);
+      await AuditLog.create({
+        institute: inst._id,
+        instituteId,
+        userId: user._id,
+        eventType: 'SSO_LOGIN_FAILED',
+        details: `SSO failed: User account ${email} is locked due to security violations.`,
+        ipAddress: normalizedIp,
+        userAgent
+      });
+      return res.redirect(`${frontendUrl}/login?error=Account permanently locked due to security violations.`);
+    }
+
+    if (securityState && (securityState.forceLogout || securityState.penaltyUntil)) {
+      securityState.forceLogout = false;
+      securityState.penaltyUntil = null;
+      await securityState.save();
+    }
+
     if (user.status !== 'active') {
       const error = new Error(`User account ${email} is deactivated`);
       console.error('SSO FAILURE REASON:');
@@ -723,7 +759,8 @@ export const ssoLogin = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      path: '/'
     });
 
     let redirectPath = '/student';
@@ -862,7 +899,8 @@ export const logoutUser = async (req, res) => {
     res.clearCookie('token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      path: '/'
     });
     res.json({ message: 'Logged out successfully' });
   } catch (error) {

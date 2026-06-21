@@ -117,6 +117,10 @@ const securityEventSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  attemptNumber: {
+    type: Number,
+    default: 1
+  },
   metadata: {
     type: mongoose.Schema.Types.Mixed,
     default: {}

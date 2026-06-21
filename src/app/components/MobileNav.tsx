@@ -1,7 +1,5 @@
 import { useNavigate, useLocation } from 'react-router';
-import { Home, BookOpen, FileText, Users, ShieldCheck, MoreHorizontal, Video, Key } from 'lucide-react';
-import { useState } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from './ui/sheet';
+import { Home, BookOpen, Bell, Download, User } from 'lucide-react';
 
 interface MobileNavProps {
   items: Array<{
@@ -11,15 +9,13 @@ interface MobileNavProps {
     id: string;
   }>;
   onItemClick?: (id: string) => void;
+  unreadCount?: number;
+  violationCount?: number;
 }
 
-export function MobileNav({ items, onItemClick }: MobileNavProps) {
+export function MobileNav({ items, onItemClick, unreadCount, violationCount }: MobileNavProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  const primary = items.slice(0, 4);
-  const overflow = items.slice(4);
 
   const handleClick = (item: (typeof items)[0]) => {
     if (item.path) {
@@ -30,71 +26,54 @@ export function MobileNav({ items, onItemClick }: MobileNavProps) {
     } else if (onItemClick) {
       onItemClick(item.id);
     }
-    setMoreOpen(false);
   };
 
   const isActive = (item: (typeof items)[0]) => {
-    if (item.path) {
-      if (item.id === 'courses') {
-        return location.pathname === '/student/courses';
-      }
-      if (location.pathname === '/student') {
-        const params = new URLSearchParams(location.search);
-        const currentTab = params.get('tab') || 'home';
-        return currentTab === item.id;
-      }
+    if (item.id === 'courses') {
+      return location.pathname === '/student/courses';
+    }
+    if (location.pathname === '/student') {
+      const params = new URLSearchParams(location.search);
+      const currentTab = params.get('tab') || 'home';
+      return currentTab === item.id;
     }
     return false;
   };
 
-  const renderItem = (item: (typeof items)[0], inSheet = false) => {
-    const Icon = item.icon;
-    const active = isActive(item);
-    return (
-      <button
-        key={item.id}
-        type="button"
-        onClick={() => handleClick(item)}
-        className={`flex flex-col items-center justify-center gap-1 min-h-11 min-w-[4.5rem] px-2 py-2 rounded-xl transition-all ${
-          inSheet ? 'w-full flex-row justify-start gap-3 px-4' : ''
-        } ${
-          active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-        }`}
-      >
-        <Icon className="w-5 h-5 shrink-0" />
-        <span className={`text-xs font-medium ${inSheet ? 'text-sm' : 'max-w-[4.5rem] truncate'}`}>
-          {item.label}
-        </span>
-      </button>
-    );
-  };
-
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-t border-border safe-bottom">
-      <div className="flex items-center justify-around min-h-[4rem] px-1 max-w-full">
-        {primary.map((item) => renderItem(item))}
-        {overflow.length > 0 && (
-          <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-            <SheetTrigger asChild>
-              <button
-                type="button"
-                className="flex flex-col items-center justify-center gap-1 min-h-11 min-w-[4.5rem] px-2 py-2 rounded-xl text-muted-foreground hover:text-foreground"
-                aria-label="More navigation"
-              >
-                <MoreHorizontal className="w-5 h-5" />
-                <span className="text-xs font-medium">More</span>
-              </button>
-            </SheetTrigger>
-            <SheetContent side="bottom" className="rounded-t-2xl pb-safe-nav">
-              <SheetHeader>
-                <SheetTitle className="text-left text-base">Menu</SheetTitle>
-              </SheetHeader>
-              <div className="flex flex-col gap-1 py-2">
-                {overflow.map((item) => renderItem(item, true))}
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card/90 backdrop-blur-xl border-t border-slate-200/50 dark:border-zinc-800/50 pb-[env(safe-area-inset-bottom)] h-[72px] shadow-[0_-4px_24px_rgba(0,0,0,0.04)] no-select">
+      <div className="flex items-center justify-around h-full px-2 max-w-full">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = isActive(item);
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleClick(item)}
+              className={`flex flex-col items-center justify-center gap-1 min-h-[48px] min-w-[56px] px-3 py-1 rounded-xl transition-all duration-200 touch-btn ${
+                active 
+                  ? 'text-primary dark:text-violet-400 scale-105 font-semibold' 
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <div className="relative">
+                <Icon className={`w-5 h-5 transition-transform duration-200 ${active ? 'stroke-[2.5px]' : 'stroke-[2px]'}`} />
+                {item.id === 'notifications' && unreadCount !== undefined && unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-white leading-none">
+                    {unreadCount}
+                  </span>
+                )}
+                {item.id === 'settings' && violationCount !== undefined && violationCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2 rounded-full bg-red-500 ring-2 ring-background animate-pulse" />
+                )}
               </div>
-            </SheetContent>
-          </Sheet>
-        )}
+              <span className="text-[10px] tracking-wide">
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </nav>
   );
@@ -102,10 +81,8 @@ export function MobileNav({ items, onItemClick }: MobileNavProps) {
 
 export const studentNavItems = [
   { icon: Home, label: 'Home', path: '/student?tab=home', id: 'home' },
-  { icon: BookOpen, label: 'My Batches', path: '/student/courses', id: 'courses' },
-  { icon: Video, label: 'Live Classes', path: '/student?tab=live-classes', id: 'live-classes' },
-  { icon: FileText, label: 'Materials', path: '/student?tab=materials', id: 'materials' },
-  { icon: Key, label: 'Access', path: '/student?tab=access', id: 'access' },
-  { icon: Users, label: 'Faculty', path: '/student?tab=faculty', id: 'faculty' },
-  { icon: ShieldCheck, label: 'Security', path: '/student?tab=security', id: 'security' },
+  { icon: BookOpen, label: 'Courses', path: '/student/courses', id: 'courses' },
+  { icon: Bell, label: 'Notifications', path: '/student?tab=notifications', id: 'notifications' },
+  { icon: Download, label: 'Resources', path: '/student?tab=materials', id: 'materials' },
+  { icon: User, label: 'Me', path: '/student?tab=settings', id: 'settings' },
 ];

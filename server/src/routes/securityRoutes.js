@@ -3,6 +3,9 @@ import mongoose from 'mongoose';
 import { protect } from '../middleware/auth.js';
 import { SecurityEvent } from '../models/SecurityEvent.js';
 import { SecuritySession } from '../models/SecuritySession.js';
+import { Notification } from '../models/Notification.js';
+import { User } from '../models/User.js';
+import { SecurityState } from '../models/SecurityState.js';
 
 const router = express.Router();
 
@@ -32,27 +35,141 @@ router.post('/audit', protect, async (req, res) => {
     let actionTaken = 'alert_logged';
     let responseAction = 'none';
     let responseMessage = 'Security audit logged successfully';
+    let state = null;
 
-    if (eventType === 'screenshot') {
-      const screenshotCount = await SecurityEvent.countDocuments({
-        studentId: req.user._id,
-        eventType: 'screenshot'
-      });
+    if (eventType === 'screenshot' || eventType === 'screen_recording') {
+      state = await SecurityState.findOne({ userId: req.user._id });
+      if (!state) {
+        state = await SecurityState.create({ userId: req.user._id });
+      }
 
-      if (screenshotCount === 0) {
+      // SERVER-SIDE DEBOUNCE: reject duplicate reports within 5 seconds
+      const now = new Date();
+      if (state.lastViolationAt && (now.getTime() - new Date(state.lastViolationAt).getTime()) < 5000) {
+        console.log(`[SECURITY] Debounce: Duplicate violation report from user ${req.user.email} within 5s, skipping increment.`);
+        // Return current penalty state without incrementing
+        return res.json({
+          success: true,
+          action: state.penaltyUntil && new Date(state.penaltyUntil) > now ? 'warning_shown' : 'alert_logged',
+          message: 'Duplicate violation report ignored (debounced).',
+          penaltyUntil: state.penaltyUntil,
+          serverTime: now.toISOString(),
+          violationCount: state.violationCount,
+        });
+      }
+
+      state.violationCount += 1;
+      state.lastViolationType = eventType;
+      state.lastViolationAt = now;
+      
+      const attemptIndex = state.violationCount;
+      const label = eventType === 'screenshot' ? 'Screenshot' : 'Screen recording';
+
+      if (attemptIndex === 1) {
+        state.penaltyUntil = new Date(Date.now() + 60000); // 60 seconds
         actionTaken = 'warning_shown';
         responseAction = 'warning_shown';
-        responseMessage = 'This is your first screenshot attempt warning. Further attempts will notify administrator or terminate your session.';
-      } else if (screenshotCount === 1) {
-        actionTaken = 'alert_logged';
-        responseAction = 'alert_logged';
-        responseMessage = 'Screenshot attempt logged. Administrator has been notified.';
-      } else {
+        responseMessage = `${label} detected. Playback suspended for 60 seconds.`;
+        
+        // Create student notification
+        await Notification.create({
+          institute: req.user.institute || null,
+          userId: req.user._id,
+          message: `${label} detected. Playback suspended for 60 seconds.`,
+          type: 'system',
+          read: false
+        });
+      } else if (attemptIndex === 2) {
+        state.penaltyUntil = new Date(Date.now() + 60000); // 60 seconds
+        actionTaken = 'warning_shown';
+        responseAction = 'warning_shown_level2';
+        responseMessage = 'Repeated violation detected. Playback suspended for 60 seconds.';
+        
+        // Create student notification
+        await Notification.create({
+          institute: req.user.institute || null,
+          userId: req.user._id,
+          message: 'Repeated violation detected. Playback suspended for 60 seconds.',
+          type: 'system',
+          read: false
+        });
+      } else if (attemptIndex === 3) {
+        state.penaltyUntil = null; // Terminated, no temporary penalty active
+        state.forceLogout = true;
         actionTaken = 'session_terminated';
         responseAction = 'session_terminated';
-        responseMessage = 'Your session has been terminated due to multiple security violations.';
+        responseMessage = 'Account security violation threshold exceeded. Session terminated.';
 
-        // Terminate current student session & suspend the student
+        // Create student notification
+        await Notification.create({
+          institute: req.user.institute || null,
+          userId: req.user._id,
+          message: 'Account security violation threshold exceeded. Session terminated.',
+          type: 'system',
+          read: false
+        });
+
+        // Notify admins
+        const admins = await User.find({ role: 'admin', institute: req.user.institute });
+        const adminInserts = admins.map(admin => ({
+          institute: req.user.institute || null,
+          userId: admin._id,
+          message: `🚨 Security Violation: Student ${req.user.name} force logged out. ${label} Attempt (Attempt 3). Status: Force Logged Out.`,
+          type: 'system',
+          read: false
+        }));
+        if (adminInserts.length) {
+          await Notification.insertMany(adminInserts);
+        }
+
+        // Terminate current student session (logout) but leave account active so they can log back in
+        req.user.activeSessionToken = '';
+        await req.user.save();
+
+        await SecuritySession.updateMany(
+          { userId: req.user._id, status: 'active' },
+          { $set: { status: 'terminated' } }
+        );
+
+        res.clearCookie('token', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+          path: '/'
+        });
+      } else {
+        // Attempt 4+ -> Permanent lock
+        state.penaltyUntil = null;
+        state.accountLocked = true;
+        state.lockedAt = new Date();
+        state.lockedBy = 'system';
+        actionTaken = 'student_suspended';
+        responseAction = 'account_locked';
+        responseMessage = 'Account security violation threshold exceeded. Account locked permanently.';
+
+        // Create student notification
+        await Notification.create({
+          institute: req.user.institute || null,
+          userId: req.user._id,
+          message: 'Account security violation threshold exceeded. Account locked permanently.',
+          type: 'system',
+          read: false
+        });
+
+        // Notify admins
+        const admins = await User.find({ role: 'admin', institute: req.user.institute });
+        const adminInserts = admins.map(admin => ({
+          institute: req.user.institute || null,
+          userId: admin._id,
+          message: `🚨 Critical Violation: Student ${req.user.name} account locked. ${label} Attempt (Attempt ${attemptIndex}). Status: Account Locked.`,
+          type: 'system',
+          read: false
+        }));
+        if (adminInserts.length) {
+          await Notification.insertMany(adminInserts);
+        }
+
+        // Suspend student account permanently
         req.user.activeSessionToken = '';
         req.user.status = 'inactive';
         await req.user.save();
@@ -62,10 +179,8 @@ router.post('/audit', protect, async (req, res) => {
           { $set: { status: 'terminated' } }
         );
       }
-    } else if (eventType === 'screen_recording') {
-      actionTaken = 'playback_paused';
-      responseAction = 'playback_paused';
-      responseMessage = 'Screen recording detected. Playback has been paused.';
+
+      await state.save();
     } else if (eventType === 'download_attempt') {
       actionTaken = 'alert_logged';
     }
@@ -99,12 +214,15 @@ router.post('/audit', protect, async (req, res) => {
 
     const logEntry = new SecurityEvent({
       studentId: req.user._id,
+      userId: req.user._id, // Explicit userId field
       institute: req.user.institute || null,
       batchId: finalBatchId,
+      courseId: finalBatchId, // Explicit courseId field
       batchName,
       subjectId: subjectId || null,
       subjectName,
       topicId: finalTopicId,
+      lessonId: finalTopicId, // Explicit lessonId field
       topicTitle,
       eventType,
       details: details || '',
@@ -112,18 +230,38 @@ router.post('/audit', protect, async (req, res) => {
       device,
       browser,
       riskLevel,
-      actionTaken
+      actionTaken,
+      attemptNumber: state ? state.violationCount : 1 // Explicit attemptNumber field
     });
 
     await logEntry.save();
     
-    console.warn(`[SECURITY AUDIT] Logged ${eventType} for student ${req.user.name} (${req.user.email}). Action: ${actionTaken}`);
-    
-    return res.status(201).json({
+    const penaltyActive = state ? (state.penaltyUntil && state.penaltyUntil > new Date()) : false;
+    const remainingSeconds = penaltyActive 
+      ? Math.max(0, Math.ceil((new Date(state.penaltyUntil).getTime() - Date.now()) / 1000))
+      : 0;
+
+    const responsePayload = {
       success: true,
       action: responseAction,
-      message: responseMessage
+      message: responseMessage,
+      violationCount: state ? state.violationCount : 0,
+      penaltyUntil: state ? state.penaltyUntil : null,
+      remainingSeconds,
+      forceLogout: state ? state.forceLogout : false,
+      accountLocked: state ? state.accountLocked : false,
+      serverTime: new Date()
+    };
+
+    console.log("[SECURITY SERVER POST /audit]", {
+      userId: req.user._id,
+      eventType,
+      penaltyUntil: responsePayload.penaltyUntil,
+      remainingSeconds: responsePayload.remainingSeconds,
+      serverTime: responsePayload.serverTime
     });
+
+    return res.status(201).json(responsePayload);
   } catch (error) {
     console.error('[SECURITY AUDIT ERROR]', error);
     return res.status(500).json({ message: 'Failed to process security log' });
@@ -152,6 +290,42 @@ router.get('/audit', protect, async (req, res) => {
     return res.status(200).json(logs);
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch logs' });
+  }
+});
+
+router.get('/status', protect, async (req, res) => {
+  try {
+    let state = await SecurityState.findOne({ userId: req.user._id });
+    if (!state) {
+      state = await SecurityState.create({ userId: req.user._id });
+    }
+
+    const now = new Date();
+    const penaltyActive = state.penaltyUntil && state.penaltyUntil > now;
+    const remainingSeconds = penaltyActive 
+      ? Math.max(0, Math.ceil((new Date(state.penaltyUntil).getTime() - now.getTime()) / 1000))
+      : 0;
+
+    console.log("[SECURITY SERVER GET /status]", {
+      userId: req.user._id,
+      penaltyActive,
+      penaltyUntil: state.penaltyUntil,
+      remainingSeconds,
+      serverTime: now
+    });
+
+    return res.status(200).json({
+      violationCount: state.violationCount,
+      penaltyActive,
+      remainingSeconds,
+      penaltyUntil: state.penaltyUntil,
+      forceLogout: state.forceLogout,
+      accountLocked: state.accountLocked,
+      serverTime: now
+    });
+  } catch (error) {
+    console.error('[SECURITY STATUS ERROR]', error);
+    return res.status(500).json({ message: 'Failed to fetch security status' });
   }
 });
 

@@ -1,7 +1,10 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { User } from '../models/User.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { SecuritySession } from '../models/SecuritySession.js';
+import { sendPasswordResetEmail } from '../services/emailService.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -29,11 +32,12 @@ export const getStudentProfileSettings = async (req, res) => {
 export const updateStudentProfileSettings = async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
-    const { name, phone } = req.body;
+    const { name, phone, recoveryEmail } = req.body;
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     if (name !== undefined) user.name = name;
     if (phone !== undefined) user.phone = phone;
+    if (recoveryEmail !== undefined) user.recoveryEmail = recoveryEmail;
     await user.save();
     const updated = await User.findById(user._id).populate('institute').select('-password -passwordResetTokenHash');
     res.json(updated);
@@ -85,12 +89,18 @@ export const requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
+
+    // Always respond the same way — don't leak whether the account exists
     const user = await User.findOne({ email, role: 'student' });
-    if (!user) return res.json({ message: 'If the account exists, a reset link has been generated.' });
+    if (!user) {
+      return res.json({ message: 'If your account exists, a password reset email has been sent.' });
+    }
+
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.passwordResetTokenHash = hashToken(resetToken);
-    user.passwordResetExpiresAt = new Date(Date.now() + 1000 * 60 * 30);
+    user.passwordResetExpiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
     await user.save();
+
     await AuditLog.create({
       userId: user._id,
       institute: user.institute || null,
@@ -99,11 +109,13 @@ export const requestPasswordReset = async (req, res) => {
       ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
       userAgent: req.headers['user-agent'] || ''
     });
-    res.json({
-      message: 'Password reset token generated',
-      resetToken,
-      resetLink: `/login?resetToken=${resetToken}`
-    });
+
+    // Send reset email via Resend (fire-and-forget; don't block response on email failure)
+    sendPasswordResetEmail(user.name, user.email, resetToken).catch(err =>
+      console.error('[resetEmail] Failed to send password reset email:', err.message)
+    );
+
+    res.json({ message: 'If your account exists, a password reset email has been sent.' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -199,6 +211,82 @@ export const terminateOtherStudentSessions = async (req, res) => {
     );
     await logSecurityEvent(req, req.user._id, 'Student terminated other sessions');
     res.json({ message: 'Other sessions terminated' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const uploadStudentAvatar = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
+    const { image } = req.body; // base64 string
+    if (!image) {
+      return res.status(400).json({ message: 'Image data is required' });
+    }
+
+    // Clean up base64 header if present
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const filename = `student_${req.user.user_id}_${Date.now()}.webp`;
+    const relativePath = `/uploads/avatars/${filename}`;
+    const filePath = path.join(path.resolve(), 'uploads', 'avatars', filename);
+
+    // Find and delete the old avatar if it exists
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.avatar && user.avatar.startsWith('/uploads/avatars/')) {
+      const oldPath = path.join(path.resolve(), user.avatar.substring(1)); // strip leading slash if absolute in node CWD
+      const cleanOldPath = path.join(path.resolve(), user.avatar.replace(/^\//, ''));
+      if (fs.existsSync(cleanOldPath)) {
+        try {
+          fs.unlinkSync(cleanOldPath);
+        } catch (err) {
+          console.error('Failed to delete old avatar:', err);
+        }
+      }
+    }
+
+    // Write the new WebP file
+    fs.writeFileSync(filePath, buffer);
+
+    user.avatar = relativePath;
+    await user.save();
+
+    res.json({
+      message: 'Avatar uploaded successfully',
+      avatar: relativePath
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteStudentAvatar = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.avatar && user.avatar.startsWith('/uploads/avatars/')) {
+      const cleanOldPath = path.join(path.resolve(), user.avatar.replace(/^\//, ''));
+      if (fs.existsSync(cleanOldPath)) {
+        try {
+          fs.unlinkSync(cleanOldPath);
+        } catch (err) {
+          console.error('Failed to delete avatar file:', err);
+        }
+      }
+    }
+
+    user.avatar = '';
+    await user.save();
+
+    res.json({
+      message: 'Avatar removed successfully',
+      avatar: ''
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

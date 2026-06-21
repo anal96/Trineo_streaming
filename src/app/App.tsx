@@ -12,6 +12,7 @@ import CoursesPage from './components/pages/CoursesPage';
 import OwnerPanel from './components/pages/OwnerPanel';
 import InstitutesManagementPage from './components/pages/InstitutesManagementPage';
 import ChangePasswordPage from './components/pages/ChangePasswordPage';
+import SecurityLockPage from './components/pages/SecurityLockPage';
 import { BrandingManager } from './components/BrandingManager';
 import { apiFetch, decodeShortId } from './utils/api';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router';
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
+            <Route path="/security-lock" element={<SecurityLockPage />} />
             <Route path="/student" element={<StudentDashboard />} />
             <Route path="/student/courses" element={<CoursesPage />} />
             <Route path="/course/:courseSlug" element={<VideoPlayer />} />

@@ -465,3 +465,20 @@ export const adminBulkEnroll = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const getStudentPayments = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') {
+      return res.status(403).json({ message: 'Forbidden: Student access required' });
+    }
+    const payments = await Payment.find({ studentId: req.user._id })
+      .populate({
+        path: 'purchaseId',
+        populate: { path: 'courseId', select: 'title price description' }
+      })
+      .sort({ createdAt: -1 });
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

@@ -194,8 +194,69 @@ export default function VideoPlayer() {
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [mobileLessonsOpen, setMobileLessonsOpen] = useState(false);
-  const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>({});
-  const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({});
+  const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('trineo_expanded_subjects');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+  const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('trineo_expanded_units');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('trineo_expanded_subjects', JSON.stringify(expandedSubjects));
+  }, [expandedSubjects]);
+
+  useEffect(() => {
+    localStorage.setItem('trineo_expanded_units', JSON.stringify(expandedUnits));
+  }, [expandedUnits]);
+
+  // Auto-expand current lesson's subject and unit
+  useEffect(() => {
+    if (!currentLesson?._id || !subjects || !subjects.length) return;
+    let foundSubjectId = '';
+    let foundUnitId = '';
+    
+    for (const subject of subjects) {
+      if (subject.units) {
+        for (const unit of subject.units) {
+          if (unit.lessons) {
+            const hasLesson = unit.lessons.some((l: any) => l._id === currentLesson._id || (l.contents && l.contents.some((c: any) => c._id === currentLesson._id)));
+            if (hasLesson) {
+              foundSubjectId = subject._id;
+              foundUnitId = unit._id;
+              break;
+            }
+          }
+        }
+      }
+      if (foundSubjectId) break;
+    }
+    
+    if (foundSubjectId) {
+      setExpandedSubjects(prev => {
+        if (prev[foundSubjectId] === true) return prev;
+        return { ...prev, [foundSubjectId]: true };
+      });
+    }
+    if (foundUnitId) {
+      setExpandedUnits(prev => {
+        if (prev[foundUnitId] === true) return prev;
+        return { ...prev, [foundUnitId]: true };
+      });
+    }
+  }, [currentLesson?._id, subjects]);
+
+  const [lessonCompletedModalOpen, setLessonCompletedModalOpen] = useState(false);
+  const [learningModeFullscreen, setLearningModeFullscreen] = useState(false);
   const [isAllExpanded, setIsAllExpanded] = useState(true);
 
   const handleToggleExpandAll = () => {
@@ -269,16 +330,29 @@ export default function VideoPlayer() {
   // Static watermark — centered, higher opacity for visibility
   const watermarkStyle = { opacity: 0.25, rotate: '-8deg' };
 
-  // Security Counter State
-  const [violationCount, setViolationCount] = useState(0);
-  const [cooldownTimeRemaining, setCooldownTimeRemaining] = useState(0);
-
   // Advanced Anti-Piracy DRM States
   const [isBlackedOut, setIsBlackedOut] = useState(false);
   const [provider, setProvider] = useState<'youtube' | 'hls'>('youtube');
   const wasPlayingBeforeBlackout = useRef(false);
   const [ipAddress, setIpAddress] = useState('127.0.0.1');
   const [sessionId, setSessionId] = useState('N/A');
+
+  // Security Counter State
+  const [violationCount, setViolationCount] = useState(0);
+  const [cooldownTimeRemaining, setCooldownTimeRemaining] = useState(0);
+  const [securityLockActive, setSecurityLockActive] = useState(false);
+  const [securityLockRemaining, setSecurityLockRemaining] = useState(0);
+
+  // Sync global security lock states
+  useEffect(() => {
+    const requiresManualResume = localStorage.getItem('trineo_lock_requires_manual_resume') === 'true';
+    const lockUntil = parseInt(localStorage.getItem('trineo_security_lock_until') || '0', 10);
+    const serverTimeOffset = protectionManagerRef.current ? (protectionManagerRef.current as any).serverTimeOffset || 0 : 0;
+    const isLockActive = requiresManualResume || (Date.now() + serverTimeOffset) < lockUntil;
+
+    setSecurityLockActive(isBlackedOut && isLockActive);
+    setSecurityLockRemaining(cooldownTimeRemaining);
+  }, [isBlackedOut, cooldownTimeRemaining]);
 
 
   // Brightness Control (value 0.1 to 1.0)
@@ -351,7 +425,8 @@ export default function VideoPlayer() {
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
   // Advanced DRM Heuristics: Security Logging to Backend Audit System
-  const reportSecurityViolation = async (eventType: string, details: string) => {
+  const reportSecurityViolation = async (eventType: string, details: string): Promise<{ success: boolean; action?: string; message?: string; penaltyUntil?: string; serverTime?: string } | null> => {
+    console.log("[SECURITY] reportSecurityViolation called with eventType:", eventType, "details:", details);
     const localAudit = {
       _id: `local-${Date.now()}`,
       eventType,
@@ -362,7 +437,7 @@ export default function VideoPlayer() {
     };
 
     try {
-      await apiFetch('/security/audit', {
+      const res = await apiFetch('/security/audit', {
         method: 'POST',
         body: JSON.stringify({
           eventType,
@@ -370,18 +445,32 @@ export default function VideoPlayer() {
           deviceFingerprint: navigator.userAgent
         })
       });
+      console.log("[SECURITY] reportSecurityViolation API response:", res);
+      if (res) {
+        console.log("[SECURITY] reportSecurityViolation details:", {
+          penaltyUntil: res.penaltyUntil,
+          serverTime: res.serverTime,
+          remainingSeconds: (res as any).remainingSeconds,
+          securityLockActive: !!res.penaltyUntil,
+          securityLockRemaining: (res as any).remainingSeconds
+        });
+      }
+      return res;
     } catch (e) {
       console.error('[DRM Audit Failure]', e);
       try {
         const existing = JSON.parse(localStorage.getItem('trineo_security_audit') || '[]');
         localStorage.setItem('trineo_security_audit', JSON.stringify([localAudit, ...existing].slice(0, 50)));
       } catch (_err) {}
+      return null;
     }
   };
 
   // Sync refs for the ProtectionManager callback
   const isPlayingRef = useRef(false);
   const providerRef = useRef<'youtube' | 'hls'>('youtube');
+  const ipAddressRef = useRef(ipAddress);
+  const sessionIdRef = useRef(sessionId);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
@@ -391,15 +480,28 @@ export default function VideoPlayer() {
     providerRef.current = provider;
   }, [provider]);
 
+  useEffect(() => {
+    ipAddressRef.current = ipAddress;
+  }, [ipAddress]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
   // Centralized ProtectionManager Integration
   useEffect(() => {
     if (!user) return;
 
+    if (protectionManagerRef.current) {
+      console.log("[SECURITY] Stopping previous ProtectionManager instance before starting new one");
+      protectionManagerRef.current.stop();
+    }
+
     const manager = new ProtectionManager({
       userId: user.user_id || user.id || user._id || '',
       email: user.email || '',
-      ipAddress: ipAddress,
-      sessionId: sessionId,
+      ipAddress: ipAddressRef.current,
+      sessionId: sessionIdRef.current,
       getCurrentPlaybackState: () => {
         return {
           isPlaying: isPlayingRef.current,
@@ -435,27 +537,59 @@ export default function VideoPlayer() {
         }
       },
       onStateChange: (suspicious, type, details) => {
+        console.log("[SECURITY] onStateChange callback:", { suspicious, type, details });
         setIsBlackedOut(suspicious);
       },
       onViolationCountChange: (count) => {
+        console.log("[SECURITY] onViolationCountChange callback:", count);
         setViolationCount(count);
       },
       onCooldownTimeChange: (timeRemaining) => {
+        console.log("[SECURITY] onCooldownTimeChange callback:", timeRemaining);
         setCooldownTimeRemaining(timeRemaining);
       },
       onTerminateSession: (reason) => {
+        console.log("[SECURITY] onTerminateSession callback:", reason);
         setIsPlaying(false);
       },
-      reportViolation: (type, details) => {
+      reportViolation: async (type, details) => {
+        console.log("[SECURITY] options.reportViolation callback triggered with type:", type);
         const finalType = (type === 'screenshot' || type === 'PrintScreen' || type === 'screenshot_attempt')
           ? 'screenshot'
           : type;
-        reportSecurityViolation(finalType, details);
+        return reportSecurityViolation(finalType, details);
       }
     });
 
     protectionManagerRef.current = manager;
     manager.start();
+
+    // Sync server-side penalty state on mount (persists across refresh/re-login)
+    apiFetch('/security/status', { ignoreAuthError: true }).then((statusRes: any) => {
+      if (statusRes && statusRes.penaltyActive && statusRes.penaltyUntil) {
+        manager.syncSecurityStatus(
+          statusRes.violationCount || 0,
+          statusRes.penaltyUntil,
+          statusRes.serverTime || null
+        );
+      } else {
+        // Clear stale local storage locks if server indicates no active penalty
+        console.log("[SECURITY] Server says no active penalty. Clearing stale local lock.");
+        localStorage.removeItem('trineo_security_lock_until');
+        localStorage.setItem('trineo_lock_requires_manual_resume', 'false');
+        manager.recoverFromViolation();
+        
+        if (statusRes && statusRes.violationCount > 0) {
+          manager.syncSecurityStatus(statusRes.violationCount, null, null);
+        }
+      }
+      if (statusRes && statusRes.forceLogout) {
+        manager.terminateSession('exceeded');
+      }
+      if (statusRes && statusRes.accountLocked) {
+        manager.terminateSession('locked');
+      }
+    }).catch(() => {});
 
     // [TEMP DISABLED] Right-Click Context Menu block — re-enable for production
     const handleContextMenu = (_e: MouseEvent) => {
@@ -475,7 +609,7 @@ export default function VideoPlayer() {
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('dragstart', handleDragStart);
     };
-  }, [user, ipAddress, sessionId]);
+  }, [user]);
 
   // Watermark is static — no movement effect needed
 
@@ -816,6 +950,8 @@ export default function VideoPlayer() {
                     toast.success(`Playing next: ${nextLesson.title}`);
                   }
                 }
+              } else {
+                setLessonCompletedModalOpen(true);
               }
             }
           }
@@ -988,6 +1124,8 @@ export default function VideoPlayer() {
             toast.success(`Playing next: ${nextLesson.title}`);
           }
         }
+      } else {
+        setLessonCompletedModalOpen(true);
       }
     };
 
@@ -1446,20 +1584,58 @@ export default function VideoPlayer() {
     toast.success('Certificate unlocked!', { description: 'Opening your official BCA Module Completion Certificate...' });
   };
 
+  console.log("[UI STATE]", {
+    securityLockActive,
+    securityLockRemaining,
+    isBlackedOut,
+  });
+
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-zinc-950 flex flex-col text-slate-900 dark:text-slate-100 select-none font-sans transition-colors duration-200">
+      {/* Fullscreen Mode Exit Banner */}
+      {learningModeFullscreen && (
+        <div className="fixed top-4 right-4 z-[60] animate-in fade-in duration-300">
+          <Button
+            onClick={() => setLearningModeFullscreen(false)}
+            className="bg-slate-900/75 dark:bg-black/70 backdrop-blur-md text-white border border-white/10 hover:bg-slate-800 rounded-full font-bold px-4 py-2 text-xs flex items-center gap-1.5 touch-btn shadow-lg"
+          >
+            <Tv className="w-3.5 h-3.5" />
+            <span>Exit Fullscreen Mode</span>
+          </Button>
+        </div>
+      )}
+
       {/* Top Header */}
-      <header className="min-h-16 h-16 border-b border-slate-200/60 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md flex items-center justify-between gap-4 px-6 flex-shrink-0 z-40 shadow-sm">
+      {!learningModeFullscreen && (
+        <header className="min-h-16 h-16 border-b border-slate-200/60 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md flex items-center justify-between gap-4 px-6 flex-shrink-0 z-40 shadow-sm">
         {/* Desktop Header Content (>=1024px) */}
         <div className="hidden lg:flex items-center justify-between w-full">
-          {/* Logo / Brand */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/student')}>
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-purple-600/20">
-              <GraduationCap className="w-5.5 h-5.5 text-white" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-bold text-base tracking-tight leading-none bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-700 bg-clip-text text-transparent">Trineo Stream</span>
-              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">LMS Student Panel</span>
+          {/* Back button & Logo / Brand */}
+          <div className="flex items-center gap-3.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-zinc-800/50 rounded-full cursor-pointer pr-4 transition-colors"
+              onClick={() => {
+                if (window.history.state && window.history.state.idx > 0) {
+                  navigate(-1);
+                } else {
+                  navigate('/student');
+                }
+              }}
+            >
+              <ChevronLeft className="w-4.5 h-4.5" />
+              <span className="font-semibold text-xs">Back</span>
+            </Button>
+            <div className="h-5 w-px bg-slate-200 dark:bg-zinc-800 mx-1" />
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/student')}>
+              <div className="w-9 h-9 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-purple-600/20">
+                <GraduationCap className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold text-sm tracking-tight leading-none bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-700 bg-clip-text text-transparent">Trineo Stream</span>
+                <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">LMS Student Panel</span>
+              </div>
             </div>
           </div>
 
@@ -1491,22 +1667,42 @@ export default function VideoPlayer() {
         </div>
 
         {/* Mobile/Tablet Header Content (<1024px) */}
-        <div className="flex lg:hidden items-center justify-between w-full px-2">
+        <div className="flex lg:hidden items-center justify-between w-full px-2 h-full">
           <button 
-            onClick={() => navigate('/student')}
-            className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-zinc-200 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+            onClick={() => {
+              if (window.history.state && window.history.state.idx > 0) {
+                navigate(-1);
+              } else {
+                navigate('/student');
+              }
+            }}
+            className="flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-zinc-200 active:opacity-70 h-10 px-2 rounded-lg"
           >
-            <ChevronLeft className="w-5 h-5" />
-            <span>Course</span>
+            <ChevronLeft className="w-5 h-5 text-slate-500" />
+            <span>Back</span>
           </button>
           
-          <ThemeToggleButton />
+          <div className="flex-1 text-center px-2 min-w-0">
+            <div className="text-xs font-bold text-slate-800 dark:text-zinc-100 truncate">
+              {currentContent?.title || 'Select a Lesson'}
+            </div>
+            <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
+              {course?.title || 'Trineo Stream'}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-black text-purple-600 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300 px-2.5 py-1 rounded-full border border-purple-100 dark:border-purple-900/40">
+              {overallProgress}% Progress
+            </span>
+          </div>
         </div>
       </header>
+      )}
 
       {/* Main Learning Experience Content */}
       <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50/50 dark:bg-zinc-950/40">
-        <div className="max-w-[1600px] mx-auto w-full p-4 lg:p-8 space-y-4 lg:space-y-6 pb-[calc(72px+env(safe-area-inset-bottom))] lg:pb-8">
+        <div className="max-w-[1600px] mx-auto w-full p-0 lg:p-8 space-y-4 lg:space-y-6 pb-[calc(72px+env(safe-area-inset-bottom))] lg:pb-8">
           
           {/* Header Block with Metadata & Large Course Title */}
           <div className="hidden lg:block bg-white/95 dark:bg-zinc-900/90 border border-slate-200/50 dark:border-zinc-800/80 rounded-[24px] p-6 shadow-sm space-y-4">
@@ -1568,8 +1764,14 @@ export default function VideoPlayer() {
               {/* Video Player Card */}
               <div
                 ref={playerContainerRef}
-                className="sticky top-0 lg:relative z-30 bg-background lg:bg-black w-full aspect-video lg:rounded-[24px] border-b lg:border border-slate-200/80 dark:border-zinc-800 shadow-lg overflow-hidden group cursor-none transition-all duration-300"
-                style={{ cursor: controlsVisible ? 'default' : 'none', aspectRatio: '16 / 9' }}
+                className={learningModeFullscreen 
+                  ? "fixed inset-0 bg-black z-50 flex flex-col justify-center items-center w-screen h-screen select-none"
+                  : "sticky top-0 lg:relative z-30 bg-background lg:bg-black w-full aspect-video lg:rounded-[24px] border-b lg:border border-slate-200/80 dark:border-zinc-800 shadow-lg overflow-hidden group cursor-none transition-all duration-300"
+                }
+                style={learningModeFullscreen 
+                  ? { cursor: controlsVisible ? 'default' : 'none' } 
+                  : { cursor: controlsVisible ? 'default' : 'none', aspectRatio: '16 / 9' }
+                }
                 onContextMenu={(e) => e.preventDefault()}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={() => isPlaying && setControlsVisible(false)}
@@ -1710,60 +1912,88 @@ export default function VideoPlayer() {
                     visibility: isBlackedOut ? 'visible' : 'hidden'
                   }}
                 >
-                  <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300 max-w-md">
-                    <div className="relative mb-4 flex justify-center">
-                      <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl animate-pulse"></div>
-                      <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center relative">
-                        <ShieldAlert className="w-6 h-6 text-red-500" />
+                  {cooldownTimeRemaining === 0 && localStorage.getItem('trineo_lock_requires_manual_resume') !== 'true' ? (
+                    <div className="flex flex-col items-center justify-center animate-in fade-in duration-300">
+                      <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center mb-3">
+                        <Pause className="w-5 h-5 text-white fill-white" />
                       </div>
+                      <h3 className="text-base font-bold text-white mb-1">LMS Paused</h3>
+                      <p className="text-xs text-gray-400">Click video or focus window to resume playback</p>
                     </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300 max-w-md">
+                      {/* Pulsing Shield Icon */}
+                      <div className="relative mb-5 flex justify-center">
+                        <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl animate-pulse"></div>
+                        <div className="w-16 h-16 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center relative" style={{ boxShadow: '0 0 40px rgba(239,68,68,0.15)' }}>
+                          <ShieldAlert className="w-7 h-7 text-red-500" />
+                        </div>
+                      </div>
 
-                    <h3 className="text-xl font-bold text-red-500 mb-2">⚠ Security Violation Detected</h3>
-                    <p className="text-sm text-gray-300 mb-4 px-4">
-                      Screenshot or screen-recording attempt detected. Playback has been suspended.
-                    </p>
+                      {/* Dynamic Title */}
+                      <h3 className="text-xl font-extrabold text-red-500 mb-1.5 tracking-tight">
+                        {violationCount >= 3 
+                          ? '🚫 Account Security Lock' 
+                          : '🛡 Security Violation Detected'}
+                      </h3>
+                      <p className="text-sm text-gray-400 mb-5 px-6 leading-relaxed">
+                        {violationCount >= 3 
+                          ? 'Your session has been terminated due to repeated screen capture attempts.' 
+                          : 'Video access temporarily suspended.'}
+                      </p>
 
-                    {violationCount > 0 && (
-                      <div className="px-5 py-2.5 rounded-full bg-card/45 backdrop-blur-xl border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.35)] text-sm text-red-400 font-bold tracking-widest uppercase flex items-center gap-2 mb-4 justify-center">
+                      {/* Attempt Badge */}
+                      <div className="px-5 py-2.5 rounded-full bg-card/45 backdrop-blur-xl border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.25)] text-sm text-red-400 font-bold tracking-widest uppercase flex items-center gap-2 mb-5 justify-center">
                         <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
-                        Attempt {violationCount}/3
+                        Attempt {violationCount >= 3 ? 3 : violationCount || 1} of 3
                       </div>
-                    )}
 
-                    {cooldownTimeRemaining > 0 ? (
-                      <div className="flex flex-col items-center gap-2 animate-in fade-in duration-300">
-                        <div className="text-xs text-red-500 font-semibold uppercase tracking-wider">
-                          Penalty Lock Active
+                      {violationCount >= 3 ? (
+                        <div className="flex flex-col items-center gap-3 animate-in fade-in duration-300">
+                          <p className="text-xs text-gray-400 max-w-[300px] leading-relaxed">
+                            For content protection, your session has been terminated. Contact your institute administrator for assistance.
+                          </p>
                         </div>
-                        <div className="text-3xl font-black text-white tracking-wider">
-                          {cooldownTimeRemaining}s
+                      ) : cooldownTimeRemaining > 0 ? (
+                        <div className="flex flex-col items-center gap-3 animate-in fade-in duration-300">
+                          {/* MM:SS Countdown */}
+                          <div className="text-[0.65rem] text-red-500 font-bold uppercase tracking-[0.15em]">
+                            Time Remaining
+                          </div>
+                          <div className="text-4xl font-black text-white tracking-wider tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {String(Math.floor(cooldownTimeRemaining / 60)).padStart(2, '0')}:{String(cooldownTimeRemaining % 60).padStart(2, '0')}
+                          </div>
+                          <div className="mt-1 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                            <p className="text-[0.7rem] text-gray-400 max-w-[300px] leading-relaxed">
+                              {violationCount === 2 
+                                ? 'Do not attempt screenshots or screen recording. One more violation will terminate your session.' 
+                                : 'Do not attempt screenshots or screen recording. Repeated violations may result in account logout.'}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-xs text-gray-400 max-w-[250px]">
-                          Please wait {cooldownTimeRemaining} seconds before continuing.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
-                        <p className="text-xs text-gray-400 max-w-xs leading-relaxed px-4">
-                          Lock timer expired. Click below to restore playback.
-                        </p>
-                        <Button
-                          onClick={() => {
-                            if (protectionManagerRef.current) {
-                              protectionManagerRef.current.recoverFromViolation();
-                            } else {
-                              localStorage.removeItem('trineo_security_lock_until');
-                              localStorage.setItem('trineo_lock_requires_manual_resume', 'false');
-                              setIsBlackedOut(false);
-                            }
-                          }}
-                          className="bg-purple-600 hover:bg-purple-700 text-white shadow-sm shadow-purple-600/10 px-6 py-2.5 rounded-xl font-semibold text-sm transition-all"
-                        >
-                          Resume Topic
-                        </Button>
-                      </div>
-                    )}
-                  </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
+                          <p className="text-xs text-gray-400 max-w-xs leading-relaxed px-4">
+                            Penalty period has ended. Click below to restore playback.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              if (protectionManagerRef.current) {
+                                protectionManagerRef.current.recoverFromViolation();
+                              } else {
+                                localStorage.removeItem('trineo_security_lock_until');
+                                localStorage.setItem('trineo_lock_requires_manual_resume', 'false');
+                                setIsBlackedOut(false);
+                              }
+                            }}
+                            className="bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-600/20 px-7 py-2.5 rounded-xl font-semibold text-sm transition-all hover:scale-[1.02]"
+                          >
+                            Resume Topic
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Secure Overlay Center Play Button */}
@@ -2016,6 +2246,16 @@ export default function VideoPlayer() {
                           className={`hidden lg:inline-flex text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10 ${theaterMode ? 'text-purple-400 bg-purple-500/10' : ''}`}
                           onClick={() => setTheaterMode(!theaterMode)}
                           title="Theater Mode"
+                        >
+                          <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </Button>
+
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className={`text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10 ${learningModeFullscreen ? 'text-purple-400 bg-purple-500/10' : ''}`}
+                          onClick={() => setLearningModeFullscreen(!learningModeFullscreen)}
+                          title="Fullscreen Learning Mode"
                         >
                           <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
                         </Button>
@@ -2645,6 +2885,70 @@ export default function VideoPlayer() {
 
 
               </div>
+
+              {/* Mobile flat list of resources (hidden on desktop) */}
+              <div className="block lg:hidden mt-6 space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 px-1">
+                  <span>📂</span> Batch Resources & study materials
+                </h3>
+
+                {currentLesson?.attachmentUrl ? (
+                  <Card className="border border-border/50 bg-card rounded-2xl shadow-sm hover:shadow-md transition-all">
+                    <CardContent className="p-3.5 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-5 h-5 text-purple-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-xs text-foreground truncate">{currentLesson.attachmentName || 'Topic Lecture Notes'}</h4>
+                          <p className="text-[10px] text-muted-foreground font-semibold">PDF Document</p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="bg-primary hover:bg-[#1f5fa7] text-white flex items-center gap-1 shrink-0 rounded-xl font-bold h-9 text-xs px-3.5 touch-btn"
+                        onClick={() => openDownload(currentLesson.attachmentUrl, currentLesson.attachmentName || 'Topic Lecture Notes')}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                {courseMaterials.map((material) => (
+                  <Card key={material._id} className="border border-border/50 bg-card rounded-2xl shadow-sm hover:shadow-md transition-all">
+                    <CardContent className="p-3.5 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-5 h-5 text-purple-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-xs text-foreground truncate">{material.title || material.originalName}</h4>
+                          <p className="text-[10px] text-muted-foreground font-semibold truncate">{material.description || 'PDF Document'}</p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-9 text-xs flex items-center gap-1 shrink-0 rounded-xl hover:bg-purple-50 border-border font-bold px-3.5 touch-btn"
+                        onClick={() => openDownload(material.downloadUrl, material.title || material.originalName)}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+
+                {(!currentLesson?.attachmentUrl && courseMaterials.length === 0) && (
+                  <Card className="p-8 text-center border border-dashed border-border bg-card rounded-2xl">
+                    <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+                    <p className="text-xs font-bold text-muted-foreground">No resources available for this batch.</p>
+                  </Card>
+                )}
+              </div>
+
             </div>
 
             {/* Right Column (Syllabus Sidebar & Cards) */}
@@ -2897,6 +3201,142 @@ export default function VideoPlayer() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Global Security Lock Overlay — blocks all interaction on the video player page */}
+      {securityLockActive && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 99999,
+          background: 'rgba(0, 0, 0, 0.95)',
+          backdropFilter: 'blur(16px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
+          color: 'white'
+        }}>
+          <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300 max-w-md text-center p-6 bg-slate-950/90 border border-red-500/20 rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.6),0_0_80px_rgba(239,68,68,0.08)]">
+            {/* Pulsing Shield Icon */}
+            <div className="relative mb-5 flex justify-center">
+              <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl animate-pulse"></div>
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center relative" style={{ boxShadow: '0 0 40px rgba(239,68,68,0.15)' }}>
+                <ShieldAlert className="w-7 h-7 text-red-500" />
+              </div>
+            </div>
+
+            {/* Dynamic Title */}
+            <h3 className="text-xl font-extrabold text-red-500 mb-1.5 tracking-tight">
+              {violationCount >= 3 
+                ? '🚫 Account Security Lock' 
+                : '🛡 Security Violation Detected'}
+            </h3>
+            <p className="text-sm text-gray-400 mb-5 px-6 leading-relaxed">
+              {violationCount >= 3 
+                ? 'Your session has been terminated due to repeated screen capture attempts.' 
+                : 'Video access temporarily suspended due to a screen capture violation.'}
+            </p>
+
+            {/* Attempt Badge */}
+            <div className="px-5 py-2.5 rounded-full bg-slate-900 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.25)] text-sm text-red-400 font-bold tracking-widest uppercase flex items-center gap-2 mb-5 justify-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+              Attempt {violationCount >= 3 ? 3 : violationCount || 1} of 3
+            </div>
+
+            {violationCount >= 3 ? (
+              <div className="flex flex-col items-center gap-3 animate-in fade-in duration-300">
+                <p className="text-xs text-gray-400 max-w-[300px] leading-relaxed">
+                  For content protection, your session has been terminated. Contact your institute administrator for assistance.
+                </p>
+              </div>
+            ) : securityLockRemaining > 0 ? (
+              <div className="flex flex-col items-center gap-3 animate-in fade-in duration-300">
+                {/* MM:SS Countdown */}
+                <div className="text-[0.65rem] text-red-500 font-bold uppercase tracking-[0.15em]">
+                  Time Remaining
+                </div>
+                <div className="text-4xl font-black text-white tracking-wider tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {String(Math.floor(securityLockRemaining / 60)).padStart(2, '0')}:{String(securityLockRemaining % 60).padStart(2, '0')}
+                </div>
+                <div className="mt-1 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                  <p className="text-[0.7rem] text-gray-400 max-w-[300px] leading-relaxed">
+                    {violationCount === 2 
+                      ? 'Do not attempt screenshots or screen recording. One more violation will terminate your session.' 
+                      : 'Do not attempt screenshots or screen recording. Repeated violations may result in account logout.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
+                <p className="text-xs text-gray-400 max-w-xs leading-relaxed px-4">
+                  Penalty period has ended. Click below to restore access.
+                </p>
+                <Button
+                  onClick={() => {
+                    if (protectionManagerRef.current) {
+                      protectionManagerRef.current.recoverFromViolation();
+                    } else {
+                      localStorage.removeItem('trineo_security_lock_until');
+                      localStorage.setItem('trineo_lock_requires_manual_resume', 'false');
+                      setIsBlackedOut(false);
+                    }
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-600/20 px-7 py-2.5 rounded-xl font-semibold text-sm transition-all hover:scale-[1.02]"
+                >
+                  Resume Topic
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Lesson Completion Modal Overlay */}
+      {lessonCompletedModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <Card className="w-full max-w-sm border-border bg-card shadow-2xl rounded-3xl overflow-hidden text-center p-6 space-y-6">
+            <div className="space-y-2">
+              <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto shadow-inner animate-bounce">
+                <CheckCircle2 className="w-7 h-7" />
+              </div>
+              <h3 className="text-lg font-black tracking-tight text-foreground">Lecture Completed!</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed px-2">
+                Great job! You have completed <strong>{currentContent?.title}</strong>. Ready to progress to the next topic?
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              {nextContent ? (
+                <Button 
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white font-bold py-2.5 rounded-xl text-xs touch-btn"
+                  onClick={() => {
+                    setLessonCompletedModalOpen(false);
+                    setCurrentLesson(nextContent);
+                  }}
+                >
+                  Start Next Lesson
+                </Button>
+              ) : (
+                <Button 
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white font-bold py-2.5 rounded-xl text-xs touch-btn"
+                  onClick={() => {
+                    setLessonCompletedModalOpen(false);
+                    navigate('/student');
+                  }}
+                >
+                  Back to Dashboard
+                </Button>
+              )}
+              <Button 
+                variant="ghost" 
+                className="text-xs font-semibold rounded-xl text-muted-foreground touch-btn"
+                onClick={() => setLessonCompletedModalOpen(false)}
+              >
+                Replay Lesson
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -9,7 +9,7 @@ const liveClassSchema = new mongoose.Schema({
   },
   courseId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Course',
+    ref: 'Program',
     required: true,
     index: true
   },

@@ -9,6 +9,10 @@ import { User } from '../src/models/User.js';
 import { AuditLog } from '../src/models/AuditLog.js';
 import { SecuritySession } from '../src/models/SecuritySession.js';
 import { SecurityEvent } from '../src/models/SecurityEvent.js';
+import { SecurityState } from '../src/models/SecurityState.js';
+
+// Mock SecurityState.findOne globally to prevent Mongoose buffering timeouts
+SecurityState.findOne = () => Promise.resolve(null);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -421,7 +425,10 @@ test('SSO Login Controller Verification', async (t) => {
     assert.equal(state.redirectUrl, 'http://localhost:5173/student');
     assert.ok(state.cookies['token']);
     assert.equal(state.cookies['token'].options.httpOnly, true);
-    assert.equal(state.cookies['token'].options.sameSite, 'none');
+    assert.equal(
+      state.cookies['token'].options.sameSite,
+      process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    );
   });
 
   await t.test('ssoLogin - redirects admins to /admin', async () => {

@@ -2,6 +2,8 @@ import { AuditLog } from '../models/AuditLog.js';
 import { User } from '../models/User.js';
 import { SecuritySession } from '../models/SecuritySession.js';
 import { SecurityEvent } from '../models/SecurityEvent.js';
+import { SecurityState } from '../models/SecurityState.js';
+import { Enrollment } from '../models/Enrollment.js';
 
 const parseAgent = (ua = '') => {
   const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
@@ -141,16 +143,39 @@ export const setStudentSecurityStatus = async (req, res) => {
     if (action === 'disable' || action === 'suspend') {
       student.status = 'inactive';
       student.activeSessionToken = '';
+      
+      let securityState = await SecurityState.findOne({ userId: student._id });
+      if (!securityState) {
+        securityState = await SecurityState.create({ userId: student._id });
+      }
+      securityState.accountLocked = true;
+      securityState.lockedAt = new Date();
+      securityState.lockedBy = req.user.email || 'admin';
+      await securityState.save();
     }
     if (action === 'enable' || action === 'unlock') {
       student.status = 'active';
+      student.activeSessionToken = '';
+      
+      let securityState = await SecurityState.findOne({ userId: student._id });
+      if (!securityState) {
+        securityState = new SecurityState({ userId: student._id });
+      }
+      securityState.accountLocked = false;
+      securityState.violationCount = 0;
+      securityState.forceLogout = false;
+      securityState.penaltyUntil = null;
+      securityState.unlockReason = req.body.unlockReason || 'Unlocked by admin';
+      securityState.lastUnlockAt = new Date();
+      securityState.lastUnlockedBy = req.user.email || 'admin';
+      await securityState.save();
     }
     if (action === 'resetSessions') {
       student.activeSessionToken = '';
     }
     await student.save();
     
-    if (action === 'disable' || action === 'suspend' || action === 'resetSessions') {
+    if (action === 'disable' || action === 'suspend' || action === 'resetSessions' || action === 'enable' || action === 'unlock') {
       await SecuritySession.updateMany({ userId: student._id, status: 'active' }, { $set: { status: 'terminated' } });
     }
     res.json({ message: 'Security action applied', studentId: student._id, status: student.status });
@@ -180,6 +205,46 @@ export const resolveSecurityEvent = async (req, res) => {
     event.status = 'resolved';
     await event.save();
     res.json({ message: 'Event resolved successfully', eventId: event._id });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getStudentSecurityState = async (req, res) => {
+  try {
+    if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
+    const { studentId } = req.params;
+    const student = await User.findOne({ _id: studentId, ...instituteFilter(req) });
+    if (!student) return res.status(404).json({ message: 'Student not found' });
+
+    let securityState = await SecurityState.findOne({ userId: studentId });
+    if (!securityState) {
+      securityState = await SecurityState.create({
+        userId: studentId,
+        violationCount: 0,
+        penaltyUntil: null,
+        forceLogout: false,
+        accountLocked: false
+      });
+    }
+
+    // Fetch the student's enrolled program (batch) name
+    const enrollment = await Enrollment.findOne({ studentId: student._id, status: 'active' })
+      .populate('programId', 'title');
+    const batchName = enrollment?.programId?.title || null;
+
+    res.json({
+      student: {
+        _id: student._id,
+        name: student.name,
+        email: student.email,
+        status: student.status,
+        user_id: student.user_id,
+        batchName,
+        enrollmentDate: student.enrollmentDate
+      },
+      securityState
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

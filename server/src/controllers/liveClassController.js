@@ -1,8 +1,8 @@
 import { LiveClass } from '../models/LiveClass.js';
 import { LiveAttendance } from '../models/LiveAttendance.js';
-import { Purchase } from '../models/Purchase.js';
+import { Enrollment } from '../models/Enrollment.js';
 import { Notification } from '../models/Notification.js';
-import { Course } from '../models/Course.js';
+import { Program } from '../models/Program.js';
 import { Faculty } from '../models/Faculty.js';
 
 // Create a new Live Class (Admin only)
@@ -27,7 +27,7 @@ export const createLiveClass = async (req, res) => {
     }
 
     // Verify Course belongs to the institute
-    const course = await Course.findOne({ _id: courseId, institute: instituteId });
+    const course = await Program.findOne({ _id: courseId, institute: instituteId, isDeleted: false });
     if (!course) {
       return res.status(404).json({ message: 'Course not found in this institute' });
     }
@@ -55,16 +55,16 @@ export const createLiveClass = async (req, res) => {
 
     // Notify students enrolled in this course if requested
     if (notifyStudents) {
-      const enrollments = await Purchase.find({
-        courseId,
+      const enrollments = await Enrollment.find({
+        programId: courseId,
         institute: instituteId,
-        status: 'completed'
+        status: 'active'
       });
 
       const notifications = enrollments.map(e => ({
         institute: instituteId,
         userId: e.studentId,
-        message: `New live class scheduled: "${title}" for course "${course.title}".`,
+        message: `New live class scheduled: "${title}" for course "${course.name}".`,
         type: 'system',
         read: false
       }));
@@ -107,7 +107,7 @@ export const updateLiveClass = async (req, res) => {
     }
 
     if (courseId) {
-      const course = await Course.findOne({ _id: courseId, institute: req.user.institute });
+      const course = await Program.findOne({ _id: courseId, institute: req.user.institute, isDeleted: false });
       if (!course) return res.status(404).json({ message: 'Course not found' });
       liveClass.courseId = courseId;
     }
@@ -129,13 +129,13 @@ export const updateLiveClass = async (req, res) => {
     const updatedClass = await liveClass.save();
 
     if (notifyStudents) {
-      const enrollments = await Purchase.find({
-        courseId: liveClass.courseId,
+      const enrollments = await Enrollment.find({
+        programId: liveClass.courseId,
         institute: req.user.institute,
-        status: 'completed'
+        status: 'active'
       });
 
-      const course = await Course.findById(liveClass.courseId);
+      const course = await Program.findById(liveClass.courseId);
 
       const notifications = enrollments.map(e => ({
         institute: req.user.institute,
@@ -191,7 +191,7 @@ export const getLiveClasses = async (req, res) => {
     if (req.user.role === 'admin' || req.user.role === 'owner') {
       const query = req.user.role === 'owner' ? {} : { instituteId };
       const liveClasses = await LiveClass.find(query)
-        .populate('courseId', 'title thumbnail')
+        .populate('courseId', 'name thumbnail')
         .populate('facultyId', 'name avatar')
         .sort({ startTime: 1 });
 
@@ -217,15 +217,15 @@ export const getLiveClasses = async (req, res) => {
     }
 
     if (req.user.role === 'student') {
-      // Find all enrolled course IDs
-      const purchases = await Purchase.find({ studentId: req.user._id, status: 'completed' });
-      const courseIds = purchases.map(p => p.courseId);
+      // Find all enrolled program IDs
+      const enrollments = await Enrollment.find({ studentId: req.user._id, status: 'active', institute: req.user.institute });
+      const programIds = enrollments.map(e => e.programId);
 
       const liveClasses = await LiveClass.find({
         instituteId,
-        courseId: { $in: courseIds }
+        courseId: { $in: programIds }
       })
-        .populate('courseId', 'title thumbnail')
+        .populate('courseId', 'name thumbnail')
         .populate('facultyId', 'name avatar')
         .sort({ startTime: 1 });
 
@@ -260,10 +260,10 @@ export const getLiveClassesByCourse = async (req, res) => {
 
     // Verify student is enrolled in this course or user is an admin
     if (req.user.role === 'student') {
-      const enrollment = await Purchase.findOne({
+      const enrollment = await Enrollment.findOne({
         studentId: req.user._id,
-        courseId,
-        status: 'completed',
+        programId: courseId,
+        status: 'active',
         institute: instituteId
       });
       if (!enrollment) {
@@ -277,7 +277,7 @@ export const getLiveClassesByCourse = async (req, res) => {
       instituteId,
       courseId
     })
-      .populate('courseId', 'title thumbnail')
+      .populate('courseId', 'name thumbnail')
       .populate('facultyId', 'name avatar')
       .sort({ startTime: 1 });
 
@@ -317,10 +317,10 @@ export const joinLiveClass = async (req, res) => {
     }
 
     // Enrollment check
-    const enrollment = await Purchase.findOne({
+    const enrollment = await Enrollment.findOne({
       studentId: req.user._id,
-      courseId: liveClass.courseId,
-      status: 'completed',
+      programId: liveClass.courseId,
+      status: 'active',
       institute: req.user.institute
     });
 

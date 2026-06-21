@@ -1450,44 +1450,7 @@ export default function AdminDashboard() {
                                             <Key className="w-4 h-4 mr-2" />
                                             Reset Password
                                           </DropdownMenuItem>
-                                          <DropdownMenuItem onClick={async () => {
-                                            const batchName = window.prompt("Available Batches:\n" + coursesList.map(c => c.title).join(", ") + "\n\nEnter Batch Name to assign:");
-                                            if (batchName) {
-                                              const course = coursesList.find(c => c.title.toLowerCase() === batchName.trim().toLowerCase());
-                                              if (course) {
-                                                await apiFetch('/purchases/admin/assign-course', {
-                                                  method: 'POST',
-                                                  body: JSON.stringify({ studentId: student.id, courseId: course._id })
-                                                });
-                                                loadCrmData();
-                                                toast.success(`Assigned to Batch ${course.title}`);
-                                              } else {
-                                                alert(`Batch "${batchName}" not found.`);
-                                              }
-                                            }
-                                          }}>
-                                            <UserPlus className="w-4 h-4 mr-2" />
-                                            Assign Batch
-                                          </DropdownMenuItem>
-                                          <DropdownMenuItem onClick={async () => {
-                                            const batchName = window.prompt("Enter Batch Name to remove:", student.courseName || '');
-                                            if (batchName) {
-                                              const course = coursesList.find(c => c.title.toLowerCase() === batchName.trim().toLowerCase());
-                                              if (course) {
-                                                await apiFetch('/purchases/admin/remove-course', {
-                                                  method: 'POST',
-                                                  body: JSON.stringify({ studentId: student.id, courseId: course._id })
-                                                });
-                                                loadCrmData();
-                                                toast.success(`Removed from Batch ${course.title}`);
-                                              } else {
-                                                alert(`Batch "${batchName}" not found.`);
-                                              }
-                                            }
-                                          }}>
-                                            <UserMinus className="w-4 h-4 mr-2" />
-                                            Remove Batch
-                                          </DropdownMenuItem>
+
                                           <DropdownMenuItem onClick={() => handleToggleStatus(student.id, student.status)}>
                                             <AlertCircle className="w-4 h-4 mr-2" />
                                             {student.status === 'active' ? 'Suspend Student' : 'Activate Student'}

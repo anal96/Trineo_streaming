@@ -29,6 +29,7 @@ import studentNotificationRoutes from './routes/studentNotificationRoutes.js';
 import liveClassRoutes from './routes/liveClassRoutes.js';
 import accessRoutes from './routes/accessRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
+import { checkSecurityPenalty } from './middleware/securityCheck.js';
 
 // Seed model imports
 import { User } from './models/User.js';
@@ -65,8 +66,26 @@ app.use(express.json({ limit: '3000mb' }));
 app.use(cookieParser());
 app.use(express.urlencoded({ limit: '3000mb', extended: true }));
 
+// Ensure uploads/avatars folder exists
+const uploadDir = path.join(path.resolve(), 'uploads', 'avatars');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+app.use('/uploads', express.static(path.join(path.resolve(), 'uploads')));
 
 // API Routes
+app.use([
+  '/api/courses',
+  '/api/programs',
+  '/api/lessons',
+  '/api/progress',
+  '/api/videos',
+  '/api/hls',
+  '/api/materials',
+  '/api/downloads',
+  '/api/certificates'
+], checkSecurityPenalty);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', programRoutes);
 app.use('/api/programs', programRoutes);

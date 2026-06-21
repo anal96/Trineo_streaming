@@ -33,6 +33,15 @@ export default function LoginPage() {
   const [resetToken, setResetToken] = useState('');
   const [resetTokenValid, setResetTokenValid] = useState(false);
 
+  const diagToken = localStorage.getItem('token');
+  const diagUserStr = localStorage.getItem('user');
+  let diagCurrentUser = null;
+  try { diagCurrentUser = diagUserStr ? JSON.parse(diagUserStr) : null; } catch (_) {}
+  console.log("AUTH TOKEN", diagToken);
+  console.log("CURRENT USER", diagCurrentUser);
+  console.log("FORCE LOGOUT", false);
+  console.log("ACCOUNT LOCKED", false);
+
   // Auth guard: redirect authenticated users or check active session cookies
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -75,7 +84,20 @@ export default function LoginPage() {
       setSecurityAlert('Your session was terminated due to a sustained screen capture or recording attempt. Direct screen grabbing of protected premium streams is strictly prohibited.');
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (violation === 'exceeded') {
-      setSecurityAlert('Security violations exceeded. Session terminated.');
+      setSecurityAlert(`
+        <div class="p-4 border border-danger/30 bg-danger-subtle rounded-4 text-center mb-4 shadow-sm relative">
+          <button type="button" class="btn-close position-absolute" data-bs-dismiss="alert" aria-label="Close" style="top: 1rem; right: 1rem; font-size: 0.75rem; border: none; background: transparent;"></button>
+          <div class="d-flex justify-content-center mb-3">
+            <div class="bg-danger text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 48px; height: 48px;">
+              <iconify-icon icon="solar:shield-warning-bold-duotone" class="fs-1"></iconify-icon>
+            </div>
+          </div>
+          <h4 class="text-danger fw-black mb-1" style="font-size: 1.1rem; letter-spacing: -0.5px;">🚫 Account Security Lock</h4>
+          <div class="badge bg-danger text-white mb-2 px-2.5 py-1 text-[10px] uppercase font-bold">Attempt 3 of 3</div>
+          <p class="text-secondary text-xs mb-3" style="line-height: 1.5;">Your session has been terminated due to repeated screen capture attempts.</p>
+          <div class="text-[10px] text-muted font-semibold" style="line-height: 1.4;">Please contact your institute administrator if you believe this is an error.</div>
+        </div>
+      `);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -138,16 +160,20 @@ export default function LoginPage() {
     const activeMessage = error || securityAlert;
     if (activeMessage) {
       const isError = !!error;
-      placeholder.innerHTML = `
-        <div class="alert alert-${isError ? 'danger' : 'warning'} alert-dismissible fade show border-0 shadow-sm" role="alert" style="border-radius: 12px; font-size: 0.9rem; padding: 1rem 1.25rem;">
-          <div class="d-flex align-items-start gap-2">
-            <iconify-icon icon="${isError ? 'solar:danger-triangle-bold' : 'solar:bell-bing-bold'}" class="fs-5 mt-0.5 text-${isError ? 'danger' : 'warning'}"></iconify-icon>
-            <div style="flex: 1; font-weight: 500;">${activeMessage}</div>
+      if (activeMessage.trim().startsWith('<div')) {
+        placeholder.innerHTML = activeMessage;
+      } else {
+        placeholder.innerHTML = `
+          <div class="alert alert-${isError ? 'danger' : 'warning'} alert-dismissible fade show border-0 shadow-sm" role="alert" style="border-radius: 12px; font-size: 0.9rem; padding: 1rem 1.25rem;">
+            <div class="d-flex align-items-start gap-2">
+              <iconify-icon icon="${isError ? 'solar:danger-triangle-bold' : 'solar:bell-bing-bold'}" class="fs-5 mt-0.5 text-${isError ? 'danger' : 'warning'}"></iconify-icon>
+              <div style="flex: 1; font-weight: 500;">${activeMessage}</div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" style="top: 0.75rem; right: 0.75rem; font-size: 0.75rem;"></button>
           </div>
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" style="top: 0.75rem; right: 0.75rem; font-size: 0.75rem;"></button>
-        </div>
-      `;
-      // Bind event listener to manual close button in standard alert
+        `;
+      }
+      
       const closeBtn = placeholder.querySelector('.btn-close');
       if (closeBtn) {
         closeBtn.addEventListener('click', () => {
@@ -235,6 +261,9 @@ export default function LoginPage() {
           }
         } catch (err: any) {
           setError(err.message || 'Login failed. Please check your credentials.');
+          if (err.message && (err.message.toLowerCase().includes('locked') || err.message.toLowerCase().includes('violation'))) {
+            navigate('/security-lock?reason=locked');
+          }
         } finally {
           setLoading(false);
         }
@@ -351,23 +380,74 @@ export default function LoginPage() {
       // Intercept forgot password link
       if (target.id === 'forget-password-link') {
         e.preventDefault();
-        const promptEmail = window.prompt("Enter your student email address:");
-        if (!promptEmail) return;
 
-        try {
-          const data = await apiFetch('/student-account/password/request-reset', {
-            method: 'POST',
-            body: JSON.stringify({ email: promptEmail })
-          });
-          if (data.resetLink) {
-            alert(`Reset token generated for testing:\n${window.location.origin}${data.resetLink}`);
-            navigate(data.resetLink);
-          } else {
-            alert(data.message || "If the account exists, a reset link has been generated.");
+        // Use a proper inline prompt modal instead of window.prompt
+        const existingModal = container.querySelector('#forgot-password-modal');
+        if (existingModal) { existingModal.remove(); return; }
+
+        const modal = document.createElement('div');
+        modal.id = 'forgot-password-modal';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+        modal.innerHTML = `
+          <div style="background:#1a1030;border:1px solid rgba(139,92,246,0.3);border-radius:20px;padding:36px;width:100%;max-width:420px;box-shadow:0 24px 60px rgba(0,0,0,0.5);">
+            <h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Forgot Password?</h3>
+            <p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0 0 24px;line-height:1.6;">Enter your registered student email address and we'll send you a secure reset link.</p>
+            <div id="forgot-success-msg" style="display:none;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+              <p style="color:#4ade80;font-size:13px;font-weight:600;margin:0;">✅ Reset email sent!</p>
+              <p style="color:rgba(255,255,255,0.5);font-size:12px;margin:4px 0 0;">Check your inbox for the reset link. It will expire in 30 minutes.</p>
+            </div>
+            <div id="forgot-form-wrap">
+              <input id="forgot-email-input" type="email" placeholder="your@email.com" autocomplete="email"
+                style="width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(139,92,246,0.25);border-radius:10px;padding:12px 16px;color:#fff;font-size:14px;margin-bottom:12px;box-sizing:border-box;outline:none;" />
+              <div id="forgot-error" style="color:#f87171;font-size:12px;margin-bottom:10px;display:none;"></div>
+              <button id="forgot-submit-btn" type="button"
+                style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;">
+                Send Reset Link
+              </button>
+            </div>
+            <button id="forgot-close-btn" type="button"
+              style="width:100%;background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.5);border:none;border-radius:10px;padding:11px;font-size:13px;cursor:pointer;">
+              Cancel
+            </button>
+          </div>`;
+        document.body.appendChild(modal);
+
+        const closeModal = () => modal.remove();
+        modal.querySelector('#forgot-close-btn')!.addEventListener('click', closeModal);
+        modal.addEventListener('click', (ev) => { if (ev.target === modal) closeModal(); });
+
+        const submitBtn = modal.querySelector('#forgot-submit-btn') as HTMLButtonElement;
+        const emailInput = modal.querySelector('#forgot-email-input') as HTMLInputElement;
+        const errorDiv = modal.querySelector('#forgot-error') as HTMLElement;
+        const successDiv = modal.querySelector('#forgot-success-msg') as HTMLElement;
+        const formWrap = modal.querySelector('#forgot-form-wrap') as HTMLElement;
+
+        submitBtn.addEventListener('click', async () => {
+          const email = emailInput.value.trim();
+          if (!email) {
+            errorDiv.textContent = 'Please enter your email address.';
+            errorDiv.style.display = 'block';
+            return;
           }
-        } catch (err: any) {
-          alert(err.message || "Failed to generate password reset request.");
-        }
+          errorDiv.style.display = 'none';
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Sending…';
+          try {
+            await apiFetch('/student-account/password/request-reset', {
+              method: 'POST',
+              body: JSON.stringify({ email })
+            });
+            formWrap.style.display = 'none';
+            successDiv.style.display = 'block';
+            setTimeout(closeModal, 4000);
+          } catch (err: any) {
+            errorDiv.textContent = err.message || 'Failed to send reset email.';
+            errorDiv.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Send Reset Link';
+          }
+        });
+        return;
       }
     };
 

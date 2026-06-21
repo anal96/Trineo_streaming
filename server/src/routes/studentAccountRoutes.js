@@ -9,7 +9,9 @@ import {
   resetPasswordWithToken,
   getStudentSessions,
   terminateStudentSession,
-  terminateOtherStudentSessions
+  terminateOtherStudentSessions,
+  uploadStudentAvatar,
+  deleteStudentAvatar
 } from '../controllers/studentAccountController.js';
 
 const router = express.Router();
@@ -20,6 +22,8 @@ router.post('/password/reset', resetPasswordWithToken);
 
 router.get('/profile', protect, getStudentProfileSettings);
 router.put('/profile', protect, updateStudentProfileSettings);
+router.put('/profile/avatar', protect, uploadStudentAvatar);
+router.delete('/profile/avatar', protect, deleteStudentAvatar);
 router.post('/password/change', protect, changeStudentPassword);
 
 router.get('/sessions', protect, getStudentSessions);

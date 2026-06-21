@@ -1,6 +1,6 @@
 import { assertInstituteAccess } from '../utils/tenant.js';
 
-const RESOURCE_SELECT = 'institute courseId studentId lessonId';
+const RESOURCE_SELECT = 'institute instituteId courseId studentId lessonId';
 
 export const tenantGuard = ({ model, idParam = 'id', bodyParam = null, fetchBy = 'findById', resolveResource = null } = {}) => {
   return async (req, res, next) => {

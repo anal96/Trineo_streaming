@@ -8,6 +8,7 @@ import {
   Clock,
   PlayCircle,
   ChevronLeft,
+  ChevronRight,
   BookOpen,
   Award,
   TrendingUp,
@@ -54,6 +55,8 @@ export default function CoursesPage() {
   const [error, setError] = useState('');
   
   const [user, setUser] = useState<any>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [violationCount, setViolationCount] = useState(0);
   
   useEffect(() => {
     const fetchProfile = async () => {
@@ -61,6 +64,16 @@ export default function CoursesPage() {
         const freshUser = await apiFetch('/auth/profile');
         setUser(freshUser);
         localStorage.setItem('user', JSON.stringify(freshUser));
+        
+        // Load unread notifications count
+        const notifData = await apiFetch('/student-notifications');
+        setUnreadNotifications(notifData.unreadCount || 0);
+
+        // Load security status
+        const securityRes = await apiFetch('/security/status', { ignoreAuthError: true });
+        if (securityRes) {
+          setViolationCount(securityRes.violationCount || 0);
+        }
       } catch (err) {
         console.error('Failed to fetch profile:', err);
         const cachedUser = localStorage.getItem('user');
@@ -201,7 +214,7 @@ export default function CoursesPage() {
                     // Already here
                   } else {
                     localStorage.setItem('trineo_student_active_tab', item.id);
-                    navigate('/student');
+                    navigate(`/student?tab=${item.id}`);
                   }
                 }}
                 className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative ${
@@ -212,6 +225,11 @@ export default function CoursesPage() {
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
+                {item.id === 'notifications' && unreadNotifications > 0 && (
+                  <span className="ml-auto w-5 h-5 bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400 text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">
+                    {unreadNotifications}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -370,176 +388,262 @@ export default function CoursesPage() {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredCourses.map((course, index) => {
-                  const lessonsForCourse = watchHistory.filter(h => h.courseId?._id === course._id);
-                  const progressVal = lessonsForCourse.length > 0 
-                    ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
-                    : 0;
+              <>
+                {/* Desktop layout: grid cards */}
+                <div className="hidden lg:grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {filteredCourses.map((course, index) => {
+                    const lessonsForCourse = watchHistory.filter(h => h.courseId?._id === course._id);
+                    const progressVal = lessonsForCourse.length > 0 
+                      ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
+                      : 0;
 
-                  // Dynamic gradient backgrounds for card banners matching mockup
-                  const gradientBanners = [
-                    'from-amber-400 to-yellow-500 text-amber-950',
-                    'from-indigo-600 via-purple-600 to-pink-600 text-white',
-                    'from-slate-900 via-slate-800 to-indigo-900 text-white',
-                    'from-emerald-500 via-teal-600 to-cyan-600 text-white'
-                  ];
-                  const bannerGradient = course.title.toLowerCase().includes('bca')
-                    ? 'from-yellow-200 via-yellow-100 to-amber-200 border border-amber-500/20 text-amber-950'
-                    : gradientBanners[index % gradientBanners.length];
+                    // Dynamic gradient backgrounds for card banners matching mockup
+                    const gradientBanners = [
+                      'from-amber-400 to-yellow-500 text-amber-950',
+                      'from-indigo-600 via-purple-600 to-pink-600 text-white',
+                      'from-slate-900 via-slate-800 to-indigo-900 text-white',
+                      'from-emerald-500 via-teal-600 to-cyan-600 text-white'
+                    ];
+                    const bannerGradient = course.title.toLowerCase().includes('bca')
+                      ? 'from-yellow-200 via-yellow-100 to-amber-200 border border-amber-500/20 text-amber-950'
+                      : gradientBanners[index % gradientBanners.length];
 
-                  return (
-                    <motion.div
-                      key={course._id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.4) }}
-                    >
-                      <Card 
-                        className="group cursor-pointer overflow-hidden border-border/50 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all bg-card flex flex-col h-full rounded-2xl"
-                        onClick={() => handleCourseClick(course)}
+                    return (
+                      <motion.div
+                        key={course._id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.4) }}
                       >
-                        <div className={`relative aspect-video flex flex-col justify-between p-4 overflow-hidden bg-gradient-to-br ${bannerGradient}`}>
-                          <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          
-                          <div className="flex justify-between items-start w-full z-10">
-                            {course.isLocked ? (
-                              <Badge className="bg-red-500/90 text-white border-0 font-bold text-[10px]">
-                                🔒 Locked
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-white/20 backdrop-blur-md text-foreground font-bold border-0 text-[10px]">
-                                🟢 Active
-                              </Badge>
-                            )}
-                          </div>
-
-                          <div className="flex-1 flex flex-col items-center justify-center text-center z-10 py-2">
-                            {course.title.toLowerCase().includes('bca') ? (
-                              <div className="space-y-0.5">
-                                <h1 className="text-4xl font-black text-red-600 tracking-wider">BCA</h1>
-                                <p className="text-[10px] text-amber-900 font-bold">Bachelor of Computer Applications</p>
-                              </div>
-                            ) : (
-                              <h2 className="text-base font-black px-2 line-clamp-2 leading-snug tracking-wide text-center">
-                                {course.title}
-                              </h2>
-                            )}
-                          </div>
-
-                          {course.isPurchased && !course.isLocked && (
-                            <div className="w-full bg-black/40 backdrop-blur-md rounded-lg p-2 z-10">
-                              <div className="flex items-center justify-between mb-1 text-[10px] text-white font-bold">
-                                <span>Your Progress</span>
-                                <span>{progressVal}%</span>
-                              </div>
-                              <Progress value={progressVal} className="h-1 bg-white/20" />
-                            </div>
-                          )}
-
-                          {course.isPurchased && !course.isLocked && (
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                              <div className="w-12 h-12 rounded-full bg-white/25 backdrop-blur-md flex items-center justify-center">
-                                <PlayCircle className="w-8 h-8 text-white fill-current" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <CardContent className="p-4 flex-1 flex flex-col justify-between">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-1.5">
-                              <Badge variant="outline" className="text-[10px] font-semibold">
-                                {course.category || 'Development'}
-                              </Badge>
-                              <Badge variant="outline" className="text-[10px] font-semibold">
-                                {course.level || 'Beginner'}
-                              </Badge>
-                            </div>
-
-                            <h3 className="font-bold text-sm text-foreground line-clamp-1 leading-snug">
-                              {course.title}
-                            </h3>
-
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span>{course.instructor || 'GFI Faculty'}</span>
-                              <div className="flex items-center gap-0.5">
-                                <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
-                                <span className="font-bold text-foreground">{(course.rating || 4.5).toFixed(1)}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-medium">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3.5 h-3.5" />
-                                {course.duration || '12h 30m'}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <BookOpen className="w-3.5 h-3.5" />
-                                {course.lessonsCount !== undefined ? `${course.lessonsCount} Topics` : '2 Topics'}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-1.5">
-                              <Button 
-                                variant="outline" 
-                                size="icon" 
-                                className="h-8 w-8 border-border/60 flex-shrink-0"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  alert('Bookmarked!');
-                                }}
-                              >
-                                <Bookmark className="w-3.5 h-3.5" />
-                              </Button>
-
+                        <Card 
+                          className="group cursor-pointer overflow-hidden border-border/50 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all bg-card flex flex-col h-full rounded-2xl"
+                          onClick={() => handleCourseClick(course)}
+                        >
+                          <div className={`relative aspect-video flex flex-col justify-between p-4 overflow-hidden bg-gradient-to-br ${bannerGradient}`}>
+                            <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            
+                            <div className="flex justify-between items-start w-full z-10">
                               {course.isLocked ? (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  className="text-muted-foreground flex items-center gap-1 bg-muted font-bold text-xs"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCourseClick(course);
-                                  }}
-                                >
-                                  <span>🔒 Locked</span>
-                                </Button>
-                              ) : course.isPurchased ? (
-                                <Button
-                                  size="sm"
-                                  className="bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10 font-bold text-xs"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCourseClick(course);
-                                  }}
-                                >
-                                  Continue Learning
-                                </Button>
+                                <Badge className="bg-red-500/90 text-white border-0 font-bold text-[10px]">
+                                  🔒 Locked
+                                </Badge>
                               ) : (
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  className="text-xs font-semibold border-primary/30"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAccessRequest(course._id);
-                                  }}
-                                >
-                                  <Sparkles className="w-3.5 h-3.5 mr-1 text-primary" />
-                                  Request
-                                </Button>
+                                <Badge className="bg-white/20 backdrop-blur-md text-foreground font-bold border-0 text-[10px]">
+                                  🟢 Active
+                                </Badge>
                               )}
                             </div>
+
+                            <div className="flex-1 flex flex-col items-center justify-center text-center z-10 py-2">
+                              {course.title.toLowerCase().includes('bca') ? (
+                                <div className="space-y-0.5">
+                                  <h1 className="text-4xl font-black text-red-600 tracking-wider">BCA</h1>
+                                  <p className="text-[10px] text-amber-900 font-bold">Bachelor of Computer Applications</p>
+                                </div>
+                              ) : (
+                                <h2 className="text-base font-black px-2 line-clamp-2 leading-snug tracking-wide text-center">
+                                  {course.title}
+                                </h2>
+                              )}
+                            </div>
+
+                            {course.isPurchased && !course.isLocked && (
+                              <div className="w-full bg-black/40 backdrop-blur-md rounded-lg p-2 z-10">
+                                <div className="flex items-center justify-between mb-1 text-[10px] text-white font-bold">
+                                  <span>Your Progress</span>
+                                  <span>{progressVal}%</span>
+                                </div>
+                                <Progress value={progressVal} className="h-1 bg-white/20" />
+                              </div>
+                            )}
+
+                            {course.isPurchased && !course.isLocked && (
+                              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                <div className="w-12 h-12 rounded-full bg-white/25 backdrop-blur-md flex items-center justify-center">
+                                  <PlayCircle className="w-8 h-8 text-white fill-current" />
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  );
-                })}
-              </div>
+
+                          <CardContent className="p-4 flex-1 flex flex-col justify-between">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="outline" className="text-[10px] font-semibold">
+                                  {course.category || 'Development'}
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px] font-semibold">
+                                  {course.level || 'Beginner'}
+                                </Badge>
+                              </div>
+
+                              <h3 className="font-bold text-sm text-foreground line-clamp-1 leading-snug">
+                                {course.title}
+                              </h3>
+
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{course.instructor || 'GFI Faculty'}</span>
+                                <div className="flex items-center gap-0.5">
+                                  <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
+                                  <span className="font-bold text-foreground">{(course.rating || 4.5).toFixed(1)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-medium">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {course.duration || '12h 30m'}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <BookOpen className="w-3.5 h-3.5" />
+                                  {course.lessonsCount !== undefined ? `${course.lessonsCount} Topics` : '2 Topics'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <Button 
+                                  variant="outline" 
+                                  size="icon" 
+                                  className="h-8 w-8 border-border/60 flex-shrink-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    alert('Bookmarked!');
+                                  }}
+                                >
+                                  <Bookmark className="w-3.5 h-3.5" />
+                                </Button>
+
+                                {course.isLocked ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="text-muted-foreground flex items-center gap-1 bg-muted font-bold text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCourseClick(course);
+                                    }}
+                                  >
+                                    <span>🔒 Locked</span>
+                                  </Button>
+                                ) : course.isPurchased ? (
+                                  <Button
+                                    size="sm"
+                                    className="bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10 font-bold text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCourseClick(course);
+                                    }}
+                                  >
+                                    Continue Learning
+                                  </Button>
+                                ) : (
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="text-xs font-semibold border-primary/30"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAccessRequest(course._id);
+                                    }}
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5 mr-1 text-primary" />
+                                    Request
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {/* Mobile layout: horizontal stacked list */}
+                <div className="flex flex-col gap-4 lg:hidden">
+                  {filteredCourses.map((course, index) => {
+                    const lessonsForCourse = watchHistory.filter(h => {
+                      const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
+                      return progId && progId.toString() === course._id.toString();
+                    });
+                    const progressVal = lessonsForCourse.length > 0 
+                      ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
+                      : 0;
+
+                    // Compute completion estimate based on progress or mock completed topics
+                    const lessonsCount = course.lessonsCount || 10;
+                    const completedCount = lessonsForCourse.filter(h => h.completed).length;
+                    const completionEst = lessonsCount > 0 ? Math.min(100, Math.round((completedCount / lessonsCount) * 100)) : progressVal;
+
+                    return (
+                      <motion.div
+                        key={course._id}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.3) }}
+                        onClick={() => handleCourseClick(course)}
+                        className="flex gap-3 bg-card border border-border/50 rounded-2xl p-3 h-[112px] min-h-[112px] hover:shadow-md transition-all active:scale-[0.98] cursor-pointer relative overflow-hidden group select-none touch-btn animate-in fade-in-50 duration-200"
+                      >
+                        {/* Thumbnail Icon */}
+                        <div className="w-24 h-full rounded-xl overflow-hidden flex-shrink-0 relative border border-border/10 bg-muted">
+                          {course.thumbnail ? (
+                            <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-violet-600 to-indigo-650 flex flex-col items-center justify-center font-black text-white text-xs text-center p-1">
+                              {course.title.toLowerCase().includes('bca') ? (
+                                <>
+                                  <span className="text-lg font-black tracking-wider text-white">BCA</span>
+                                  <span className="text-[7px] text-indigo-200 font-bold uppercase">Cohort</span>
+                                </>
+                              ) : (
+                                <span className="text-[10px] line-clamp-3 leading-snug px-1 text-center font-extrabold">{course.title}</span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Play overlay */}
+                          <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                            <PlayCircle className="w-6 h-6 text-white fill-white drop-shadow" />
+                          </div>
+                        </div>
+
+                        {/* Right Content Column */}
+                        <div className="flex-1 flex flex-col justify-between min-w-0 py-0.5">
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <h3 className="font-extrabold text-[13px] text-foreground truncate leading-none">
+                                {course.title}
+                              </h3>
+                              {course.isLocked ? (
+                                <span className="text-[9px] font-bold text-red-500 shrink-0">🔒 Locked</span>
+                              ) : (
+                                <span className="text-[9px] font-bold text-emerald-500 shrink-0">🟢 Active</span>
+                              )}
+                            </div>
+                            <div className="flex justify-between items-center mt-1">
+                              <p className="text-[10px] text-muted-foreground truncate font-medium">Instructor: {course.instructor || 'GFI Faculty'}</p>
+                              <span className="text-[9px] font-black text-primary flex items-center gap-0.5">
+                                Continue Learning <ChevronRight className="w-2.5 h-2.5" />
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Progress slider & estimate */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-center text-[9px] font-bold">
+                              <span className="text-muted-foreground">{completedCount} of {lessonsCount} Topics Completed</span>
+                              <span className="text-primary font-black font-extrabold">Est. progress: {completionEst}%</span>
+                            </div>
+                            <Progress value={progressVal} className="h-1 bg-muted [&>div]:bg-primary" />
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </>
             )}
 
             {/* Bottom info banner */}
@@ -565,7 +669,11 @@ export default function CoursesPage() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <MobileNav items={studentNavItems} />
+      <MobileNav 
+        items={studentNavItems} 
+        unreadCount={unreadNotifications} 
+        violationCount={violationCount} 
+      />
     </div>
   );
 }

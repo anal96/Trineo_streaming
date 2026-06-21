@@ -60,6 +60,7 @@ export default function SecurityCenter() {
   // Selected student for detail modal
   const [selectedStudentStats, setSelectedStudentStats] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [detailedState, setDetailedState] = useState<any>(null);
 
   const loadData = async () => {
     try {
@@ -260,11 +261,18 @@ export default function SecurityCenter() {
     return <Badge className="bg-rose-500/10 text-rose-700 border-rose-500/20 hover:bg-rose-500/10 font-semibold animate-pulse">High Risk ({score}%)</Badge>;
   };
 
-  const handleStudentClick = (studentId: string) => {
+  const handleStudentClick = async (studentId: string) => {
     const stats = studentStats.find(s => s.student._id === studentId);
     if (stats) {
       setSelectedStudentStats(stats);
       setIsModalOpen(true);
+      setDetailedState(null);
+      try {
+        const detail = await apiFetch(`/security-center/student/${studentId}/state`);
+        setDetailedState(detail);
+      } catch (err: any) {
+        toast.error('Failed to load student security state: ' + err.message);
+      }
     }
   };
 
@@ -828,7 +836,7 @@ export default function SecurityCenter() {
                       </div>
                       <div className="flex items-center justify-between border-b pb-1.5">
                         <span className="text-muted-foreground font-semibold">Batch Name:</span>
-                        <span className="font-semibold">{selectedStudentStats.student.branchName || 'Main Campus'}</span>
+                        <span className="font-semibold">{detailedState?.student?.batchName || selectedStudentStats.student.branchName || 'Not Enrolled'}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground font-semibold">Joined Date:</span>
@@ -838,6 +846,54 @@ export default function SecurityCenter() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {detailedState?.securityState && (
+                    <Card className="border-border/60 bg-muted/20 mt-4">
+                      <CardHeader className="p-3 pb-1">
+                        <CardTitle className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Student Security Center</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-3 pt-1 space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between border-b pb-1.5">
+                          <span className="text-muted-foreground font-semibold">Violation Count:</span>
+                          <span className="font-bold text-rose-500">{detailedState.securityState.violationCount} / 4</span>
+                        </div>
+                        <div className="flex items-center justify-between border-b pb-1.5">
+                          <span className="text-muted-foreground font-semibold">Security Status:</span>
+                          <Badge variant="outline" className={detailedState.securityState.accountLocked ? 'border-rose-400 text-rose-600 bg-rose-500/5 animate-pulse font-semibold' : 'border-green-400 text-green-600 bg-green-500/5'}>
+                            {detailedState.securityState.accountLocked ? 'Locked' : 'Active'}
+                          </Badge>
+                        </div>
+                        {detailedState.securityState.accountLocked && detailedState.securityState.lockedAt && (
+                          <div className="flex flex-col gap-1 border-b pb-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground font-semibold">Locked At:</span>
+                              <span className="font-semibold">
+                                {new Date(detailedState.securityState.lockedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground font-semibold">Locked By:</span>
+                              <span className="font-semibold">{detailedState.securityState.lockedBy || 'system'}</span>
+                            </div>
+                          </div>
+                        )}
+                        {detailedState.securityState.lastUnlockAt && (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground font-semibold">Last Unlocked At:</span>
+                              <span className="font-semibold">
+                                {new Date(detailedState.securityState.lastUnlockAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground font-semibold">Last Unlocked By:</span>
+                              <span className="font-semibold">{detailedState.securityState.lastUnlockedBy || 'admin'}</span>
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
 
                 {/* Timeline and History Column */}
@@ -847,43 +903,77 @@ export default function SecurityCenter() {
                     Security Incident Timeline
                   </h3>
 
-                  <div className="space-y-3 max-h-[250px] overflow-y-auto pr-1">
-                    {selectedStudentStats.events.map((evt: any) => (
-                      <div key={evt._id} className="p-3 border border-border/50 rounded-xl bg-card space-y-1 hover:bg-muted/10 transition-colors">
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-xs capitalize text-rose-600 bg-rose-500/5 px-2 py-0.5 rounded-full border border-rose-500/10">
-                            {evt.eventType?.replace(/_/g, ' ')}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {new Date(evt.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed italic">{evt.details || `Logged by system on IP: ${evt.ipAddress}`}</p>
-                        
-                        {/* Snapshotted Name details */}
-                        {(evt.batchName || evt.topicTitle) && (
-                          <div className="text-[10px] text-indigo-600 font-semibold bg-indigo-500/5 p-1 rounded border border-indigo-500/10 mt-1">
-                            Snapshot: {evt.batchName || 'LMS'} &gt; {evt.topicTitle || 'General'}
-                          </div>
-                        )}
+                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                    {selectedStudentStats.events.map((evt: any) => {
+                      const dateFormatted = new Date(evt.createdAt).toLocaleString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      });
 
-                        <div className="flex items-center gap-2 pt-1 text-[10px] text-muted-foreground/80">
-                          <span>IP: {evt.ipAddress}</span>
-                          <span>·</span>
-                          <span>Device: {evt.device} / {evt.browser}</span>
+                      // Determine timeline event label
+                      let eventLabel = evt.eventType?.replace(/_/g, ' ');
+                      if (evt.eventType === 'screenshot') {
+                        eventLabel = `Screenshot Attempt #${evt.attemptNumber || 1}`;
+                      } else if (evt.eventType === 'screen_recording') {
+                        eventLabel = `Screen Recording Attempt #${evt.attemptNumber || 1}`;
+                      }
+
+                      let actionLabel = '';
+                      if (evt.actionTaken === 'session_terminated') {
+                        actionLabel = 'Session Terminated';
+                      } else if (evt.actionTaken === 'student_suspended') {
+                        actionLabel = 'Account Locked';
+                      } else if (evt.actionTaken === 'warning_shown') {
+                        // 1st warning is Warning Issued, 2nd is 60 Second Lock
+                        actionLabel = evt.attemptNumber === 2 ? '60 Second Lock' : 'Warning Issued';
+                      }
+
+                      return (
+                        <div key={evt._id} className="p-3 border border-border/50 rounded-xl bg-card space-y-1.5 hover:bg-muted/10 transition-colors">
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-xs capitalize text-rose-600 dark:text-rose-400 bg-rose-500/5 px-2.5 py-0.5 rounded-full border border-rose-500/10">
+                              {eventLabel}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-semibold">
+                              {dateFormatted}
+                            </span>
+                          </div>
+                          
+                          {actionLabel && (
+                            <div className="flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/5 px-2 py-0.5 rounded border border-amber-500/10 w-fit">
+                              Action: {actionLabel}
+                            </div>
+                          )}
+
+                          <p className="text-[11px] text-muted-foreground/85 leading-relaxed italic">{evt.details || `Logged by system on IP: ${evt.ipAddress}`}</p>
+                          
+                          {(evt.batchName || evt.topicTitle) && (
+                            <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-500/5 p-1 rounded border border-indigo-500/10 mt-1">
+                              Snapshot: {evt.batchName || 'LMS'} &gt; {evt.topicTitle || 'General'}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 pt-1 text-[9px] text-muted-foreground/60 font-medium">
+                            <span>IP: {evt.ipAddress}</span>
+                            <span>·</span>
+                            <span>Device: {evt.device} / {evt.browser}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div className="pt-4 border-t flex flex-wrap gap-2 justify-end">
-                    {selectedStudentStats.student.status === 'active' ? (
-                      <Button size="sm" variant="destructive" className="min-h-11" onClick={() => studentAction(selectedStudentStats.student._id, 'suspend')}>
-                        <UserMinus className="w-4 h-4 mr-1.5" /> Suspend Student
-                      </Button>
-                    ) : (
+                    {(selectedStudentStats.student.status !== 'active' || detailedState?.securityState?.accountLocked) ? (
                       <Button size="sm" className="min-h-11 bg-green-600 hover:bg-green-700 text-white" onClick={() => studentAction(selectedStudentStats.student._id, 'unlock')}>
                         <UserCheck className="w-4 h-4 mr-1.5" /> Unlock Student
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="destructive" className="min-h-11" onClick={() => studentAction(selectedStudentStats.student._id, 'suspend')}>
+                        <UserMinus className="w-4 h-4 mr-1.5" /> Suspend Student
                       </Button>
                     )}
                     <Button size="sm" variant="outline" className="min-h-11" onClick={() => studentAction(selectedStudentStats.student._id, 'resetSessions')}>
