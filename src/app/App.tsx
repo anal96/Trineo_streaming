@@ -13,9 +13,10 @@ import OwnerPanel from './components/pages/OwnerPanel';
 import InstitutesManagementPage from './components/pages/InstitutesManagementPage';
 import ChangePasswordPage from './components/pages/ChangePasswordPage';
 import SecurityLockPage from './components/pages/SecurityLockPage';
-import { BrandingManager } from './components/BrandingManager';
+import BrandingManager from './components/BrandingManager';
 import { apiFetch, decodeShortId } from './utils/api';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router';
+import { registerServiceWorker, syncAuthTokenToCache } from './utils/pushManager';
 
 function LegacyWatchRedirect() {
   const navigate = useNavigate();
@@ -57,6 +58,12 @@ function LegacyWatchRedirect() {
 }
 
 export default function App() {
+  useEffect(() => {
+    registerServiceWorker();
+    const token = localStorage.getItem('token');
+    syncAuthTokenToCache(token);
+  }, []);
+
   return (
     <ThemeProvider attribute="class" defaultTheme="light">
       <Router>

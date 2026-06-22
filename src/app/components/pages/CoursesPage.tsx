@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import {
   Search,
-  Filter,
   Star,
   Clock,
   PlayCircle,
@@ -334,51 +333,7 @@ export default function CoursesPage() {
               </div>
             )}
 
-            {/* Filters Row */}
-            <div className="flex flex-wrap gap-4 items-center">
-              <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                <Filter className="w-4 h-4" />
-                <span>Filters:</span>
-              </div>
 
-              {/* Category Filter Pills */}
-              <div className="flex flex-wrap gap-1.5">
-                {categories.map((category) => (
-                  <Button
-                    key={category}
-                    variant={selectedCategory === category ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSelectedCategory(category)}
-                    className={`rounded-full px-4 text-xs font-medium ${
-                      selectedCategory === category
-                        ? 'bg-primary text-white shadow-sm shadow-primary/10'
-                        : 'border-border/60'
-                    }`}
-                  >
-                    {category}
-                  </Button>
-                ))}
-              </div>
-
-              {/* Level Filter Pills */}
-              <div className="flex flex-wrap gap-1.5">
-                {levels.map((level) => (
-                  <Button
-                    key={level}
-                    variant={selectedLevel === level ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSelectedLevel(level)}
-                    className={`rounded-full px-4 text-xs font-medium ${
-                      selectedLevel === level
-                        ? 'bg-primary text-white shadow-sm shadow-primary/10'
-                        : 'border-border/60'
-                    }`}
-                  >
-                    {level}
-                  </Button>
-                ))}
-              </div>
-            </div>
 
             {/* Course cards grid */}
             {loading ? (

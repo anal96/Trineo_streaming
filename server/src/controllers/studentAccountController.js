@@ -32,12 +32,18 @@ export const getStudentProfileSettings = async (req, res) => {
 export const updateStudentProfileSettings = async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
-    const { name, phone, recoveryEmail } = req.body;
+    const { name, phone, recoveryEmail, notificationPreferences } = req.body;
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     if (name !== undefined) user.name = name;
     if (phone !== undefined) user.phone = phone;
     if (recoveryEmail !== undefined) user.recoveryEmail = recoveryEmail;
+    if (notificationPreferences !== undefined) {
+      user.notificationPreferences = {
+        ...user.notificationPreferences,
+        ...notificationPreferences
+      };
+    }
     await user.save();
     const updated = await User.findById(user._id).populate('institute').select('-password -passwordResetTokenHash');
     res.json(updated);

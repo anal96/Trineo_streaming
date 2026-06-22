@@ -682,6 +682,161 @@ export default function SecurityCenter() {
               )}
             </CardContent>
           </Card>
+
+          {/* Push Notification Diagnostic Panel */}
+          <Card className="border-border/50 bg-card">
+            <CardHeader>
+              <CardTitle className="text-base font-bold flex items-center gap-2">
+                <Shield className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Push Notification Diagnostic Panel
+              </CardTitle>
+              <CardDescription>
+                Send custom test notifications to a student. Targets active device push subscription endpoints.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3.5">
+                <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center text-xs">
+                  <span className="text-muted-foreground font-bold min-w-[150px]">Student Target Email:</span>
+                  <input
+                    type="text"
+                    id="test_student_email"
+                    className="flex h-9 rounded-xl border border-input bg-background px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none flex-1 max-w-sm"
+                    placeholder="Enter student email (e.g., ananloseph9744@gmail.com)"
+                  />
+                </div>
+                
+                <div className="flex flex-wrap gap-2 pt-1.5">
+                  <Button
+                    size="sm"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white min-h-10 text-xs px-3"
+                    onClick={async () => {
+                      const emailInput = document.getElementById('test_student_email') as HTMLInputElement;
+                      const email = emailInput?.value || '';
+                      if (!email) {
+                        toast.error('Please enter a target student email');
+                        return;
+                      }
+                      try {
+                        const res = await apiFetch('/push-subscriptions/test-push', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            email,
+                            title: '📚 New Lesson Available',
+                            body: 'Introduction to React Hooks has been uploaded. Tap to continue learning.',
+                            type: 'upload',
+                            url: '/student/courses'
+                          })
+                        });
+                        toast.success('Lesson Upload test notification sent: ' + (res.message || 'Success'));
+                      } catch (err: any) {
+                        toast.error('Failed to send notification: ' + err.message);
+                      }
+                    }}
+                  >
+                    Send Lesson Notification
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-10 text-xs px-3 border-indigo-200 hover:bg-indigo-50"
+                    onClick={async () => {
+                      const emailInput = document.getElementById('test_student_email') as HTMLInputElement;
+                      const email = emailInput?.value || '';
+                      if (!email) {
+                        toast.error('Please enter a target student email');
+                        return;
+                      }
+                      try {
+                        const res = await apiFetch('/push-subscriptions/test-push', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            email,
+                            title: '🎥 Live Class Starting Soon',
+                            body: 'Introduction to React Hooks starts in 15 minutes! Tap to join.',
+                            type: 'live_class',
+                            url: '/student?tab=live-classes'
+                          })
+                        });
+                        toast.success('Live Class Reminder test notification sent: ' + (res.message || 'Success'));
+                      } catch (err: any) {
+                        toast.error('Failed to send notification: ' + err.message);
+                      }
+                    }}
+                  >
+                    Send Live Class Notification
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-10 text-xs px-3 border-rose-200 text-rose-600 hover:bg-rose-50"
+                    onClick={async () => {
+                      const emailInput = document.getElementById('test_student_email') as HTMLInputElement;
+                      const email = emailInput?.value || '';
+                      if (!email) {
+                        toast.error('Please enter a target student email');
+                        return;
+                      }
+                      try {
+                        const res = await apiFetch('/push-subscriptions/test-push', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            email,
+                            title: '🚨 Security Alert',
+                            body: 'Account locked permanently due to screenshot violations.',
+                            type: 'security',
+                            url: '/student?tab=security'
+                          })
+                        });
+                        toast.success('Security Alert test notification sent: ' + (res.message || 'Success'));
+                      } catch (err: any) {
+                        toast.error('Failed to send notification: ' + err.message);
+                      }
+                    }}
+                  >
+                    Send Security Alert
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-10 text-xs px-3"
+                    onClick={async () => {
+                      const emailInput = document.getElementById('test_student_email') as HTMLInputElement;
+                      const email = emailInput?.value || '';
+                      if (!email) {
+                        toast.error('Please enter a target student email');
+                        return;
+                      }
+                      try {
+                        const res = await apiFetch('/push-subscriptions/test-push', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            email,
+                            title: 'Trineo Stream Test',
+                            body: 'Test system push notification message.',
+                            type: 'system',
+                            url: '/student'
+                          })
+                        });
+                        toast.success('Standard test push notification sent: ' + (res.message || 'Success'));
+                      } catch (err: any) {
+                        toast.error('Failed to send notification: ' + err.message);
+                      }
+                    }}
+                  >
+                    Send Test Push
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right Sidebar: Watchlist + Recent Incidents */}

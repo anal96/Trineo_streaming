@@ -618,7 +618,9 @@ export const uploadVideoToYouTube = async (req, res) => {
               await Notification.create({
                 userId: null,
                 institute: savedAsset.institute || req.user.institute || null,
-                message: `YouTube video ready: "${title}" — ID: ${youtubeVideoId}`,
+                title: '📚 New Lesson Available',
+                message: `"${title}" has been uploaded. Tap to continue learning.`,
+                url: `/student/video/${courseId}`,
                 type: 'upload'
               });
               
@@ -980,7 +982,9 @@ export const replaceVideoAsset = async (req, res) => {
               await Notification.create({
                 userId: null,
                 institute: videoAsset.institute || req.user.institute || null,
-                message: `Video Asset replaced and ready: "${videoAsset.title}"`,
+                title: '📚 New Lesson Available',
+                message: `"${videoAsset.title}" has been replaced and is now ready. Tap to continue learning.`,
+                url: `/student/video/${videoAsset.courseId}`,
                 type: 'upload'
               });
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {
@@ -1369,7 +1373,9 @@ export const replaceLessonVideo = async (req, res) => {
               await Notification.create({
                 userId: null,
                 institute: videoAsset.institute || req.user.institute || null,
-                message: `Video ready for lesson "${lesson.title}"`,
+                title: '📚 New Lesson Available',
+                message: `"${lesson.title}" is now ready. Tap to continue learning.`,
+                url: `/student/video/${videoAsset.courseId || (lesson && lesson.courseId) || ''}`,
                 type: 'upload'
               });
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {

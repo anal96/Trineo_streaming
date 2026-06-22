@@ -64,8 +64,10 @@ export const createLiveClass = async (req, res) => {
       const notifications = enrollments.map(e => ({
         institute: instituteId,
         userId: e.studentId,
-        message: `New live class scheduled: "${title}" for course "${course.name}".`,
-        type: 'system',
+        title: '🎥 New Live Class Scheduled',
+        message: `"${title}" has been scheduled for course "${course.name}". Tap to view.`,
+        url: '/student?tab=live-classes',
+        type: 'live_class',
         read: false
       }));
 
@@ -140,8 +142,10 @@ export const updateLiveClass = async (req, res) => {
       const notifications = enrollments.map(e => ({
         institute: req.user.institute,
         userId: e.studentId,
-        message: `Live class updated: "${liveClass.title}" is now scheduled from ${new Date(liveClass.startTime).toLocaleString()}.`,
-        type: 'system',
+        title: '🎥 Live Class Rescheduled',
+        message: `"${liveClass.title}" is now scheduled for ${new Date(liveClass.startTime).toLocaleString()}. Tap to view details.`,
+        url: '/student?tab=live-classes',
+        type: 'live_class',
         read: false
       }));
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router';
 
-export function BrandingManager() {
+export default function BrandingManager() {
   const location = useLocation();
   const lastUserStrRef = useRef<string | null>(null);
 

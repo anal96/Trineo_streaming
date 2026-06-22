@@ -130,9 +130,39 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  notificationPreferences: {
+    academic: {
+      type: Boolean,
+      default: true
+    },
+    liveClass: {
+      type: Boolean,
+      default: true
+    },
+    security: {
+      type: Boolean,
+      default: true
+    },
+    announcement: {
+      type: Boolean,
+      default: true
+    },
+    certificates: {
+      type: Boolean,
+      default: true
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  lastContinueLearningReminderSentAt: {
+    type: Date,
+    default: null
+  },
+  continueLearningRemindersSent: {
+    type: [Number],
+    default: []
   }
 });
 

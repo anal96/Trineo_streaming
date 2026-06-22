@@ -4,6 +4,8 @@ import { StudyMaterial } from '../models/StudyMaterial.js';
 import { Course } from '../models/Course.js';
 import { Program } from '../models/Program.js';
 import { Purchase } from '../models/Purchase.js';
+import { Enrollment } from '../models/Enrollment.js';
+import { CourseAssignment } from '../models/CourseAssignment.js';
 import { Notification } from '../models/Notification.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
 
@@ -208,12 +210,39 @@ export const createStudyMaterial = async (req, res) => {
 
     const [populatedWithCourse] = await populateMaterialCourses([populated]);
 
-    const enrolled = await Purchase.find({ institute: req.user.institute, courseId, status: 'completed' }).select('studentId');
-    if (enrolled.length) {
-      await Notification.insertMany(enrolled.map((p) => ({
+    // Query Enrollment, CourseAssignment, and Purchase in parallel to cover all access/enrollment types
+    const [enrollments, assignments, purchases] = await Promise.all([
+      Enrollment.find({
         institute: req.user.institute,
-        userId: p.studentId,
-        message: `New study material uploaded: ${title}`,
+        programId: courseId,
+        status: 'active'
+      }).select('studentId'),
+      CourseAssignment.find({
+        institute: req.user.institute,
+        courseId: courseId
+      }).select('student'),
+      Purchase.find({
+        institute: req.user.institute,
+        courseId: courseId,
+        status: 'completed'
+      }).select('studentId')
+    ]);
+
+    const studentIds = new Set();
+    enrollments.forEach(e => { if (e.studentId) studentIds.add(e.studentId.toString()); });
+    assignments.forEach(a => { if (a.student) studentIds.add(a.student.toString()); });
+    purchases.forEach(p => { if (p.studentId) studentIds.add(p.studentId.toString()); });
+
+    const studentIdList = Array.from(studentIds);
+    console.log(`[createStudyMaterial] Found ${studentIdList.length} students to notify for courseId ${courseId}`);
+
+    if (studentIdList.length) {
+      await Notification.insertMany(studentIdList.map((sId) => ({
+        institute: req.user.institute,
+        userId: sId,
+        title: '📖 New Study Material Available',
+        message: `"${title}" is now available. Tap to view.`,
+        url: '/student?tab=materials',
         type: 'upload',
         read: false
       })));

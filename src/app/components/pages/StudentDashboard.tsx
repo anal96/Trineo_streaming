@@ -42,6 +42,7 @@ import {
   ExternalLink,
   Camera,
   Shield,
+  ShieldAlert,
   CreditCard,
   HelpCircle,
   Trash2,
@@ -73,6 +74,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { apiFetch, getApiUrl } from '../../utils/api';
+import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush } from '../../utils/pushManager';
 import { toast } from 'sonner';
 
 const SecuritySection = lazy(() => import('./settings/SecuritySection'));
@@ -297,7 +299,7 @@ export default function StudentDashboard() {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [resetEmail, setResetEmail] = useState('');
   const [settingsSubTab, setSettingsSubTab] = useState('profile');
-  const [mobileSettingsExpanded, setMobileSettingsExpanded] = useState<string | null>('profile');
+  const [mobileSettingsExpanded, setMobileSettingsExpanded] = useState<string | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
@@ -322,7 +324,252 @@ export default function StudentDashboard() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
 
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
+  const [pushSubscriptionLoading, setPushSubscriptionLoading] = useState(false);
+  const [showPushBanner, setShowPushBanner] = useState(false);
+
+  useEffect(() => {
+    const checkSubscription = async () => {
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+        const sub = await getPushSubscriptionState();
+        setIsPushSubscribed(!!sub);
+      }
+    };
+    checkSubscription();
+  }, []);
+
+  useEffect(() => {
+    const shouldShow = 
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default' &&
+      localStorage.getItem('trineo_push_prompt_dismissed') !== 'true' &&
+      !isPushSubscribed;
+    setShowPushBanner(shouldShow);
+  }, [isPushSubscribed]);
+
+  const togglePushSubscription = async () => {
+    setPushSubscriptionLoading(true);
+    try {
+      if (isPushSubscribed) {
+        const success = await unsubscribeFromPush();
+        if (success) {
+          setIsPushSubscribed(false);
+          toast.success('Successfully unsubscribed from push notifications on this device.');
+        } else {
+          toast.error('Failed to unsubscribe from push notifications.');
+        }
+      } else {
+        const sub = await subscribeToPush();
+        if (sub) {
+          setIsPushSubscribed(true);
+          toast.success('Successfully enabled push notifications on this device!');
+        } else {
+          toast.error('Could not subscribe. Please check notification permissions.');
+        }
+      }
+    } catch (err: any) {
+      console.error('Push toggle error:', err);
+      toast.error(err.message || 'Error configuring push notifications.');
+    } finally {
+      setPushSubscriptionLoading(false);
+    }
+  };
+
+  const handleTogglePreference = async (key: string) => {
+    if (!user) return;
+    const currentPrefs = user.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true, certificates: true };
+    const updatedPrefs = {
+      ...currentPrefs,
+      [key]: !currentPrefs[key]
+    };
+    
+    // Update local state first for instant response
+    const updatedUser = {
+      ...user,
+      notificationPreferences: updatedPrefs
+    };
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+
+    try {
+      await apiFetch('/student-account/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          notificationPreferences: updatedPrefs
+        })
+      });
+      toast.success('Notification preferences updated.');
+    } catch (err: any) {
+      console.error('Failed to update preferences on backend:', err);
+      toast.error('Failed to sync preferences with server.');
+      // Revert state on failure
+      setUser(user);
+      localStorage.setItem('user', JSON.stringify(user));
+    }
+  };
+
+  const renderNotificationPreferencesContent = () => {
+    const prefs = user?.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true, certificates: true };
+    
+    return (
+      <div className="space-y-6">
+        {/* Device Push Notification Registration */}
+        <div className="p-4 bg-violet-500/5 border border-violet-500/10 rounded-2xl space-y-3.5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h4 className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
+                <Smartphone className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                <span>Device Push Alerts</span>
+              </h4>
+              <p className="text-xs text-muted-foreground leading-relaxed max-w-lg">
+                Enable push notifications on this browser/device to receive real-time updates even when the tab is closed.
+              </p>
+            </div>
+            
+            <button
+              type="button"
+              disabled={pushSubscriptionLoading}
+              onClick={togglePushSubscription}
+              className={`relative inline-flex h-6.5 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 ${
+                isPushSubscribed ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-800'
+              } ${pushSubscriptionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-5.5 w-5.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  isPushSubscribed ? 'translate-x-5.5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground pt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Current Status: {isPushSubscribed ? 'Subscribed on this Device' : 'Not Subscribed'}</span>
+          </div>
+        </div>
+
+        {/* Categories Preference list */}
+        <div className="space-y-4 pt-1">
+          <h4 className="font-extrabold text-xs text-foreground flex items-center gap-1.5 uppercase tracking-wider text-muted-foreground">
+            <span>Notification Categories</span>
+          </h4>
+          
+          <div className="divide-y divide-border/40">
+            {/* Live Class alerts */}
+            <div className="py-4 flex items-center justify-between gap-4 first:pt-0">
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-foreground">Live Lectures & Reminders</div>
+                <div className="text-xs text-muted-foreground">Get notified when a live class starts or 15 minutes before scheduling.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('liveClass')}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  prefs.liveClass ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-800'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    prefs.liveClass ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Academic Content Alerts */}
+            <div className="py-4 flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-foreground">Academic Material & Uploads</div>
+                <div className="text-xs text-muted-foreground">Get notified when new videos, pdf notes, study packages, or certificates become available.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('academic')}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  prefs.academic ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-800'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    prefs.academic ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Announcements alerts */}
+            <div className="py-4 flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-foreground">General Announcements</div>
+                <div className="text-xs text-muted-foreground">System alerts, server schedules, administrative notifications, and news.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('announcement')}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  prefs.announcement ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-800'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    prefs.announcement ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Certificates alerts */}
+            <div className="py-4 flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-foreground">Certificates Available</div>
+                <div className="text-xs text-muted-foreground">Get notified when you complete a course track and your certificate is ready.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('certificates')}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  prefs.certificates !== false ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-800'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    prefs.certificates !== false ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Security Alerts */}
+            <div className="py-4 flex items-center justify-between gap-4 last:pb-0">
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-foreground">Security & Login Alerts</div>
+                <div className="text-xs text-muted-foreground text-rose-500 font-semibold">Critical security events, concurrent login violations, and password updates cannot be disabled.</div>
+              </div>
+              <button
+                type="button"
+                disabled
+                className="relative inline-flex h-6 w-11 flex-shrink-0 cursor-not-allowed rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out bg-violet-600 opacity-60"
+              >
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 translate-x-5"
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
@@ -938,7 +1185,7 @@ export default function StudentDashboard() {
   const recentlyAddedLessons = newCourses.slice(0, 3);
 
   return (
-    <div className="flex min-h-screen overflow-hidden bg-background text-foreground pb-safe-nav lg:pb-0">
+    <div className="flex min-h-screen overflow-x-hidden bg-background text-foreground pb-safe-nav lg:pb-0">
       {/* Global Security Lock Overlay — blocks all dashboard interaction during active penalty */}
       {securityLockActive && (
         <div style={{
@@ -1245,18 +1492,7 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* Mobile Search Bar */}
-        <div className="lg:hidden px-4 py-3 border-b border-border bg-card/30">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search batches..."
-              className="pl-10 bg-background/50"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-        </div>
+
 
         {/* Content */}
         <ScrollArea className="flex-1">
@@ -1273,6 +1509,54 @@ export default function StudentDashboard() {
             {/* =========================================== */}
             {activeTab === 'home' && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }} className="space-y-8">
+                {showPushBanner && (
+                  <div className="bg-gradient-to-br from-violet-650/15 via-indigo-650/10 to-transparent border border-violet-500/25 rounded-2xl p-4.5 sm:p-5 relative overflow-hidden shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div className="absolute -top-12 -right-12 w-32 h-32 bg-violet-500/10 rounded-full blur-2xl pointer-events-none"></div>
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-violet-600/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0 border border-violet-500/20">
+                        <Bell className="w-5 h-5 animate-bounce text-violet-600 dark:text-violet-400" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="font-extrabold text-sm text-foreground">Enable Push Notifications?</h4>
+                        <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
+                          Get real-time updates for live classes, reminders, new video lessons, certificates, and administrative announcements right on your device.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3.5 self-end md:self-auto shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-muted-foreground hover:text-foreground font-bold rounded-xl pr-3 pl-3 h-9 cursor-pointer transition-colors"
+                        onClick={() => {
+                          localStorage.setItem('trineo_push_prompt_dismissed', 'true');
+                          setShowPushBanner(false);
+                        }}
+                      >
+                        Not Now
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-gradient-to-r from-purple-650 to-indigo-650 text-white font-extrabold text-xs px-4.5 rounded-xl h-9 shadow-md shadow-purple-500/10 hover:opacity-95 active:scale-95 transition-all cursor-pointer border-0"
+                        onClick={async () => {
+                          try {
+                            const sub = await subscribeToPush();
+                            if (sub) {
+                              setIsPushSubscribed(true);
+                              setShowPushBanner(false);
+                              toast.success('Push notifications enabled successfully!');
+                            }
+                          } catch (err: any) {
+                            console.error('Prompt subscription error:', err);
+                            toast.error(err.message || 'Permission denied or error occurred.');
+                          }
+                        }}
+                      >
+                        Enable Alerts
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {(() => {
                   // Fallbacks for mockup alignment
                   const mockAnnouncements = [
@@ -1409,34 +1693,14 @@ export default function StudentDashboard() {
                       {/* MOBILE VIEW */}
                       {/* =========================================== */}
                       <div className="block lg:hidden space-y-6">
-                        {/* 2. Student Summary Card */}
-                        <div className="bg-gradient-to-br from-violet-600/10 via-indigo-600/5 to-transparent border border-violet-500/20 rounded-2xl p-4 shadow-sm space-y-3 relative overflow-hidden bg-card/65 backdrop-blur-md">
-                          <div className="absolute top-0 right-0 w-20 h-20 bg-violet-500/5 rounded-full blur-xl pointer-events-none"></div>
-                          <div className="flex items-center gap-3.5">
-                            <Avatar className="w-14 h-14 border-2 border-primary/20 shadow-md">
-                              <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getApiUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
-                              <AvatarFallback className="bg-primary/10 text-primary text-base font-black">AJ</AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex items-center gap-2">
-                                <h2 className="text-xs font-black text-foreground leading-none">👤 {user?.name || 'Anal Joseph'}</h2>
-                                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase rounded-md tracking-wider py-0.5 px-1.5 leading-none shrink-0">Active Student</Badge>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground font-semibold">ID: {user?.user_id || '484613'}</p>
-                              <div className="text-[10px] font-semibold text-foreground/80 flex flex-col gap-0.5 pt-0.5">
-                                <span className="truncate">🎓 {user?.institute?.name || 'GFI Institute'}</span>
-                                <span className="truncate text-muted-foreground">📘 {user?.program?.name || 'BCA E2E Test Program'}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+
 
                         {/* 3. Continue Learning Hero Card */}
                         {continueLearningWidgetData ? (
-                          <div className="relative overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-indigo-900 via-slate-900 to-violet-950 p-5 shadow-xl text-white flex flex-col gap-4">
+                          <div className="w-full max-w-full relative overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-indigo-900 via-slate-900 to-violet-950 p-5 shadow-xl text-white flex flex-col gap-4">
                             <div className="absolute -top-12 -right-12 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none"></div>
                             
-                            <div className="flex items-start gap-4 z-10">
+                            <div className="flex items-start gap-4 z-10 w-full max-w-full min-w-0">
                               <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-black/40 flex-shrink-0 border border-white/10 shadow-lg">
                                 <img 
                                   src={continueLearningWidgetData.thumbnail} 
@@ -1457,7 +1721,7 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
-                            <div className="space-y-1.5 z-10">
+                            <div className="space-y-1.5 z-10 w-full">
                               <div className="flex justify-between items-center text-[10px] font-bold text-slate-300">
                                 <span>{continueLearningWidgetData.progress}% Complete</span>
                                 <span className="text-indigo-400 font-black">Remaining: {continueLearningWidgetData.remaining}m</span>
@@ -1481,11 +1745,11 @@ export default function StudentDashboard() {
                           </div>
                         )}
 
-                        {/* 4. Horizontal Swipeable Statistics Cards */}
+                        {/* 4. Dashboard Statistics Cards */}
                         <div className="space-y-2.5">
                           <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Dashboard Statistics</h3>
-                          <div className="flex snap-x overflow-x-auto snap-mandatory scrollbar-none gap-4 pb-2 -mx-4 px-4 select-none">
-                            <div className="snap-center min-w-[200px] max-w-[210px] flex-shrink-0 bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+                          <div className="grid grid-cols-2 gap-3 pb-2 select-none">
+                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
                               <div className="w-11 h-11 rounded-xl bg-purple-50/10 border border-purple-50/20 text-purple-650 dark:text-purple-400 flex items-center justify-center shrink-0">
                                 <BookOpen className="w-5.5 h-5.5" />
                               </div>
@@ -1495,7 +1759,7 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
-                            <div className="snap-center min-w-[200px] max-w-[210px] flex-shrink-0 bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
                               <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
                                 <Award className="w-5.5 h-5.5" />
                               </div>
@@ -1505,7 +1769,7 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
-                            <div className="snap-center min-w-[200px] max-w-[210px] flex-shrink-0 bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
                               <div className="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-550 flex items-center justify-center shrink-0">
                                 <Flame className="w-5.5 h-5.5 fill-current text-rose-555 animate-pulse" />
                               </div>
@@ -1515,7 +1779,7 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
-                            <div className="snap-center min-w-[200px] max-w-[210px] flex-shrink-0 bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
                               <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
                                 securityScore >= 90 
                                   ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
@@ -1556,12 +1820,12 @@ export default function StudentDashboard() {
                                       navigate(item.path);
                                     }
                                   }}
-                                  className="flex items-center gap-3 p-3 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-left active:scale-[0.98] shadow-sm select-none touch-btn min-h-[48px]"
+                                  className="flex items-center gap-3 p-3 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-left active:scale-[0.98] shadow-sm select-none touch-btn min-h-[48px] min-w-0"
                                 >
                                   <div className={`p-2 rounded-xl shrink-0 ${item.color} flex items-center justify-center`}>
                                     <Icon className="w-4 h-4" />
                                   </div>
-                                  <span className="text-xs font-bold text-foreground leading-tight">{item.label}</span>
+                                  <span className="text-xs font-bold text-foreground leading-tight min-w-0 flex-1">{item.label}</span>
                                 </button>
                               );
                             })}
@@ -1583,12 +1847,12 @@ export default function StudentDashboard() {
                               return (
                                 <div className={`relative overflow-hidden rounded-2xl border ${isLive ? 'border-red-500/20 bg-gradient-to-br from-red-500/5 to-transparent' : 'border-border/40 bg-card/65'} p-4 shadow-sm space-y-3`}>
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
                                       <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-500 shrink-0">
                                         <Video className="w-5 h-5" />
                                       </div>
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2 flex-wrap">
                                           <h4 className="text-xs font-extrabold text-foreground truncate">{nextLiveClass.title}</h4>
                                           {isLive && (
                                             <span className="flex h-2 w-2 relative shrink-0">
@@ -1636,11 +1900,11 @@ export default function StudentDashboard() {
                             return (
                               <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card/65 backdrop-blur-md p-4 shadow-sm space-y-3">
                                 <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
                                     <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 shrink-0">
                                       <Video className="w-5 h-5" />
                                     </div>
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                       <div className="flex items-center gap-2">
                                         <h4 className="text-xs font-extrabold text-foreground truncate">Pointers & Memory Allocation</h4>
                                         <Badge variant="outline" className="text-indigo-500 border-indigo-500/30 text-[8px] uppercase tracking-wider font-bold">Upcoming</Badge>
@@ -2371,10 +2635,10 @@ export default function StudentDashboard() {
                     {/* 1. Security Overview Section */}
                     <div className="space-y-3">
                       <h3 className="font-bold text-base">Security Overview</h3>
-                      <div className="flex md:grid md:grid-cols-5 gap-4 overflow-x-auto md:overflow-visible snap-x pb-4 md:pb-0 scrollbar-none">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 select-none">
                         
                         {/* Screenshot Attempts Card */}
-                        <Card className="snap-start shrink-0 w-[240px] md:w-auto border border-border/60 bg-card shadow-sm">
+                        <Card className="w-full border border-border/60 bg-card shadow-sm">
                           <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="w-10 h-10 rounded-xl bg-purple-500/10 dark:bg-purple-950/20 flex items-center justify-center">
@@ -2391,7 +2655,7 @@ export default function StudentDashboard() {
                         </Card>
 
                         {/* Recording Attempts Card */}
-                        <Card className="snap-start shrink-0 w-[240px] md:w-auto border border-border/60 bg-card shadow-sm">
+                        <Card className="w-full border border-border/60 bg-card shadow-sm">
                           <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="w-10 h-10 rounded-xl bg-rose-500/10 dark:bg-rose-950/20 flex items-center justify-center">
@@ -2408,7 +2672,7 @@ export default function StudentDashboard() {
                         </Card>
 
                         {/* Tab Switching Card */}
-                        <Card className="snap-start shrink-0 w-[240px] md:w-auto border border-border/60 bg-card shadow-sm">
+                        <Card className="w-full border border-border/60 bg-card shadow-sm">
                           <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="w-10 h-10 rounded-xl bg-amber-500/10 dark:bg-amber-950/20 flex items-center justify-center">
@@ -2425,7 +2689,7 @@ export default function StudentDashboard() {
                         </Card>
 
                         {/* Concurrent Logins Card */}
-                        <Card className="snap-start shrink-0 w-[240px] md:w-auto border border-border/60 bg-card shadow-sm">
+                        <Card className="w-full border border-border/60 bg-card shadow-sm">
                           <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="w-10 h-10 rounded-xl bg-blue-500/10 dark:bg-blue-950/20 flex items-center justify-center">
@@ -2442,7 +2706,7 @@ export default function StudentDashboard() {
                         </Card>
 
                         {/* Security Score Card */}
-                        <Card className="snap-start shrink-0 w-[240px] md:w-auto border border-border/60 bg-card shadow-sm">
+                        <Card className="col-span-2 md:col-span-1 w-full border border-border/60 bg-card shadow-sm">
                           <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -3349,8 +3613,8 @@ export default function StudentDashboard() {
                         <AvatarFallback className="bg-primary/10 text-primary text-lg font-black">AJ</AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-sm font-black text-foreground leading-none">👤 {user?.name || 'Anal Joseph'}</h2>
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <h2 className="text-sm font-black text-foreground leading-none truncate max-w-full">👤 {user?.name || 'Anal Joseph'}</h2>
                           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase rounded-md tracking-wider py-0.5 px-1.5 leading-none shrink-0">🟢 Active Student</Badge>
                         </div>
                         <p className="text-[11px] text-muted-foreground font-semibold">ID: {user?.user_id || '484613'}</p>
@@ -3420,12 +3684,12 @@ export default function StudentDashboard() {
                               setActiveTab(item.id);
                               navigate(`/student?tab=${item.id}`);
                             }}
-                            className="flex items-center gap-3 p-3 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-left active:scale-[0.98] shadow-sm select-none touch-btn min-h-[48px]"
+                            className="flex items-center gap-3 p-3 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-left active:scale-[0.98] shadow-sm select-none touch-btn min-h-[48px] min-w-0"
                           >
                             <div className={`p-2 rounded-xl shrink-0 ${item.color} flex items-center justify-center`}>
                               <Icon className="w-4 h-4" />
                             </div>
-                            <span className="text-xs font-bold text-foreground leading-tight">{item.label}</span>
+                            <span className="text-xs font-bold text-foreground leading-tight min-w-0 flex-1">{item.label}</span>
                           </button>
                         );
                       })}
@@ -3665,6 +3929,25 @@ export default function StudentDashboard() {
                     )}
                   </div>
 
+                  {/* Row 2.5: Notification Preferences */}
+                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
+                    <button 
+                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'notification-preferences' ? null : 'notification-preferences')}
+                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Bell className="w-5 h-5 text-violet-500" />
+                        <span>Notification Preferences</span>
+                      </span>
+                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'notification-preferences' ? 'rotate-180' : ''}`} />
+                    </button>
+                    {mobileSettingsExpanded === 'notification-preferences' && (
+                      <div className="p-4 border-t border-border/45 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200 bg-card">
+                        {renderNotificationPreferencesContent()}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Row 3: Enrollments */}
                   <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
                     <button 
@@ -3763,6 +4046,18 @@ export default function StudentDashboard() {
                     )}
                   </div>
 
+                  {/* Premium Logout Button */}
+                  <div className="pt-4 pb-8 flex justify-center">
+                    <Button
+                      variant="outline"
+                      type="button"
+                      className="w-full h-12 border-red-500/30 text-red-650 hover:bg-red-500/10 dark:text-red-400 dark:border-red-900/40 rounded-2xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-none select-none touch-btn"
+                      onClick={handleLogout}
+                    >
+                      <LogOut className="w-4 h-4 text-red-500" />
+                      <span>Log Out of Account</span>
+                    </Button>
+                  </div>
 
                 </div>
 
@@ -3773,8 +4068,9 @@ export default function StudentDashboard() {
                   
                   {/* Horizontal Navigation Chips for Mobile */}
                   <div className="flex items-center gap-2 overflow-x-auto pb-3 snap-x scrollbar-none [&::-webkit-scrollbar]:hidden lg:hidden border-b border-border/40 mb-2">
-                  {[
+                   {[
                     { id: 'profile', label: 'Profile', icon: User },
+                    { id: 'notification-preferences', label: 'Notifications', icon: Bell },
                     { id: 'security', label: 'Security & Devices', icon: Shield },
                     { id: 'enrollments', label: 'Enrollments', icon: BookOpen },
                     { id: 'payments', label: 'Payments', icon: CreditCard },
@@ -3916,6 +4212,7 @@ export default function StudentDashboard() {
                       <CardContent className="p-3 space-y-1">
                         {[
                           { id: 'profile', label: 'Profile Settings', icon: User },
+                          { id: 'notification-preferences', label: 'Notification Preferences', icon: Bell },
                           { id: 'security', label: 'Security & Devices', icon: Shield },
                           { id: 'enrollments', label: 'My Enrollments', icon: BookOpen },
                           { id: 'payments', label: 'Payment History', icon: CreditCard },
@@ -4097,6 +4394,24 @@ export default function StudentDashboard() {
                           </CardContent>
                         </Card>
 
+                      </motion.div>
+                    )}
+
+                    {/* 🔔 NOTIFICATION SETTINGS SUB-TAB */}
+                    {settingsSubTab === 'notification-preferences' && (
+                      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                        <Card className="border-border/40 shadow-sm rounded-[24px] bg-card overflow-hidden">
+                          <CardHeader className="border-b border-border/40 pb-4">
+                            <CardTitle className="text-lg font-bold flex items-center gap-2">
+                              <Bell className="w-5 h-5 text-purple-650" />
+                              <span>Notification Preferences</span>
+                            </CardTitle>
+                            <CardDescription>Manage how you receive alerts about classes, uploads, and system events.</CardDescription>
+                          </CardHeader>
+                          <CardContent className="pt-6 bg-card">
+                            {renderNotificationPreferencesContent()}
+                          </CardContent>
+                        </Card>
                       </motion.div>
                     )}
 

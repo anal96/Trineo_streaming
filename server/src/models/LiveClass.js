@@ -48,6 +48,14 @@ const liveClassSchema = new mongoose.Schema({
     enum: ['upcoming', 'live', 'completed', 'cancelled'],
     default: 'upcoming'
   },
+  reminderSent: {
+    type: Boolean,
+    default: false
+  },
+  startedNotificationSent: {
+    type: Boolean,
+    default: false
+  },
   createdAt: {
     type: Date,
     default: Date.now

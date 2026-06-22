@@ -1,8 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -29,6 +29,9 @@ import studentNotificationRoutes from './routes/studentNotificationRoutes.js';
 import liveClassRoutes from './routes/liveClassRoutes.js';
 import accessRoutes from './routes/accessRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
+import pushSubscriptionRoutes from './routes/pushSubscriptionRoutes.js';
+import scheduledNotificationRoutes from './routes/scheduledNotificationRoutes.js';
+import { startBackgroundScheduler } from './services/schedulerService.js';
 import { checkSecurityPenalty } from './middleware/securityCheck.js';
 
 // Seed model imports
@@ -41,7 +44,6 @@ import { Announcement } from './models/Announcement.js';
 import { Faculty } from './models/Faculty.js';
 import { Purchase } from './models/Purchase.js';
 
-dotenv.config();
 
 const app = express();
 
@@ -109,6 +111,8 @@ app.use('/api/student-notifications', studentNotificationRoutes);
 app.use('/api/live-classes', liveClassRoutes);
 app.use('/api/access', accessRoutes);
 app.use('/api/integration', integrationRoutes);
+app.use('/api/push-subscriptions', pushSubscriptionRoutes);
+app.use('/api/scheduled-notifications', scheduledNotificationRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
@@ -496,6 +500,7 @@ const seedData = async () => {
 const server = app.listen(PORT, async () => {
   await connectDB();
   await seedData();
+  startBackgroundScheduler();
   console.log(`\n=== Trineo Stream Server Started ===`);
   console.log(`Port        : ${PORT}`);
   console.log(`Environment : ${process.env.NODE_ENV || 'development'}`);

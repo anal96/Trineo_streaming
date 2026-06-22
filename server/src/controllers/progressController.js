@@ -54,6 +54,11 @@ export const updateProgress = async (req, res) => {
 
     await watchHistory.save();
 
+    if (req.user && req.user.continueLearningRemindersSent && req.user.continueLearningRemindersSent.length > 0) {
+      req.user.continueLearningRemindersSent = [];
+      await req.user.save().catch(() => {});
+    }
+
     // Create ContentProgress record if completed
     let contentProgress = await ContentProgress.findOne({ studentId, contentId });
     const isNewCompletion = !contentProgress && isCompleted;
