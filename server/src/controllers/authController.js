@@ -120,12 +120,48 @@ export const registerUser = async (req, res) => {
 };
 
 export const loginUser = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, instituteId } = req.body;
   try {
-    const user = await User.findOne({ email });
+    const users = await User.find({ email });
+    if (users.length === 0) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    let user = null;
+    if (users.length === 1) {
+      user = users[0];
+    } else {
+      if (instituteId) {
+        user = users.find(u => u.instituteId === instituteId);
+      }
+      if (!user) {
+        const host = req.headers.host || '';
+        const matchingInst = await Institute.findOne({ domain: { $regex: new RegExp(host, 'i') } });
+        if (matchingInst) {
+          user = users.find(u => String(u.institute) === String(matchingInst._id));
+        }
+      }
+      if (!user) {
+        // Fallback: Verify passwords for each matching user to resolve who is logging in
+        for (const u of users) {
+          if (await u.matchPassword(password)) {
+            user = u;
+            break;
+          }
+        }
+      }
+    }
+
     if (user && (await user.matchPassword(password))) {
       if (user.status !== 'active') {
         return res.status(403).json({ message: 'Your account is deactivated' });
+      }
+
+      if (user.role !== 'owner' && user.institute) {
+        const inst = await Institute.findById(user.institute);
+        if (inst && (inst.subscriptionStatus === 'suspended' || inst.subscriptionStatus === 'inactive')) {
+          return res.status(403).json({ message: 'Your institute subscription is currently inactive. Please contact your institute administrator.' });
+        }
       }
 
       const securityState = await SecurityState.findOne({ userId: user._id });

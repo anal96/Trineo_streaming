@@ -12,6 +12,7 @@ import { Course } from '../src/models/Course.js';
 import { Purchase } from '../src/models/Purchase.js';
 import { AuditLog } from '../src/models/AuditLog.js';
 import { SecuritySession } from '../src/models/SecuritySession.js';
+import { Institute } from '../src/models/Institute.js';
 import { StudentImportJob } from '../src/models/StudentImportJob.js';
 import { Notification } from '../src/models/Notification.js';
 import { Program } from '../src/models/Program.js';
@@ -152,24 +153,29 @@ test('Student Onboarding Flow Verification', async (t) => {
         target: Notification,
         method: 'create',
         impl: () => Promise.resolve({})
+      },
+      {
+        target: Institute,
+        method: 'findById',
+        impl: () => Promise.resolve({})
       }
     ];
 
     await withMocks(mocks, async () => {
       // Test duplicate check
-      const reqDup = {
-        user: { institute: 'inst-123' },
+      const req = {
+        user: { institute: '507f1f77bcf86cd799439011' },
         body: { name: 'Dup Student', email: 'duplicate@example.com' }
       };
       const { res: resDup, state: stateDup } = makeResponse();
-      await createStudent(reqDup, resDup);
+      await createStudent(req, resDup);
 
       assert.equal(stateDup.statusCode, 400);
       assert.equal(stateDup.body.message, 'Student with this email already exists');
 
       // Test successful creation
       const reqOk = {
-        user: { institute: 'inst-123' },
+        user: { institute: '507f1f77bcf86cd799439011' },
         body: { name: 'New Student', email: 'new@example.com', branchName: 'CS', batchName: 'B1' }
       };
       const { res: resOk, state: stateOk } = makeResponse();
@@ -240,12 +246,19 @@ test('Student Onboarding Flow Verification', async (t) => {
         target: AuditLog,
         method: 'create',
         impl: () => Promise.resolve({})
+      },
+      {
+        target: Institute,
+        method: 'findById',
+        impl: () => ({
+          populate: () => Promise.resolve(null)
+        })
       }
     ];
 
     await withMocks(mocks, async () => {
       const req = {
-        user: { role: 'admin', institute: 'inst-123', _id: 'admin-123' },
+        user: { role: 'admin', institute: '507f1f77bcf86cd799439011', _id: '507f1f77bcf86cd799439012' },
         params: { jobId: 'job-123' },
         headers: {},
         socket: {}

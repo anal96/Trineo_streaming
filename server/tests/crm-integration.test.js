@@ -52,7 +52,7 @@ const withMocks = async (mocks, fn) => {
 test('CRM Integration API Verification', async (t) => {
   const testApiKey = 'trn_gfi_9a8c7d6e5f4a';
   const mockInstitute = {
-    _id: 'inst-objectId-123',
+    _id: '507f1f77bcf86cd799439011',
     instituteId: 'inst_gfi',
     apiKeyHash: bcrypt.hashSync(testApiKey, 10),
     status: 'active',
@@ -147,6 +147,13 @@ test('CRM Integration API Verification', async (t) => {
         target: User,
         method: 'findOne',
         impl: () => Promise.resolve(null)
+      },
+      {
+        target: Institute,
+        method: 'findById',
+        impl: () => ({
+          populate: () => Promise.resolve(null)
+        })
       },
       {
         target: User.prototype,
@@ -312,7 +319,7 @@ test('CRM Integration API Verification', async (t) => {
       _id: new mongoose.Types.ObjectId(),
       role: 'student',
       status: 'active',
-      institute: 'inst-objectId-123',
+      institute: '507f1f77bcf86cd799439011',
       instituteId: 'inst_gfi'
     };
 

@@ -31,7 +31,15 @@ import {
   generateApiKey,
   disableApiKey,
   updateCrmIntegration,
-  testCrmConnection
+  testCrmConnection,
+  getOnboardingRequests,
+  approveOnboardingRequest,
+  rejectOnboardingRequest,
+  requestOnboardingInfo,
+  getBillingDashboard,
+  getBillingPayments,
+  createBillingPayment,
+  recordBillingPaymentPaid
 } from '../controllers/ownerController.js';
 
 const router = express.Router();
@@ -54,6 +62,17 @@ router.put('/institutes/:id/quotas', updateInstituteQuotas);
 router.post('/institutes/:id/reset-usage-warnings', resetInstituteUsageWarnings);
 router.post('/institutes/:id/lock-access', lockInstituteAccess);
 router.get('/institutes/:id/details', getInstituteDetails);
+
+// ─── SaaS Onboarding & Subscriptions ─────────────────────────────────────────
+router.get('/onboarding/requests', getOnboardingRequests);
+router.post('/onboarding/:id/approve', approveOnboardingRequest);
+router.post('/onboarding/:id/reject', rejectOnboardingRequest);
+router.post('/onboarding/:id/info', requestOnboardingInfo);
+router.get('/billing/dashboard', getBillingDashboard);
+router.get('/billing/payments', getBillingPayments);
+router.post('/billing/payments', createBillingPayment);
+router.post('/billing/payments/:id/pay', recordBillingPaymentPaid);
+
 
 // ─── CRM Key Management ───────────────────────────────────────────────────────
 router.post('/institutes/:id/api-key', generateApiKey);

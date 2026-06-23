@@ -12,11 +12,26 @@ import CoursesPage from './components/pages/CoursesPage';
 import OwnerPanel from './components/pages/OwnerPanel';
 import InstitutesManagementPage from './components/pages/InstitutesManagementPage';
 import ChangePasswordPage from './components/pages/ChangePasswordPage';
+import InstituteRegisterPage from './components/pages/InstituteRegisterPage';
 import SecurityLockPage from './components/pages/SecurityLockPage';
 import BrandingManager from './components/BrandingManager';
 import { apiFetch, decodeShortId } from './utils/api';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router';
 import { initializePushNotifications } from './utils/pushManager';
+import { QueryClient, QueryClientProvider, keepPreviousData } from '@tanstack/react-query';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: true,
+      placeholderData: keepPreviousData,
+    },
+  },
+});
 
 function LegacyWatchRedirect() {
   const navigate = useNavigate();
@@ -63,32 +78,36 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="light">
-      <Router>
-        <BrandingManager />
-        <div className="size-full bg-background text-foreground">
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-            <Route path="/change-password" element={<ChangePasswordPage />} />
-            <Route path="/security-lock" element={<SecurityLockPage />} />
-            <Route path="/student" element={<StudentDashboard />} />
-            <Route path="/student/courses" element={<CoursesPage />} />
-            <Route path="/course/:courseSlug" element={<VideoPlayer />} />
-            <Route path="/course/:courseSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
-            <Route path="/program/:programSlug" element={<VideoPlayer />} />
-            <Route path="/program/:programSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
-            <Route path="/student/video/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
-            <Route path="/watch/v/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
-            <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/owner" element={<OwnerPanel />} />
-            <Route path="/admin/institutes" element={<InstitutesManagementPage />} />
-          </Routes>
-          <ThemeToggle />
-          <Toaster />
-        </div>
-      </Router>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider attribute="class" defaultTheme="light">
+        <Router>
+          <BrandingManager />
+          <div className="size-full bg-background text-foreground">
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/register-institute" element={<InstituteRegisterPage />} />
+              <Route path="/change-password" element={<ChangePasswordPage />} />
+              <Route path="/security-lock" element={<SecurityLockPage />} />
+              <Route path="/student" element={<StudentDashboard />} />
+              <Route path="/student/courses" element={<CoursesPage />} />
+              <Route path="/course/:courseSlug" element={<VideoPlayer />} />
+              <Route path="/course/:courseSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
+              <Route path="/program/:programSlug" element={<VideoPlayer />} />
+              <Route path="/program/:programSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
+              <Route path="/student/video/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
+              <Route path="/watch/v/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
+              <Route path="/admin" element={<AdminDashboard />} />
+              <Route path="/owner" element={<OwnerPanel />} />
+              <Route path="/admin/institutes" element={<InstitutesManagementPage />} />
+            </Routes>
+            <ThemeToggle />
+            <Toaster />
+          </div>
+        </Router>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
+

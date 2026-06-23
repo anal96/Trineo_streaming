@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Loader2, Search, Trash2, Upload } from 'lucide-react';
 import { apiFetch, getApiUrl } from '../../utils/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -10,9 +11,7 @@ import { Badge } from '../ui/badge';
 import { ResponsiveDataView, MobileRecordCard } from '../responsive/ResponsiveDataView';
 
 export default function StudyMaterialsManagement() {
-  const [materials, setMaterials] = useState<any[]>([]);
-  const [courses, setCourses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
   const [type, setType] = useState('All');
@@ -31,25 +30,16 @@ export default function StudyMaterialsManagement() {
     return value ? `?${value}` : '';
   }, [search, type, courseId]);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [courseData, materialData] = await Promise.all([
-        apiFetch('/courses'),
-        apiFetch(`/materials/admin${queryString}`)
-      ]);
-      setCourses(courseData);
-      setMaterials(materialData);
-    } catch (err: any) {
-      alert(err.message || 'Failed to load study materials');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Queries
+  const { data: courses = [] } = useQuery({
+    queryKey: ['courses'],
+    queryFn: () => apiFetch('/courses'),
+  });
 
-  useEffect(() => {
-    loadData();
-  }, [queryString]);
+  const { data: materials = [], isLoading: loading } = useQuery({
+    queryKey: ['materials', 'admin', search, type, courseId],
+    queryFn: () => apiFetch(`/materials/admin${queryString}`),
+  });
 
   const resetUploadForm = () => {
     setTitle('');
@@ -74,7 +64,7 @@ export default function StudyMaterialsManagement() {
     try {
       await apiFetch('/materials', { method: 'POST', body: formData });
       resetUploadForm();
-      await loadData();
+      queryClient.invalidateQueries({ queryKey: ['materials', 'admin'] });
     } catch (err: any) {
       alert(err.message || 'Upload failed');
     } finally {
@@ -86,7 +76,7 @@ export default function StudyMaterialsManagement() {
     if (!window.confirm('Delete this study material?')) return;
     try {
       await apiFetch(`/materials/${id}`, { method: 'DELETE' });
-      await loadData();
+      queryClient.invalidateQueries({ queryKey: ['materials', 'admin'] });
     } catch (err: any) {
       alert(err.message || 'Failed to delete material');
     }

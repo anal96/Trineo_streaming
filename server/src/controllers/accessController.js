@@ -439,6 +439,13 @@ export const applyQuickAction = async (req, res) => {
       return res.status(404).json({ message: 'Student not found in this institute.' });
     }
 
+    if (req.user.role !== 'owner') {
+      const programObj = await Program.findOne({ _id: batchId, institute: req.user.institute });
+      if (!programObj) {
+        return res.status(404).json({ message: 'Batch not found in this institute.' });
+      }
+    }
+
     const studentObjId = student._id;
     const programObjId = new mongoose.Types.ObjectId(batchId);
 
@@ -626,6 +633,13 @@ export const bulkQuickAction = async (req, res) => {
       return res.status(400).json({ message: 'batchId and action are required.' });
     }
 
+    if (req.user.role !== 'owner') {
+      const programObj = await Program.findOne({ _id: batchId, institute: req.user.institute });
+      if (!programObj) {
+        return res.status(404).json({ message: 'Batch not found in this institute.' });
+      }
+    }
+
     const programObjId = new mongoose.Types.ObjectId(batchId);
     const instituteId = req.user.institute;
 
@@ -791,6 +805,13 @@ export const getStudentAccessRules = async (req, res) => {
 
     if (!isSelf && !isStaff) {
       return res.status(403).json({ message: 'Forbidden: Access denied' });
+    }
+
+    if (isStaff && req.user.role !== 'owner') {
+      const studentExists = await User.findOne({ _id: studentId, institute: req.user.institute });
+      if (!studentExists) {
+        return res.status(404).json({ message: 'Student not found in this institute.' });
+      }
     }
 
     const overrides = await StudentAccess.find({ studentId })

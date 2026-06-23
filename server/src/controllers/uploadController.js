@@ -8,6 +8,7 @@ import { Purchase } from '../models/Purchase.js';
 import { Notification } from '../models/Notification.js';
 import { TranscodingJob } from '../models/TranscodingJob.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
+import { checkStorageQuota } from '../utils/quotaEnforcer.js';
 
 const STREAMS_DIR = path.resolve('streams');
 const UPLOADS_DIR = path.resolve('uploads');
@@ -60,6 +61,16 @@ export const uploadVideo = async (req, res) => {
   }
 
   const tempFilePath = req.file.path;
+
+  // Enforce storage plan quota limit checks
+  try {
+    if (req.user.institute) {
+      await checkStorageQuota(req.user.institute, req.file.size);
+    }
+  } catch (quotaErr) {
+    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    return res.status(403).json({ message: quotaErr.message });
+  }
 
   try {
     if (req.user.role !== 'owner' && !req.user.institute) {

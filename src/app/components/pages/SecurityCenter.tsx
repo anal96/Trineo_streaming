@@ -26,6 +26,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -42,9 +43,7 @@ import {
 import { toast } from 'sonner';
 
 export default function SecurityCenter() {
-  const [overview, setOverview] = useState<any>(null);
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [events, setEvents] = useState<any[]>([]);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEventType, setSelectedEventType] = useState('all');
   
@@ -62,28 +61,32 @@ export default function SecurityCenter() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailedState, setDetailedState] = useState<any>(null);
 
-  const loadData = async () => {
-    try {
-      const [o, s, e] = await Promise.all([
-        apiFetch('/security-center/overview'),
-        apiFetch('/security-center/sessions'),
-        apiFetch('/security-center/events')
-      ]);
-      setOverview(o.cards);
-      setSessions(s);
-      setEvents(e);
-    } catch (err: any) {
-      toast.error('Failed to load security center data: ' + err.message);
-    }
-  };
+  // React Query Hooks
+  const { data: overviewRes } = useQuery({
+    queryKey: ['security-center', 'overview'],
+    queryFn: () => apiFetch('/security-center/overview'),
+  });
+  const overview = overviewRes?.cards || null;
 
-  useEffect(() => { loadData(); }, []);
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['security-center', 'sessions'],
+    queryFn: () => apiFetch('/security-center/sessions'),
+  });
+
+  const { data: events = [] } = useQuery({
+    queryKey: ['security-center', 'events'],
+    queryFn: () => apiFetch('/security-center/events'),
+  });
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['security-center'] });
+  };
 
   const terminateSession = async (id: string) => {
     try {
       await apiFetch(`/security-center/sessions/${id}/terminate`, { method: 'POST' });
       toast.success('Session terminated successfully');
-      loadData();
+      invalidateAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to terminate session');
     }
@@ -97,7 +100,7 @@ export default function SecurityCenter() {
         body: JSON.stringify({ studentId, action }) 
       });
       toast.success(`Security action '${action}' applied successfully`);
-      loadData();
+      invalidateAll();
       if (selectedStudentStats && selectedStudentStats.student._id === studentId) {
         setIsModalOpen(false);
         setSelectedStudentStats(null);
@@ -111,7 +114,7 @@ export default function SecurityCenter() {
     try {
       await apiFetch(`/security-center/events/${eventId}/ignore`, { method: 'POST' });
       toast.success('Alert ignored');
-      loadData();
+      invalidateAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to ignore alert');
     }
@@ -121,7 +124,7 @@ export default function SecurityCenter() {
     try {
       await apiFetch(`/security-center/events/${eventId}/resolve`, { method: 'POST' });
       toast.success('Alert resolved');
-      loadData();
+      invalidateAll();
     } catch (err: any) {
       toast.error(err.message || 'Failed to resolve alert');
     }

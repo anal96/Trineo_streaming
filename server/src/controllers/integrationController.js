@@ -4,6 +4,7 @@ import { User } from '../models/User.js';
 import { Course } from '../models/Course.js';
 import { CourseAssignment } from '../models/CourseAssignment.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { checkStudentQuota } from '../utils/quotaEnforcer.js';
 
 export const syncStudent = async (req, res) => {
   const { studentId, name, email, phone } = req.body;
@@ -23,6 +24,13 @@ export const syncStudent = async (req, res) => {
     });
 
     if (!student) {
+      // Check student quota
+      try {
+        await checkStudentQuota(req.institute._id, 1);
+      } catch (quotaErr) {
+        return res.status(403).json({ message: quotaErr.message });
+      }
+
       // Create student
       const tempPassword = crypto.randomBytes(16).toString('hex');
       student = new User({

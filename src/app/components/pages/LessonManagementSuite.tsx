@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, 
   Trash2, 
@@ -51,8 +52,16 @@ export default function LessonManagementSuite({
   initialSelectedProgramId,
   onClearInitialProgram
 }: LessonManagementSuiteProps = {}) {
+  const queryClient = useQueryClient();
+
   // Programs State (Batches)
-  const [programs, setPrograms] = useState<any[]>([]);
+  const { data: programs = [], refetch: refetchPrograms } = useQuery({
+    queryKey: ['programs'],
+    queryFn: async () => {
+      const data = await apiFetch('/programs');
+      return data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+    }
+  });
   const [selectedProgramId, setSelectedProgramId] = useState('');
   const [batchSearch, setBatchSearch] = useState('');
   const [checkedProgramIds, setCheckedProgramIds] = useState<string[]>([]);
@@ -98,13 +107,7 @@ export default function LessonManagementSuite({
 
   // Load Programs (Batches)
   const loadPrograms = async () => {
-    try {
-      const data = await apiFetch('/programs');
-      const sorted = data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
-      setPrograms(sorted);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load programs');
-    }
+    await queryClient.invalidateQueries({ queryKey: ['programs'] });
   };
 
   // Eager load all subjects, units, and lessons under a program (Batch)

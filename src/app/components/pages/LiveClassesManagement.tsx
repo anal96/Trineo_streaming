@@ -10,12 +10,10 @@ import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { ResponsiveDataView, MobileRecordCard } from '../responsive/ResponsiveDataView';
 import { toast } from 'sonner';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export default function LiveClassesManagement() {
-  const [liveClasses, setLiveClasses] = useState<any[]>([]);
-  const [courses, setCourses] = useState<any[]>([]);
-  const [faculties, setFaculties] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
 
   // Form State
   const [showClassModal, setShowClassModal] = useState(false);
@@ -40,27 +38,21 @@ export default function LiveClassesManagement() {
   const [filterCourse, setFilterCourse] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [classData, courseData, facultyData] = await Promise.all([
-        apiFetch('/live-classes'),
-        apiFetch('/courses'),
-        apiFetch('/student/faculty')
-      ]);
-      setLiveClasses(classData);
-      setCourses(courseData);
-      setFaculties(facultyData);
-    } catch (err: any) {
-      toast.error('Failed to load page data', { description: err.message });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // React Query Hooks
+  const { data: liveClasses = [], isLoading: loading } = useQuery({
+    queryKey: ['live-classes'],
+    queryFn: () => apiFetch('/live-classes'),
+  });
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const { data: courses = [] } = useQuery({
+    queryKey: ['courses'],
+    queryFn: () => apiFetch('/courses'),
+  });
+
+  const { data: faculties = [] } = useQuery({
+    queryKey: ['faculty'],
+    queryFn: () => apiFetch('/student/faculty'),
+  });
 
   const openCreateModal = () => {
     setEditingClass(null);
@@ -143,7 +135,7 @@ export default function LiveClassesManagement() {
         toast.success('Live class created successfully');
       }
       setShowClassModal(false);
-      loadData();
+      queryClient.invalidateQueries({ queryKey: ['live-classes'] });
     } catch (err: any) {
       toast.error('Failed to save live class', { description: err.message });
     }
@@ -154,7 +146,7 @@ export default function LiveClassesManagement() {
     try {
       await apiFetch(`/live-classes/${id}`, { method: 'DELETE' });
       toast.success('Live class deleted');
-      loadData();
+      queryClient.invalidateQueries({ queryKey: ['live-classes'] });
     } catch (err: any) {
       toast.error('Delete failed', { description: err.message });
     }

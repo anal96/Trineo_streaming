@@ -108,8 +108,14 @@ export const testPush = async (req, res) => {
   let targetUserId = userId;
 
   try {
+    // Restrict test-push to administrators/owners
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+
     if (!targetUserId && email) {
-      const user = await User.findOne({ email });
+      const filter = req.user.role === 'owner' ? { email } : { email, institute: req.user.institute };
+      const user = await User.findOne(filter);
       if (user) {
         targetUserId = user._id;
       } else {
@@ -119,6 +125,11 @@ export const testPush = async (req, res) => {
 
     if (!targetUserId) {
       targetUserId = req.user._id;
+    } else if (req.user.role !== 'owner') {
+      const targetUserObj = await User.findOne({ _id: targetUserId, institute: req.user.institute });
+      if (!targetUserObj) {
+        return res.status(403).json({ message: 'Forbidden: Target user belongs to another institute' });
+      }
     }
 
     const notification = await Notification.create({

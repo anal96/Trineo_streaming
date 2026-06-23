@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../utils/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -102,40 +103,36 @@ export default function AnalyticsUpgrade() {
   const [range, setRange] = useState('30d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: analytics = null, isLoading: isAnalyticsLoading, error: queryError, refetch } = useQuery({
+    queryKey: ['analytics', range, customStart, customEnd],
+    queryFn: async () => {
       let url = `/analytics/overview?range=${range}`;
       if (range === 'custom' && customStart && customEnd) {
         url += `&startDate=${customStart}&endDate=${customEnd}`;
       }
       const response = await apiFetch(url);
-      
-      // Ensure response.data exists for compatibility with instructions
       if (response && !response.data) {
         response.data = response;
       }
-      
-      console.log("Analytics API Response:", response.data);
-      setAnalytics(response.data);
-    } catch (err: any) {
-      console.error('Failed to fetch analytics', err);
-      setError(err.message || 'Unable to load analytics data. Please refresh or contact support.');
-    } finally {
-      setLoading(false);
-    }
-  };
+      return response.data;
+    },
+    enabled: range !== 'custom' || (!!customStart && !!customEnd)
+  });
+
+  const loading = isAnalyticsLoading && !analytics;
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (range !== 'custom') {
-      load();
+    if (queryError) {
+      setError((queryError as any).message || 'Unable to load analytics data. Please refresh or contact support.');
+    } else {
+      setError(null);
     }
-  }, [range]);
+  }, [queryError]);
+
+  const load = () => {
+    refetch();
+  };
 
   useEffect(() => {
     console.log("Analytics State:", analytics);

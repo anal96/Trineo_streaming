@@ -533,6 +533,7 @@ test('SSO Login Controller Verification', async (t) => {
 
     await withMocks([
       { target: User, method: 'findOne', impl: () => Promise.resolve(mockUserInstance) },
+      { target: User, method: 'find', impl: () => Promise.resolve([mockUserInstance]) },
       {
         target: User,
         method: 'findById',

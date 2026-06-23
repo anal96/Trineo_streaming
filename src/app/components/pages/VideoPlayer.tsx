@@ -60,6 +60,7 @@ import {
 } from '../ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet';
 import { apiFetch, getApiUrl } from '../../utils/api';
+import { useQuery } from '@tanstack/react-query';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { toast } from 'sonner';
 import { initializePushNotifications } from '../../utils/pushManager';
@@ -398,6 +399,12 @@ export default function VideoPlayer() {
   const [discussions, setDiscussions] = useState<any[]>([]);
   const [discussionText, setDiscussionText] = useState('');
 
+  const { data: securityStatusRes } = useQuery({
+    queryKey: ['status'],
+    queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
+    refetchInterval: 5000,
+  });
+
   // Load notes and discussions whenever courseId changes
   useEffect(() => {
     if (courseId) {
@@ -565,33 +572,6 @@ export default function VideoPlayer() {
     protectionManagerRef.current = manager;
     manager.start();
 
-    // Sync server-side penalty state on mount (persists across refresh/re-login)
-    apiFetch('/security/status', { ignoreAuthError: true }).then((statusRes: any) => {
-      if (statusRes && statusRes.penaltyActive && statusRes.penaltyUntil) {
-        manager.syncSecurityStatus(
-          statusRes.violationCount || 0,
-          statusRes.penaltyUntil,
-          statusRes.serverTime || null
-        );
-      } else {
-        // Clear stale local storage locks if server indicates no active penalty
-        console.log("[SECURITY] Server says no active penalty. Clearing stale local lock.");
-        localStorage.removeItem('trineo_security_lock_until');
-        localStorage.setItem('trineo_lock_requires_manual_resume', 'false');
-        manager.recoverFromViolation();
-        
-        if (statusRes && statusRes.violationCount > 0) {
-          manager.syncSecurityStatus(statusRes.violationCount, null, null);
-        }
-      }
-      if (statusRes && statusRes.forceLogout) {
-        manager.terminateSession('exceeded');
-      }
-      if (statusRes && statusRes.accountLocked) {
-        manager.terminateSession('locked');
-      }
-    }).catch(() => {});
-
     // [TEMP DISABLED] Right-Click Context Menu block — re-enable for production
     const handleContextMenu = (_e: MouseEvent) => {
       // e.preventDefault(); // temporarily allowing right-click
@@ -611,6 +591,38 @@ export default function VideoPlayer() {
       window.removeEventListener('dragstart', handleDragStart);
     };
   }, [user]);
+
+  // Synchronize React Query security status to ProtectionManager instance
+  useEffect(() => {
+    if (!securityStatusRes || !protectionManagerRef.current) return;
+    const manager = protectionManagerRef.current;
+    
+    if (securityStatusRes.penaltyActive && securityStatusRes.penaltyUntil) {
+      manager.syncSecurityStatus(
+        securityStatusRes.violationCount || 0,
+        securityStatusRes.penaltyUntil,
+        securityStatusRes.serverTime || null
+      );
+    } else {
+      console.log("[SECURITY] Server says no active penalty. Clearing stale local lock.");
+      localStorage.removeItem('trineo_security_lock_until');
+      localStorage.setItem('trineo_lock_requires_manual_resume', 'false');
+      manager.recoverFromViolation();
+      
+      if (securityStatusRes.violationCount > 0) {
+        manager.syncSecurityStatus(securityStatusRes.violationCount, null, null);
+      }
+    }
+    
+    if (securityStatusRes.forceLogout) {
+      manager.terminateSession('exceeded');
+    }
+    if (securityStatusRes.accountLocked) {
+      manager.terminateSession('locked');
+    }
+  }, [securityStatusRes]);
+
+
 
   // Watermark is static — no movement effect needed
 

@@ -6,6 +6,10 @@ import { Enrollment } from '../models/Enrollment.js';
 import { User } from '../models/User.js';
 import { WatchHistory } from '../models/WatchHistory.js';
 import { Lesson } from '../models/Lesson.js';
+import { Institute } from '../models/Institute.js';
+import { AuditLog } from '../models/AuditLog.js';
+import { SubscriptionPayment } from '../models/SubscriptionPayment.js';
+import { sendGracePeriodEmail, sendSuspensionEmail, sendBillingInvoiceEmail } from './emailService.js';
 
 export const startBackgroundScheduler = () => {
   console.log('Background Notification Scheduler Initialized (interval: 60s)');
@@ -13,6 +17,99 @@ export const startBackgroundScheduler = () => {
   setInterval(async () => {
     try {
       const now = new Date();
+
+      // 0. SaaS Subscription Lifecycle Jobs
+      
+      // A. Trial Expiry Checker
+      const expiredTrials = await Institute.find({
+        isTrialActive: true,
+        trialEndDate: { $lte: now }
+      });
+      for (const inst of expiredTrials) {
+        inst.isTrialActive = false;
+        inst.subscriptionStatus = 'payment_due';
+        await inst.save();
+
+        await AuditLog.create({
+          institute: inst._id,
+          eventType: 'TRIAL_EXPIRED',
+          details: `Trial for institute code ${inst.instituteCode} expired. Status set to payment_due.`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'System Scheduler'
+        });
+        console.log(`[Scheduler] Trial expired for institute: ${inst.name} (Code: ${inst.instituteCode})`);
+      }
+
+      // B. Billing Due Checker (Active Subscriptions)
+      const dueSubscriptions = await Institute.find({
+        subscriptionStatus: 'active',
+        isTrialActive: false,
+        nextBillingDate: { $lte: now }
+      });
+      for (const inst of dueSubscriptions) {
+        inst.subscriptionStatus = 'payment_due';
+        await inst.save();
+
+        await AuditLog.create({
+          institute: inst._id,
+          eventType: 'PAYMENT_DUE',
+          details: `Billing cycle nextBillingDate passed for institute ${inst.instituteCode}. Status set to payment_due.`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'System Scheduler'
+        });
+        console.log(`[Scheduler] Billing cycle due for institute: ${inst.name} (Code: ${inst.instituteCode})`);
+      }
+
+      // C. Grace Period Checker (Transitions payment_due to grace_period)
+      const dueForGrace = await Institute.find({
+        subscriptionStatus: 'payment_due',
+        nextBillingDate: { $lte: now }
+      });
+      for (const inst of dueForGrace) {
+        if (!inst.gracePeriodEndDate) {
+          inst.gracePeriodEndDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000); // + 2 days
+        }
+        inst.subscriptionStatus = 'grace_period';
+        await inst.save();
+
+        await AuditLog.create({
+          institute: inst._id,
+          eventType: 'PAYMENT_DUE',
+          details: `Grace period initiated for institute ${inst.instituteCode}. Ends on ${inst.gracePeriodEndDate.toLocaleDateString()}.`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'System Scheduler'
+        });
+
+        // Send grace period warning email via Resend
+        sendGracePeriodEmail(inst.email, inst.contactPerson, 0, inst.gracePeriodEndDate).catch(err => {
+          console.error('[Resend Grace Period Email Error]', err);
+        });
+        console.log(`[Scheduler] Grace period started for institute: ${inst.name} (Code: ${inst.instituteCode})`);
+      }
+
+      // D. Suspension Processor (grace_period expired)
+      const dueForSuspension = await Institute.find({
+        subscriptionStatus: 'grace_period',
+        gracePeriodEndDate: { $lte: now }
+      });
+      for (const inst of dueForSuspension) {
+        inst.subscriptionStatus = 'suspended';
+        await inst.save();
+
+        await AuditLog.create({
+          institute: inst._id,
+          eventType: 'SUBSCRIPTION_SUSPENDED',
+          details: `Grace period expired without recorded payment for institute ${inst.instituteCode}. Subscription suspended.`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'System Scheduler'
+        });
+
+        // Send suspension warning email via Resend
+        sendSuspensionEmail(inst.email, inst.contactPerson).catch(err => {
+          console.error('[Resend Suspension Email Error]', err);
+        });
+        console.log(`[Scheduler] Suspended institute: ${inst.name} (Code: ${inst.instituteCode})`);
+      }
 
       // 1. Process Scheduled Notifications
       const pendingScheds = await ScheduledNotification.find({

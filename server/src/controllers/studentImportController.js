@@ -9,6 +9,7 @@ import { Program } from '../models/Program.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { generateTemporaryPassword } from '../utils/passwordGenerator.js';
 import { sendStudentWelcomeEmail } from '../services/emailService.js';
+import { checkStudentQuota } from '../utils/quotaEnforcer.js';
 
 const normalize = (value = '') => String(value || '').trim();
 
@@ -268,6 +269,14 @@ export const confirmStudentImport = async (req, res) => {
     if (req.user.role !== 'admin' || !req.user.institute) return res.status(403).json({ message: 'Forbidden: admin institute required' });
     const job = await StudentImportJob.findOne({ _id: req.params.jobId, institute: req.user.institute });
     if (!job) return res.status(404).json({ message: 'Import job not found' });
+
+    // Enforce student plan limits quota check
+    const newStudentsCount = job.rows.filter(r => r.status === 'pending').length;
+    try {
+      await checkStudentQuota(req.user.institute, newStudentsCount);
+    } catch (quotaErr) {
+      return res.status(403).json({ message: quotaErr.message });
+    }
     
     const duplicateAction = (req.body && req.body.duplicateAction) || 'skip';
     let branchName = 'Main Campus';

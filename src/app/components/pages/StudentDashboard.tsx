@@ -74,6 +74,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { apiFetch, getApiUrl } from '../../utils/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush, initializePushNotifications } from '../../utils/pushManager';
 import { toast } from 'sonner';
 
@@ -280,18 +281,53 @@ export default function StudentDashboard() {
   });
 
   const [user, setUser] = useState<any>(null);
+  const queryClient = useQueryClient();
 
-  const [purchasedCourses, setPurchasedCourses] = useState<any[]>([]);
-  const [watchHistory, setWatchHistory] = useState<any[]>([]);
-  const [allCourses, setAllCourses] = useState<any[]>([]);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
+  // Queries
+  const { data: purchasedCourses = [] } = useQuery({
+    queryKey: ['courses', 'purchased'],
+    queryFn: () => apiFetch('/purchases/my-courses'),
+  });
 
+  const { data: watchHistory = [] } = useQuery({
+    queryKey: ['history'],
+    queryFn: () => apiFetch('/progress/history'),
+  });
+
+  const { data: allCourses = [] } = useQuery({
+    queryKey: ['courses'],
+    queryFn: () => apiFetch('/courses'),
+  });
+
+  const { data: announcements = [] } = useQuery({
+    queryKey: ['announcements'],
+    queryFn: () => apiFetch('/analytics/announcements'),
+  });
+
+  const { data: notificationsData } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => apiFetch('/student-notifications'),
+  });
+
+  const notifications = notificationsData?.notifications || [];
+  const unreadNotifications = notificationsData?.unreadCount || 0;
+
+  const { data: securityStatusRes } = useQuery({
+    queryKey: ['status'],
+    queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
+    refetchInterval: 5000,
+  });
+
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => apiFetch('/auth/profile'),
+  });
+
+  // Derived loading state
+  const loading = false; // We can set this to false, as cached values render instantly.
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const [studyMaterials, setStudyMaterials] = useState<any[]>([]);
   const [facultyList, setFacultyList] = useState<any[]>([]);
@@ -642,6 +678,8 @@ export default function StudentDashboard() {
     localStorage.setItem('trineo_student_active_tab', activeTab);
   }, [activeTab]);
 
+  const [serverTimeOffset, setServerTimeOffset] = useState(0);
+
   // Global Security Lock Overlay — syncs with ProtectionManager across tabs
   const [securityLockActive, setSecurityLockActive] = useState(false);
   const [securityLockRemaining, setSecurityLockRemaining] = useState(0);
@@ -658,9 +696,32 @@ export default function StudentDashboard() {
   console.log("FORCE LOGOUT", forceLogout);
   console.log("ACCOUNT LOCKED", accountLocked);
 
+  // Synchronize query's securityStatus response with component states
   useEffect(() => {
-    let serverTimeOffset = 0;
+    if (securityStatusRes) {
+      setSecurityStatus(securityStatusRes);
+      if (securityStatusRes.serverTime) {
+        const offset = new Date(securityStatusRes.serverTime).getTime() - Date.now();
+        setServerTimeOffset(offset);
+        console.log("[SECURITY STUDENT DASHBOARD] Server time sync offset calculated:", offset);
+      }
+      if (securityStatusRes.penaltyActive && securityStatusRes.penaltyUntil) {
+        const penaltyMs = new Date(securityStatusRes.penaltyUntil).getTime();
+        localStorage.setItem('trineo_security_lock_until', penaltyMs.toString());
+        localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
+      }
+      setForceLogout(!!securityStatusRes.forceLogout);
+      setAccountLocked(!!securityStatusRes.accountLocked);
+      if (securityStatusRes.forceLogout || securityStatusRes.accountLocked) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        const reason = securityStatusRes.accountLocked ? 'locked' : 'exceeded';
+        window.location.href = `/security-lock?reason=${reason}`;
+      }
+    }
+  }, [securityStatusRes]);
 
+  useEffect(() => {
     // Check on mount if a lock is active (from localStorage or server)
     const checkLock = () => {
       const lockUntil = parseInt(localStorage.getItem('trineo_security_lock_until') || '0', 10);
@@ -701,53 +762,14 @@ export default function StudentDashboard() {
 
     // Countdown interval when lock is active
     const interval = setInterval(() => {
-      const lockUntil = parseInt(localStorage.getItem('trineo_security_lock_until') || '0', 10);
-      const adjustedNow = Date.now() + serverTimeOffset;
-      
-      const isActive = lockUntil > adjustedNow;
-      const remaining = isActive ? Math.max(0, Math.ceil((lockUntil - adjustedNow) / 1000)) : 0;
-
-      if (isActive) {
-        setSecurityLockActive(true);
-        setSecurityLockRemaining(remaining);
-      } else {
-        setSecurityLockActive(false);
-        setSecurityLockRemaining(0);
-      }
+      checkLock();
     }, 1000);
-
-    // Also check server-side penalty on mount
-    apiFetch('/security/status', { ignoreAuthError: true }).then((statusRes: any) => {
-      if (statusRes) {
-        setSecurityStatus(statusRes);
-      }
-      if (statusRes && statusRes.serverTime) {
-        serverTimeOffset = new Date(statusRes.serverTime).getTime() - Date.now();
-        console.log("[SECURITY STUDENT DASHBOARD] Server time sync offset calculated:", serverTimeOffset);
-      }
-      if (statusRes && statusRes.penaltyActive && statusRes.penaltyUntil) {
-        const penaltyMs = new Date(statusRes.penaltyUntil).getTime();
-        localStorage.setItem('trineo_security_lock_until', penaltyMs.toString());
-        localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
-        checkLock();
-      }
-      if (statusRes) {
-        setForceLogout(!!statusRes.forceLogout);
-        setAccountLocked(!!statusRes.accountLocked);
-      }
-      if (statusRes && (statusRes.forceLogout || statusRes.accountLocked)) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        const reason = statusRes.accountLocked ? 'locked' : 'exceeded';
-        window.location.href = `/security-lock?reason=${reason}`;
-      }
-    }).catch(() => {});
 
     return () => {
       window.removeEventListener('storage', handleStorage);
       clearInterval(interval);
     };
-  }, []);
+  }, [serverTimeOffset]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -1057,74 +1079,58 @@ export default function StudentDashboard() {
   }, [activeTab, user, materialsSearch, selectedMaterialType, selectedMaterialCourseId, settingsSubTab]);
 
   const loadNotifications = async () => {
-    try {
-      const data = await apiFetch('/student-notifications');
-      setNotifications(data.notifications || []);
-      setUnreadNotifications(data.unreadCount || 0);
-    } catch (err) {
-      console.error('Failed to load notifications', err);
-    }
+    await queryClient.invalidateQueries({ queryKey: ['notifications'] });
   };
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const freshUser = await apiFetch('/auth/profile');
-        setUser(freshUser);
-        setProfileForm({ 
-          name: freshUser?.name || '', 
-          phone: freshUser?.phone || '', 
-          recoveryEmail: freshUser?.recoveryEmail || '' 
-        });
-        setResetEmail(freshUser?.recoveryEmail || freshUser?.email || '');
-        localStorage.setItem('user', JSON.stringify(freshUser));
-        loadNotifications();
-      } catch (err) {
-        console.error('Failed to fetch profile:', err);
-        const cachedUser = localStorage.getItem('user');
-        if (cachedUser) {
-          setUser(JSON.parse(cachedUser));
-        } else {
-          navigate('/');
-        }
-      }
-    };
-    fetchProfile();
-  }, [navigate]);
+    if (profile) {
+      setUser(profile);
+      setProfileForm({ 
+        name: profile?.name || '', 
+        phone: profile?.phone || '', 
+        recoveryEmail: profile?.recoveryEmail || '' 
+      });
+      setResetEmail(profile?.recoveryEmail || profile?.email || '');
+      localStorage.setItem('user', JSON.stringify(profile));
+    }
+  }, [profile]);
 
-
-
+  // Fallback to cache or navigate to login
   useEffect(() => {
-    if (!user) return;
+    const cachedUser = localStorage.getItem('user');
+    if (cachedUser) {
+      setUser(JSON.parse(cachedUser));
+    } else if (profile === null) {
+      navigate('/');
+    }
+  }, [profile, navigate]);
 
-    const loadDashboardData = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        // Fetch purchased courses
-        const myCourses = await apiFetch('/purchases/my-courses');
-        setPurchasedCourses(myCourses);
+  const loadDashboardData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['courses'] }),
+      queryClient.invalidateQueries({ queryKey: ['history'] }),
+      queryClient.invalidateQueries({ queryKey: ['announcements'] }),
+      queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    ]);
+  };
 
-        // Fetch watch history progress logs
-        const history = await apiFetch('/progress/history');
-        setWatchHistory(history);
-
-        // Fetch all courses for "recently added" suggestions
-        const courses = await apiFetch('/courses');
-        setAllCourses(courses);
-
-        // Fetch announcements
-        const annList = await apiFetch('/analytics/announcements');
-        setAnnouncements(annList);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load dashboard data');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadDashboardData();
-  }, [user]);
+  const prefetchTab = (tabId: string) => {
+    if (tabId === 'courses') {
+      queryClient.prefetchQuery({ queryKey: ['courses', 'purchased'], queryFn: () => apiFetch('/purchases/my-courses') });
+      queryClient.prefetchQuery({ queryKey: ['courses'], queryFn: () => apiFetch('/courses') });
+    } else if (tabId === 'notifications') {
+      queryClient.prefetchQuery({ queryKey: ['notifications'], queryFn: () => apiFetch('/student-notifications') });
+      queryClient.prefetchQuery({ queryKey: ['announcements'], queryFn: () => apiFetch('/analytics/announcements') });
+    } else if (tabId === 'settings' || tabId === 'security') {
+      queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/auth/profile') });
+    } else if (tabId === 'home') {
+      queryClient.prefetchQuery({ queryKey: ['courses', 'purchased'], queryFn: () => apiFetch('/purchases/my-courses') });
+      queryClient.prefetchQuery({ queryKey: ['history'], queryFn: () => apiFetch('/progress/history') });
+      queryClient.prefetchQuery({ queryKey: ['courses'], queryFn: () => apiFetch('/courses') });
+      queryClient.prefetchQuery({ queryKey: ['announcements'], queryFn: () => apiFetch('/analytics/announcements') });
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -1325,6 +1331,7 @@ export default function StudentDashboard() {
             ].map((item) => (
               <button
                 key={item.id}
+                onMouseEnter={() => prefetchTab(item.id)}
                 onClick={() => {
                   if (item.id === 'courses') {
                     navigate('/student/courses');

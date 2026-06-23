@@ -15,6 +15,14 @@ import { Announcement } from '../models/Announcement.js';
 import { OwnerActionLog } from '../models/OwnerActionLog.js';
 import { BackupJob } from '../models/BackupJob.js';
 import { CourseAssignment } from '../models/CourseAssignment.js';
+import { SubscriptionPlan } from '../models/SubscriptionPlan.js';
+import { SubscriptionPayment } from '../models/SubscriptionPayment.js';
+import {
+  sendOnboardingApprovedEmail,
+  sendOnboardingRejectedEmail,
+  sendReactivationEmail,
+  sendBillingInvoiceEmail
+} from '../services/emailService.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import os from 'os';
@@ -932,5 +940,366 @@ export const testCrmConnection = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── SaaS Onboarding & Subscription Management ──────────────────────────────
+
+// GET /api/owner/onboarding/requests
+export const getOnboardingRequests = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = {};
+    if (status) {
+      filter.onboardingStatus = status;
+    }
+    const institutes = await Institute.find(filter)
+      .populate('planId')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(institutes);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/owner/onboarding/:id/approve
+export const approveOnboardingRequest = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const inst = await Institute.findById(id);
+    if (!inst) {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    if (inst.onboardingStatus !== 'pending') {
+      return res.status(400).json({ message: `Institute onboarding status is already "${inst.onboardingStatus}"` });
+    }
+
+    // 1. Generate unique institute code (e.g. TRI001)
+    const prefix = (inst.name || 'INST').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3).padEnd(3, 'X');
+    let sequence = 1;
+    let code = '';
+    while (true) {
+      code = `${prefix}${String(sequence).padStart(3, '0')}`;
+      const duplicate = await Institute.findOne({ instituteCode: code });
+      if (!duplicate) break;
+      sequence++;
+    }
+
+    // 2. Set statuses and trial settings
+    inst.instituteCode = code;
+    inst.onboardingStatus = 'approved';
+    inst.subscriptionStatus = 'active';
+    inst.isTrialActive = true;
+    inst.trialStartDate = new Date();
+    inst.trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
+    inst.nextBillingDate = inst.trialEndDate;
+    inst.approvedAt = new Date();
+    inst.approvedBy = req.user._id;
+
+    await inst.save();
+
+    // 3. Activate the matching admin user
+    const adminUser = await User.findOne({ institute: inst._id, role: 'admin' });
+    if (adminUser) {
+      adminUser.status = 'active';
+      await adminUser.save();
+    }
+
+    // 4. Create Audit Logs
+    await AuditLog.create({
+      userId: adminUser ? adminUser._id : req.user._id,
+      institute: inst._id,
+      eventType: 'INSTITUTE_APPROVED',
+      details: `Institute approved by owner (Code: ${code}). Onboarding status: approved.`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'Unknown'
+    });
+
+    await AuditLog.create({
+      userId: adminUser ? adminUser._id : req.user._id,
+      institute: inst._id,
+      eventType: 'TRIAL_STARTED',
+      details: `14-Day Free Trial started for institute ${code}. Ends on ${inst.trialEndDate.toLocaleDateString()}.`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'Unknown'
+    });
+
+    await logOwnerAction(req, 'approve_institute_onboarding', {
+      targetInstitute: inst._id,
+      details: `Approved institute "${inst.name}" with code "${code}"`
+    });
+
+    // 5. Send Email via Resend
+    sendOnboardingApprovedEmail(inst.email, inst.contactPerson, code, 'Your chosen password').catch(err => {
+      console.error('[Resend Onboarding Approved Email Error]', err);
+    });
+
+    res.json({
+      message: `Institute approved successfully! Code generated: ${code}`,
+      institute: inst
+    });
+  } catch (err) {
+    console.error('Approve onboarding error:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/owner/onboarding/:id/reject
+export const rejectOnboardingRequest = async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  try {
+    const inst = await Institute.findById(id);
+    if (!inst) {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    if (inst.onboardingStatus !== 'pending') {
+      return res.status(400).json({ message: `Institute onboarding status is already "${inst.onboardingStatus}"` });
+    }
+
+    inst.onboardingStatus = 'rejected';
+    await inst.save();
+
+    // Create Audit Log
+    await AuditLog.create({
+      userId: req.user._id,
+      institute: inst._id,
+      eventType: 'INSTITUTE_REJECTED',
+      details: `Institute onboarding application rejected. Reason: ${reason || 'Not specified'}`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'Unknown'
+    });
+
+    await logOwnerAction(req, 'reject_institute_onboarding', {
+      targetInstitute: inst._id,
+      details: `Rejected institute onboarding "${inst.name}"`
+    });
+
+    // Send Rejection Email
+    sendOnboardingRejectedEmail(inst.email, inst.contactPerson, reason).catch(err => {
+      console.error('[Resend Onboarding Reject Email Error]', err);
+    });
+
+    res.json({ message: 'Institute onboarding request rejected.', institute: inst });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/owner/onboarding/:id/info
+export const requestOnboardingInfo = async (req, res) => {
+  const { id } = req.params;
+  const { notes } = req.body;
+  try {
+    const inst = await Institute.findById(id);
+    if (!inst) return res.status(404).json({ message: 'Institute not found' });
+
+    await logOwnerAction(req, 'request_onboarding_info', {
+      targetInstitute: inst._id,
+      details: `Requested onboarding info for "${inst.name}". Notes: ${notes || 'None'}`
+    });
+
+    res.json({ message: 'Requested onboarding info logged successfully.', institute: inst });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/owner/billing/dashboard
+export const getBillingDashboard = async (req, res) => {
+  try {
+    const now = new Date();
+    const threeDaysLater = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+    const [
+      pendingRequests,
+      activeTrials,
+      trialExpiringSoon,
+      activeSubscriptions,
+      paymentDue,
+      gracePeriod,
+      suspendedInstitutes,
+      activeInstitutes
+    ] = await Promise.all([
+      Institute.countDocuments({ onboardingStatus: 'pending' }),
+      Institute.countDocuments({ isTrialActive: true, subscriptionStatus: 'active' }),
+      Institute.countDocuments({ isTrialActive: true, trialEndDate: { $gte: now, $lte: threeDaysLater } }),
+      Institute.countDocuments({ isTrialActive: false, subscriptionStatus: 'active' }),
+      Institute.countDocuments({ subscriptionStatus: 'payment_due' }),
+      Institute.countDocuments({ subscriptionStatus: 'grace_period' }),
+      Institute.countDocuments({ subscriptionStatus: 'suspended' }),
+      Institute.countDocuments({ subscriptionStatus: 'active' })
+    ]);
+
+    // Calculate manual billing revenues (from paid SubscriptionPayments)
+    const paidPayments = await SubscriptionPayment.find({ status: 'paid' }).lean();
+    const monthlyRevenue = paidPayments
+      .filter(p => p.paidDate && new Date(p.paidDate).getMonth() === now.getMonth() && new Date(p.paidDate).getFullYear() === now.getFullYear())
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    const annualRevenue = paidPayments
+      .filter(p => p.paidDate && new Date(p.paidDate).getFullYear() === now.getFullYear())
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    // Fetch upcoming renewals in next 30 days
+    const thirtyDaysLater = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const upcomingRenewals = await Institute.find({
+      subscriptionStatus: { $in: ['active', 'payment_due', 'grace_period'] },
+      nextBillingDate: { $gte: now, $lte: thirtyDaysLater }
+    }).populate('planId').lean();
+
+    res.json({
+      pendingRequests,
+      activeTrials,
+      trialExpiringSoon,
+      activeSubscriptions,
+      paymentDue,
+      gracePeriod,
+      suspendedInstitutes,
+      activeInstitutes,
+      monthlyRevenue,
+      annualRevenue,
+      upcomingRenewals: upcomingRenewals.map(r => ({
+        _id: r._id,
+        name: r.name,
+        instituteCode: r.instituteCode,
+        nextBillingDate: r.nextBillingDate,
+        subscriptionStatus: r.subscriptionStatus,
+        planName: r.planId?.name || 'N/A'
+      }))
+    });
+  } catch (err) {
+    console.error('Billing stats error:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/owner/billing/payments
+export const getBillingPayments = async (req, res) => {
+  try {
+    const payments = await SubscriptionPayment.find({})
+      .populate('instituteId')
+      .populate('planId')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(payments);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/owner/billing/payments
+// Owner manually tracks or generates invoice
+export const createBillingPayment = async (req, res) => {
+  const { instituteId, amount, dueDate, billingCycle, notes } = req.body;
+  try {
+    const inst = await Institute.findById(instituteId);
+    if (!inst) return res.status(404).json({ message: 'Institute not found.' });
+
+    // Generate Invoice Number (e.g. INV-2026-XXXX)
+    const count = await SubscriptionPayment.countDocuments();
+    const invoiceNumber = `INV-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+
+    const payment = new SubscriptionPayment({
+      invoiceNumber,
+      instituteId: inst._id,
+      instituteCode: inst.instituteCode,
+      planId: inst.planId,
+      amount: amount || 0,
+      billingCycle: billingCycle || inst.billingCycle || 'monthly',
+      dueDate: dueDate ? new Date(dueDate) : new Date(),
+      paymentDueDate: dueDate ? new Date(dueDate) : new Date(),
+      status: 'pending',
+      notes: notes || '',
+      createdBy: req.user._id
+    });
+
+    await payment.save();
+
+    // Log payment due audit event
+    await AuditLog.create({
+      userId: req.user._id,
+      institute: inst._id,
+      eventType: 'PAYMENT_DUE',
+      details: `Invoice ${invoiceNumber} created for $${payment.amount}. Due: ${payment.dueDate.toLocaleDateString()}.`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'Unknown'
+    });
+
+    // Send Billing Invoice Email
+    sendBillingInvoiceEmail(inst.email, inst.contactPerson, invoiceNumber, payment.amount, payment.dueDate).catch(err => {
+      console.error('[Resend Billing Invoice Email Error]', err);
+    });
+
+    res.status(201).json({ message: 'Invoice generated successfully.', payment });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/owner/billing/payments/:id/pay
+// Owner records manual payment (Mark Paid)
+export const recordBillingPaymentPaid = async (req, res) => {
+  const { id } = req.params;
+  const { paymentMethod, paymentReference, notes } = req.body;
+  try {
+    const payment = await SubscriptionPayment.findById(id);
+    if (!payment) return res.status(404).json({ message: 'Payment record not found.' });
+
+    if (payment.status === 'paid') {
+      return res.status(400).json({ message: 'This payment has already been marked as paid.' });
+    }
+
+    // Update payment record
+    payment.status = 'paid';
+    payment.paymentMethod = paymentMethod || 'cash';
+    payment.paymentReference = paymentReference || 'MANUAL-REC';
+    payment.paidDate = new Date();
+    if (notes) payment.notes = `${payment.notes}\n${notes}`;
+    await payment.save();
+
+    // Update Institute Status
+    const inst = await Institute.findById(payment.instituteId);
+    if (inst) {
+      inst.subscriptionStatus = 'active';
+      inst.isTrialActive = false; // paid disables trial mode
+      inst.gracePeriodEndDate = null;
+      
+      // Calculate next billing date based on cycle
+      const cycleDays = payment.billingCycle === 'yearly' ? 365 : 30;
+      inst.nextBillingDate = new Date(Date.now() + cycleDays * 24 * 60 * 60 * 1000);
+      await inst.save();
+
+      // Log Payment Received & Reactivation Audits
+      await AuditLog.create({
+        userId: req.user._id,
+        institute: inst._id,
+        eventType: 'PAYMENT_RECEIVED',
+        details: `Recorded payment of $${payment.amount} via ${payment.paymentMethod}. Ref: ${payment.paymentReference}.`,
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+        userAgent: req.headers['user-agent'] || 'Unknown'
+      });
+
+      await AuditLog.create({
+        userId: req.user._id,
+        institute: inst._id,
+        eventType: 'SUBSCRIPTION_REACTIVATED',
+        details: `Subscription active status restored for institute code ${inst.instituteCode}. Next billing: ${inst.nextBillingDate.toLocaleDateString()}.`,
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+        userAgent: req.headers['user-agent'] || 'Unknown'
+      });
+
+      // Send reactivation confirmation email via Resend
+      sendReactivationEmail(inst.email, inst.contactPerson).catch(err => {
+        console.error('[Resend Reactivation Email Error]', err);
+      });
+    }
+
+    res.json({ message: 'Payment recorded as paid successfully.', payment });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };

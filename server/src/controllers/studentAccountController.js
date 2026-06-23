@@ -5,6 +5,7 @@ import { User } from '../models/User.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { SecuritySession } from '../models/SecuritySession.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
+import { Institute } from '../models/Institute.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -93,11 +94,30 @@ export const changeStudentPassword = async (req, res) => {
 
 export const requestPasswordReset = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, instituteId } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
     // Always respond the same way — don't leak whether the account exists
-    const user = await User.findOne({ email, role: 'student' });
+    const users = await User.find({ email, role: 'student' });
+    let user = null;
+    if (users.length === 1) {
+      user = users[0];
+    } else if (users.length > 1) {
+      if (instituteId) {
+        user = users.find(u => u.instituteId === instituteId);
+      }
+      if (!user) {
+        const host = req.headers.host || '';
+        const matchingInst = await Institute.findOne({ domain: { $regex: new RegExp(host, 'i') } });
+        if (matchingInst) {
+          user = users.find(u => String(u.institute) === String(matchingInst._id));
+        }
+      }
+      if (!user) {
+        user = users[0]; // Default fallback if no resolution possible
+      }
+    }
+
     if (!user) {
       return res.json({ message: 'If your account exists, a password reset email has been sent.' });
     }

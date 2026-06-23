@@ -9,13 +9,15 @@ import {
   getAnnouncements,
   updateInstituteBranding,
   resendWelcomeEmail,
-  resetStudentPassword
+  resetStudentPassword,
+  getBillingInfo
 } from '../controllers/analyticsController.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 
 const router = express.Router();
 
 router.get('/overview', protect, adminOnly, getAdminOverview);
+router.get('/billing', protect, adminOnly, getBillingInfo);
 router.post('/student-status', protect, adminOnly, updateStudentStatus);
 router.post('/students', protect, adminOnly, createStudent);
 router.put('/students/:id', protect, adminOnly, updateStudent);

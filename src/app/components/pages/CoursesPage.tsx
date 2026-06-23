@@ -38,73 +38,76 @@ import { MobileNav, studentNavItems } from '../MobileNav';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { apiFetch } from '../../utils/api';
 import { initializePushNotifications } from '../../utils/pushManager';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const categories = ['All', 'Development', 'Data Science', 'Design', 'Cloud', 'Business'];
 const levels = ['All Levels', 'Beginner', 'Intermediate', 'Advanced'];
 
 export default function CoursesPage() {
   const navigate = useNavigate();
-  const [courses, setCourses] = useState<any[]>([]);
-  const [watchHistory, setWatchHistory] = useState<any[]>([]);
+  const queryClient = useQueryClient();
+
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLevel, setSelectedLevel] = useState('All Levels');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('enrolled');
-  
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
   const [user, setUser] = useState<any>(null);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
-  const [violationCount, setViolationCount] = useState(0);
-  
+
+  // React Query Hooks
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => apiFetch('/auth/profile'),
+  });
+
+  const { data: courses = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['courses'],
+    queryFn: () => apiFetch('/courses'),
+  });
+
+  const { data: watchHistory = [] } = useQuery({
+    queryKey: ['history'],
+    queryFn: () => apiFetch('/progress/history'),
+  });
+
+  const { data: notificationsData } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => apiFetch('/student-notifications'),
+  });
+  const unreadNotifications = notificationsData?.unreadCount || 0;
+
+  const { data: securityStatusRes } = useQuery({
+    queryKey: ['status'],
+    queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
+  });
+  const violationCount = securityStatusRes?.violationCount || 0;
+
+  // Sync profile to local state
   useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const freshUser = await apiFetch('/auth/profile');
-        setUser(freshUser);
-        localStorage.setItem('user', JSON.stringify(freshUser));
-        
-        // Load unread notifications count
-        const notifData = await apiFetch('/student-notifications');
-        setUnreadNotifications(notifData.unreadCount || 0);
-
-        // Load security status
-        const securityRes = await apiFetch('/security/status', { ignoreAuthError: true });
-        if (securityRes) {
-          setViolationCount(securityRes.violationCount || 0);
-        }
-      } catch (err) {
-        console.error('Failed to fetch profile:', err);
-        const cachedUser = localStorage.getItem('user');
-        if (cachedUser) {
-          setUser(JSON.parse(cachedUser));
-        } else {
-          navigate('/');
-        }
-      }
-    };
-    fetchProfile();
-  }, [navigate]);
-
-  const loadCourses = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await apiFetch('/courses');
-      setCourses(data);
-
-      const history = await apiFetch('/progress/history');
-      setWatchHistory(history);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load courses.');
-    } finally {
-      setLoading(false);
+    if (profile) {
+      setUser(profile);
+      localStorage.setItem('user', JSON.stringify(profile));
     }
-  };
+  }, [profile]);
+
+  // Fallback to cache or navigate to login
+  useEffect(() => {
+    const cachedUser = localStorage.getItem('user');
+    if (cachedUser) {
+      setUser(JSON.parse(cachedUser));
+    } else if (profile === null) {
+      navigate('/');
+    }
+  }, [profile, navigate]);
+
+  // Sync error from query
+  useEffect(() => {
+    if (queryError) {
+      setError((queryError as any).message || 'Failed to load courses.');
+    }
+  }, [queryError]);
 
   useEffect(() => {
-    loadCourses();
     initializePushNotifications().catch(err => console.error('Push init failed:', err));
   }, []);
 
@@ -115,7 +118,7 @@ export default function CoursesPage() {
         body: JSON.stringify({ courseId })
       });
       alert('Access request submitted successfully!');
-      loadCourses();
+      queryClient.invalidateQueries({ queryKey: ['courses'] });
     } catch (err: any) {
       alert(err.message || 'Failed to request access');
     }

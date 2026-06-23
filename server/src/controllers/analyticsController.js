@@ -10,6 +10,8 @@ import { Lesson } from '../models/Lesson.js';
 import { StudyMaterial } from '../models/StudyMaterial.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { SecurityEvent } from '../models/SecurityEvent.js';
+import { SubscriptionPlan } from '../models/SubscriptionPlan.js';
+import { SubscriptionPayment } from '../models/SubscriptionPayment.js';
 import { generateTemporaryPassword } from '../utils/passwordGenerator.js';
 import { sendStudentWelcomeEmail } from '../services/emailService.js';
 
@@ -1048,6 +1050,52 @@ export const updateInstituteBranding = async (req, res) => {
 
     await institute.save();
     res.json({ message: 'Branding updated successfully', institute });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getBillingInfo = async (req, res) => {
+  try {
+    if (!req.user.institute) {
+      return res.status(400).json({ message: 'Admin is not linked to any institute' });
+    }
+
+    const institute = await Institute.findById(req.user.institute).populate('planId');
+    if (!institute) {
+      return res.status(404).json({ message: 'Institute not found' });
+    }
+
+    const studentCount = await User.countDocuments({ role: 'student', institute: req.user.institute });
+    const courseCount = await Course.countDocuments({ institute: req.user.institute });
+    const videoCount = await Lesson.countDocuments({ institute: req.user.institute, isDeleted: { $ne: true }, publishStatus: 'published' });
+    const studyMaterialsCount = await StudyMaterial.countDocuments({ institute: req.user.institute });
+
+    const invoices = await SubscriptionPayment.find({ institute: req.user.institute }).sort({ createdAt: -1 });
+
+    res.json({
+      institute: {
+        _id: institute._id,
+        name: institute.name,
+        instituteCode: institute.instituteCode,
+        subscriptionStatus: institute.subscriptionStatus,
+        billingCycle: institute.billingCycle,
+        nextBillingDate: institute.nextBillingDate,
+        gracePeriodEndDate: institute.gracePeriodEndDate,
+        trialStartDate: institute.trialStartDate,
+        trialEndDate: institute.trialEndDate,
+        isTrialActive: institute.isTrialActive,
+        storageUsedGB: institute.storageUsedGB || 0
+      },
+      plan: institute.planId || null,
+      usage: {
+        students: studentCount,
+        courses: courseCount,
+        videos: videoCount,
+        studyMaterials: studyMaterialsCount
+      },
+      invoices
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

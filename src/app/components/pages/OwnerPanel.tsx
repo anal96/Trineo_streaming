@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from 'next-themes';
@@ -321,6 +321,7 @@ export default function OwnerPanel() {
   const [isDark, setIsDark] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [activeSubTab, setActiveSubTab]   = useState('');
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
 
   // Data states
   const [stats, setStats]         = useState<PlatformStats | null>(null);
@@ -347,6 +348,30 @@ export default function OwnerPanel() {
   const [showInstForm, setShowInstForm] = useState(false);
   const [instForm, setInstForm] = useState({ name: '', email: '', contactPerson: '', phone: '', domain: '', subscription: 'free_trial' });
   const [instSubmitting, setInstSubmitting] = useState(false);
+
+  // SaaS Onboarding and Billing states
+  const [onboardingRequests, setOnboardingRequests] = useState<any[]>([]);
+  const [billingStats, setBillingStats] = useState<any>({
+    pendingRequests: 0,
+    activeTrials: 0,
+    trialExpiringSoon: 0,
+    activeSubscriptions: 0,
+    paymentDue: 0,
+    gracePeriod: 0,
+    suspendedInstitutes: 0,
+    activeInstitutes: 0,
+    monthlyRevenue: 0,
+    annualRevenue: 0,
+    upcomingRenewals: []
+  });
+  const [billingPayments, setBillingPayments] = useState<any[]>([]);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({ instituteId: '', amount: 0, dueDate: '', billingCycle: 'monthly', notes: '' });
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
+  
+  const [showPayForm, setShowPayForm] = useState(false);
+  const [payForm, setPayForm] = useState({ paymentId: '', paymentMethod: 'upi', paymentReference: '', notes: '' });
+  const [paySubmitting, setPaySubmitting] = useState(false);
 
   // ── Loaders ──────────────────────────────────────────────────────────────
   const loadStats = useCallback(async () => {
@@ -427,6 +452,27 @@ export default function OwnerPanel() {
     } catch (e: any) { setError(e.message); }
   }, []);
 
+  const loadOnboardingRequests = useCallback(async () => {
+    try {
+      const data = await apiFetch('/owner/onboarding/requests');
+      setOnboardingRequests(data);
+    } catch (e: any) { setError(e.message); }
+  }, []);
+
+  const loadBillingDashboard = useCallback(async () => {
+    try {
+      const data = await apiFetch('/owner/billing/dashboard');
+      setBillingStats(data);
+    } catch (e: any) { setError(e.message); }
+  }, []);
+
+  const loadBillingPayments = useCallback(async () => {
+    try {
+      const data = await apiFetch('/owner/billing/payments');
+      setBillingPayments(data);
+    } catch (e: any) { setError(e.message); }
+  }, []);
+
   // Sync local isDark with theme system
   useEffect(() => {
     setIsDark(theme !== 'light');
@@ -441,6 +487,8 @@ export default function OwnerPanel() {
           case 'dashboard':    await loadStats(); break;
           case 'institutes':   await Promise.all([loadInstitutes(), loadStats()]); break;
           case 'revenue':      await Promise.all([loadRevenue(), loadStats()]); break;
+          case 'onboarding':   await loadOnboardingRequests(); break;
+          case 'billing':      await Promise.all([loadBillingDashboard(), loadBillingPayments(), loadInstitutes()]); break;
           case 'users':        await loadUsers(activeSubTab || ''); break;
           case 'streaming':    await loadStreaming(); break;
           case 'security':     await Promise.all([loadSecurity(securityFilter), loadOwnerActions()]); break;
@@ -531,14 +579,111 @@ export default function OwnerPanel() {
     } catch (e: any) { alert(e.message); }
   };
 
+  // ── SaaS Onboarding & Billing Action Handlers ────────────────────────────
+  const handleApproveOnboarding = async (id: string) => {
+    if (!confirm('Are you sure you want to approve this institute onboarding application? This will generate their unique institute code and start their 14-day free trial.')) return;
+    try {
+      const res = await apiFetch(`/owner/onboarding/${id}/approve`, {
+        method: 'POST'
+      });
+      alert(res.message || 'Institute approved successfully!');
+      await loadOnboardingRequests();
+    } catch (e: any) {
+      alert(e.message || 'Failed to approve onboarding request');
+    }
+  };
+
+  const handleRejectOnboarding = async (id: string) => {
+    const reason = prompt('Please enter the reason for rejection (this will be sent to the institute contact person):');
+    if (reason === null) return; // cancelled
+    try {
+      const res = await apiFetch(`/owner/onboarding/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      alert(res.message || 'Institute onboarding request rejected.');
+      await loadOnboardingRequests();
+    } catch (e: any) {
+      alert(e.message || 'Failed to reject onboarding request');
+    }
+  };
+
+  const handleRequestOnboardingInfo = async (id: string) => {
+    const notes = prompt('Enter the specific information/clarification requested from the institute:');
+    if (notes === null) return; // cancelled
+    try {
+      const res = await apiFetch(`/owner/onboarding/${id}/info`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes })
+      });
+      alert(res.message || 'Onboarding info request logged successfully.');
+      await loadOnboardingRequests();
+    } catch (e: any) {
+      alert(e.message || 'Failed to log onboarding info request');
+    }
+  };
+
+  const handleCreateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!invoiceForm.instituteId || !invoiceForm.amount || !invoiceForm.dueDate) {
+      alert('Please fill out all required fields.');
+      return;
+    }
+    setInvoiceSubmitting(true);
+    try {
+      await apiFetch('/owner/billing/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(invoiceForm)
+      });
+      alert('Invoice generated successfully.');
+      setInvoiceForm({ instituteId: '', amount: 0, dueDate: '', billingCycle: 'monthly', notes: '' });
+      setShowInvoiceForm(false);
+      await Promise.all([loadBillingDashboard(), loadBillingPayments()]);
+    } catch (e: any) {
+      alert(e.message || 'Failed to generate invoice.');
+    } finally {
+      setInvoiceSubmitting(false);
+    }
+  };
+
+  const handleRecordPaymentPaid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payForm.paymentId) return;
+    setPaySubmitting(true);
+    try {
+      await apiFetch(`/owner/billing/payments/${payForm.paymentId}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentMethod: payForm.paymentMethod,
+          paymentReference: payForm.paymentReference,
+          notes: payForm.notes
+        })
+      });
+      alert('Payment recorded successfully. Institute subscription has been renewed.');
+      setPayForm({ paymentId: '', paymentMethod: 'upi', paymentReference: '', notes: '' });
+      setShowPayForm(false);
+      await Promise.all([loadBillingDashboard(), loadBillingPayments(), loadInstitutes()]);
+    } catch (e: any) {
+      alert(e.message || 'Failed to record payment.');
+    } finally {
+      setPaySubmitting(false);
+    }
+  };
+
   // ── Sidebar config ───────────────────────────────────────────────────────
   const navItems = [
     { id: 'dashboard',  icon: LayoutDashboard, label: 'Platform Dashboard',        badge: null },
     { id: 'institutes', icon: Building2,        label: 'Institute Management',       badge: stats?.totalInstitutes ?? null },
+    { id: 'onboarding', icon: FileText,         label: 'Institute Requests',         badge: onboardingRequests.filter(r => r.onboardingStatus === 'pending').length || null },
+    { id: 'billing',    icon: DollarSign,       label: 'Subscriptions & Billing',    badge: billingStats?.paymentDue ? `${billingStats.paymentDue} due` : null },
     { id: 'usage',      icon: Database,         label: 'Usage & Quotas',             badge: null },
     { id: 'instituteDetail', icon: Eye,         label: 'Institute Detail',            badge: null },
     { id: 'crm_keys',        icon: Key,         label: 'CRM Key Management',          badge: null },
-    { id: 'revenue',    icon: DollarSign,       label: 'Revenue',                   badge: stats?.pendingPayments ? `${stats.pendingPayments} pending` : null },
+    { id: 'revenue',    icon: BarChart3,        label: 'Revenue',                   badge: stats?.pendingPayments ? `${stats.pendingPayments} pending` : null },
     { id: 'users',      icon: Users,            label: 'User Management',           badge: null },
     { id: 'streaming',  icon: Radio,            label: 'Streaming Infrastructure',  badge: stats?.processingJobs ?? null },
     { id: 'security',   icon: ShieldAlert,      label: 'Security Center',           badge: security?.logs?.length ?? null },
@@ -1221,6 +1366,464 @@ export default function OwnerPanel() {
                               </tr>
                             );
                           })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeSection === 'onboarding' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Institute Requests</h1>
+                      <p className={`text-sm mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>{onboardingRequests.length} onboarding applications</p>
+                    </div>
+                    <SectionBadge isDark={isDark}>Approvals</SectionBadge>
+                  </div>
+
+                  <div className={`border rounded-2xl overflow-hidden transition-all duration-300 ${
+                    isDark ? 'bg-[#0f0f23] border-white/[0.06]' : 'bg-white border-slate-200/80 shadow-sm'
+                  }`}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className={`border-b ${isDark ? 'border-white/[0.06]' : 'border-slate-100 bg-slate-50/50'}`}>
+                            {['Institute', 'Contact Person', 'Email', 'Plan Requested', 'Status', 'Applied On', 'Actions'].map(h => (
+                              <th key={h} className={`px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider ${
+                                isDark ? 'text-white/25' : 'text-slate-400'
+                              }`}>
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${isDark ? 'divide-white/[0.04]' : 'divide-slate-100'}`}>
+                          {onboardingRequests.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className={`px-5 py-10 text-center text-sm ${isDark ? 'text-white/20' : 'text-slate-400'}`}>
+                                No onboarding requests found
+                              </td>
+                            </tr>
+                          ) : onboardingRequests.map(req => {
+                            const isExpanded = expandedRequestId === req._id;
+                            return (
+                              <Fragment key={req._id}>
+                                <tr className={`transition-colors ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/50'}`}>
+                                  <td className="px-5 py-4">
+                                    <div className="flex items-center gap-2.5">
+                                      <button
+                                        onClick={() => setExpandedRequestId(isExpanded ? null : req._id)}
+                                        className={`p-1 rounded transition-colors cursor-pointer ${
+                                          isDark ? 'hover:bg-white/[0.06] text-white/40 hover:text-white' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'
+                                        }`}
+                                        title="Toggle Details"
+                                      >
+                                        <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                      </button>
+                                      <div>
+                                        <div className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{req.name}</div>
+                                        {req.domain && <div className={`text-xs mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>{req.domain}</div>}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <div className={isDark ? 'text-white/80' : 'text-slate-700'}>{req.contactPerson}</div>
+                                    {req.phone && <div className={`text-xs mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>{req.phone}</div>}
+                                  </td>
+                                  <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{req.email}</td>
+                                  <td className="px-5 py-4">
+                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                      isDark ? 'text-violet-400 bg-violet-500/10 border-violet-500/20' : 'text-violet-700 bg-violet-50 border-violet-100'
+                                    } border`}>
+                                      {req.planId?.name || 'N/A'}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                      req.onboardingStatus === 'approved'
+                                        ? 'text-emerald-500 bg-emerald-500/10'
+                                        : req.onboardingStatus === 'rejected'
+                                          ? 'text-red-500 bg-red-500/10'
+                                          : 'text-amber-500 bg-amber-500/10'
+                                    }`}>
+                                      {req.onboardingStatus}
+                                    </span>
+                                  </td>
+                                  <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{fmtDate(req.createdAt)}</td>
+                                  <td className="px-5 py-4">
+                                    {req.onboardingStatus === 'pending' ? (
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => handleApproveOnboarding(req._id)}
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                        >
+                                          Approve
+                                        </button>
+                                        <button
+                                          onClick={() => handleRequestOnboardingInfo(req._id)}
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white/[0.06] border border-white/[0.08] hover:bg-white/[0.1] text-white/80 cursor-pointer"
+                                        >
+                                          Request Info
+                                        </button>
+                                        <button
+                                          onClick={() => handleRejectOnboarding(req._id)}
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 cursor-pointer"
+                                        >
+                                          Reject
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>Processed</span>
+                                    )}
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr className={isDark ? 'bg-white/[0.01]' : 'bg-slate-50/20'}>
+                                    <td colSpan={7} className="px-6 py-4 border-t border-b border-slate-200/50 dark:border-white/[0.04]">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-normal">
+                                        <div>
+                                          <span className={`font-bold uppercase tracking-wider block mb-1 text-[10px] ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                                            Full Contact & Address Details
+                                          </span>
+                                          <div className={`font-semibold p-3.5 rounded-xl border whitespace-pre-wrap ${
+                                            isDark ? 'bg-[#12122d]/60 border-white/[0.04] text-white/80' : 'bg-white border-slate-200/60 text-slate-700 shadow-sm'
+                                          }`}>
+                                            {req.address || 'No address details provided.'}
+                                          </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div>
+                                            <span className={`font-bold uppercase tracking-wider block mb-1 text-[10px] ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                                              Estimated Student Count
+                                            </span>
+                                            <div className={`font-bold p-3.5 rounded-xl border flex items-center gap-2 ${
+                                              isDark ? 'bg-[#12122d]/60 border-white/[0.04] text-white' : 'bg-white border-slate-200/60 text-slate-800 shadow-sm'
+                                            }`}>
+                                              <Users className="w-4 h-4 text-violet-500" />
+                                              {req.studentCount || 'N/A'} Students
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <span className={`font-bold uppercase tracking-wider block mb-1 text-[10px] ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                                              Contact Email & Phone
+                                            </span>
+                                            <div className={`p-3.5 rounded-xl border flex flex-col justify-center gap-1 ${
+                                              isDark ? 'bg-[#12122d]/60 border-white/[0.04] text-white/80' : 'bg-white border-slate-200/60 text-slate-700 shadow-sm'
+                                            }`}>
+                                              <div className="font-semibold">{req.email}</div>
+                                              <div className="text-[11px] text-slate-400">{req.phone || 'No phone'}</div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeSection === 'billing' && (
+                <div className="space-y-6">
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Subscriptions & Billing</h1>
+                      <p className={`text-sm mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>Track trials, invoices, and record manual payments</p>
+                    </div>
+                    <button
+                      onClick={() => setShowInvoiceForm(true)}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-semibold shadow-lg shadow-violet-500/20 transition-all cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Invoice
+                    </button>
+                  </div>
+
+                  {/* Billing Metrics Widgets */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard icon={Clock}        label="Active Trials"          value={billingStats.activeTrials} color="from-sky-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={AlertCircle}  label="Trial Expiring Soon"    value={billingStats.trialExpiringSoon} color="from-yellow-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={DollarSign}   label="Payment Due"            value={billingStats.paymentDue} color="from-orange-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={AlertTriangle} label="Grace Period"          value={billingStats.gracePeriod} color="from-red-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={Building2}    label="Suspended Institutes"   value={billingStats.suspendedInstitutes} color="from-rose-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={CheckCircle2} label="Active Subscriptions"  value={billingStats.activeSubscriptions} color="from-emerald-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={TrendingUp}   label="Monthly Revenue"        value={fmtRevenue(billingStats.monthlyRevenue)} color="from-violet-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={Star}         label="Annual Revenue"         value={fmtRevenue(billingStats.annualRevenue)} color="from-amber-500/5 to-transparent" isDark={isDark} />
+                  </div>
+
+                  {/* Create Invoice Form Modal-like Inline form */}
+                  <AnimatePresence>
+                    {showInvoiceForm && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className={`p-5 rounded-2xl border transition-all ${
+                          isDark ? 'bg-[#0f0f23] border-violet-500/20' : 'bg-white border-violet-200 shadow-md'
+                        }`}>
+                          <h3 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            <Plus className="w-4 h-4 text-violet-500" />
+                            Generate New Invoice
+                          </h3>
+                          <form onSubmit={handleCreateInvoice} className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className={`block text-xs mb-1.5 font-semibold ${isDark ? 'text-white/40' : 'text-slate-500'}`}>Institute *</label>
+                              <select
+                                value={invoiceForm.instituteId}
+                                onChange={e => setInvoiceForm(p => ({ ...p, instituteId: e.target.value }))}
+                                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none appearance-none ${
+                                  isDark 
+                                    ? 'bg-[#06060f] border-white/[0.08] text-white focus:border-violet-500/40' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-violet-500/60'
+                                }`}
+                                required
+                              >
+                                <option value="">Select Institute</option>
+                                {institutes.map(i => (
+                                  <option key={i._id} value={i._id}>{i.name} ({i.instituteCode})</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className={`block text-xs mb-1.5 font-semibold ${isDark ? 'text-white/40' : 'text-slate-500'}`}>Amount ($) *</label>
+                              <input
+                                type="number"
+                                placeholder="Amount"
+                                value={invoiceForm.amount || ''}
+                                onChange={e => setInvoiceForm(p => ({ ...p, amount: Number(e.target.value) }))}
+                                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none ${
+                                  isDark 
+                                    ? 'bg-[#06060f] border-white/[0.08] text-white focus:border-violet-500/40' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-violet-500/60'
+                                }`}
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className={`block text-xs mb-1.5 font-semibold ${isDark ? 'text-white/40' : 'text-slate-500'}`}>Due Date *</label>
+                              <input
+                                type="date"
+                                value={invoiceForm.dueDate}
+                                onChange={e => setInvoiceForm(p => ({ ...p, dueDate: e.target.value }))}
+                                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none ${
+                                  isDark 
+                                    ? 'bg-[#06060f] border-white/[0.08] text-white focus:border-violet-500/40' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-violet-500/60'
+                                }`}
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className={`block text-xs mb-1.5 font-semibold ${isDark ? 'text-white/40' : 'text-slate-500'}`}>Billing Cycle</label>
+                              <select
+                                value={invoiceForm.billingCycle}
+                                onChange={e => setInvoiceForm(p => ({ ...p, billingCycle: e.target.value }))}
+                                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none appearance-none ${
+                                  isDark 
+                                    ? 'bg-[#06060f] border-white/[0.08] text-white focus:border-violet-500/40' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-violet-500/60'
+                                }`}
+                              >
+                                <option value="monthly">Monthly</option>
+                                <option value="quarterly">Quarterly</option>
+                                <option value="half_yearly">Half Yearly</option>
+                                <option value="yearly">Yearly</option>
+                              </select>
+                            </div>
+                            <div className="col-span-2">
+                              <label className={`block text-xs mb-1.5 font-semibold ${isDark ? 'text-white/40' : 'text-slate-500'}`}>Invoice Notes</label>
+                              <textarea
+                                placeholder="Additional terms or billing info..."
+                                value={invoiceForm.notes}
+                                onChange={e => setInvoiceForm(p => ({ ...p, notes: e.target.value }))}
+                                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none h-20 resize-none ${
+                                  isDark 
+                                    ? 'bg-[#06060f] border-white/[0.08] text-white focus:border-violet-500/40' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-violet-500/60'
+                                }`}
+                              />
+                            </div>
+                            <div className="col-span-2 flex gap-3 justify-end">
+                              <button type="button" onClick={() => setShowInvoiceForm(false)} className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                                isDark ? 'text-white/40 hover:text-white hover:bg-white/[0.05]' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                              }`}>
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={invoiceSubmitting}
+                                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
+                              >
+                                {invoiceSubmitting ? 'Generating…' : 'Generate Invoice'}
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Mark Paid Form Modal */}
+                  <AnimatePresence>
+                    {showPayForm && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className={`w-full max-w-lg p-6 border rounded-2xl shadow-xl ${
+                            isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white' : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          <h3 className="text-base font-bold mb-4">Record Manual Payment</h3>
+                          <form onSubmit={handleRecordPaymentPaid} className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-semibold mb-1 text-white/45">Payment Method *</label>
+                              <select
+                                value={payForm.paymentMethod}
+                                onChange={e => setPayForm(p => ({ ...p, paymentMethod: e.target.value }))}
+                                className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none appearance-none ${
+                                  isDark ? 'bg-[#06060f] border-white/[0.08]' : 'bg-slate-50 border-slate-200'
+                                }`}
+                              >
+                                <option value="cash">Cash</option>
+                                <option value="upi">UPI / QR Scan</option>
+                                <option value="bank_transfer">Bank Transfer (NEFT/IMPS)</option>
+                                <option value="cheque">Cheque</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold mb-1 text-white/45">Payment Reference *</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. UPI123456789, NEFT987654, RCPT-001"
+                                value={payForm.paymentReference}
+                                onChange={e => setPayForm(p => ({ ...p, paymentReference: e.target.value }))}
+                                className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none ${
+                                  isDark ? 'bg-[#06060f] border-white/[0.08] text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                                }`}
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold mb-1 text-white/45">Notes</label>
+                              <textarea
+                                placeholder="Payment notes..."
+                                value={payForm.notes}
+                                onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))}
+                                className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none h-20 resize-none ${
+                                  isDark ? 'bg-[#06060f] border-white/[0.08] text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                                }`}
+                              />
+                            </div>
+                            <div className="flex gap-3 justify-end pt-2">
+                              <button type="button" onClick={() => setShowPayForm(false)} className="px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/[0.05]">
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={paySubmitting}
+                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                              >
+                                {paySubmitting ? 'Recording…' : 'Record Payment & Renew'}
+                              </button>
+                            </div>
+                          </form>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Payment Invoice Records Table */}
+                  <div className={`border rounded-2xl overflow-hidden transition-all duration-300 ${
+                    isDark ? 'bg-[#0f0f23] border-white/[0.06]' : 'bg-white border-slate-200/80 shadow-sm'
+                  }`}>
+                    <div className="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
+                      <h3 className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>Invoice History</h3>
+                      <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>{billingPayments.length} invoices generated</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className={`border-b ${isDark ? 'border-white/[0.06]' : 'border-slate-100 bg-slate-50/50'}`}>
+                            {['Invoice No.', 'Institute', 'Plan', 'Cycle', 'Amount', 'Due Date', 'Status', 'Payment Info', 'Actions'].map(h => (
+                              <th key={h} className={`px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider ${
+                                isDark ? 'text-white/25' : 'text-slate-400'
+                              }`}>
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${isDark ? 'divide-white/[0.04]' : 'divide-slate-100'}`}>
+                          {billingPayments.length === 0 ? (
+                            <tr>
+                              <td colSpan={9} className={`px-5 py-10 text-center text-sm ${isDark ? 'text-white/20' : 'text-slate-400'}`}>
+                                No invoice/billing records found
+                              </td>
+                            </tr>
+                          ) : billingPayments.map(payment => (
+                            <tr key={payment._id} className={`transition-colors ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/50'}`}>
+                              <td className="px-5 py-4 font-mono text-xs">{payment.invoiceNumber}</td>
+                              <td className="px-5 py-4">
+                                <div className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{payment.instituteId?.name || 'N/A'}</div>
+                                <div className={`text-xs mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>Code: {payment.instituteCode}</div>
+                              </td>
+                              <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{payment.planId?.name || 'N/A'}</td>
+                              <td className="px-5 py-4 capitalize text-xs">{payment.billingCycle}</td>
+                              <td className="px-5 py-4 font-semibold text-emerald-400">${payment.amount}</td>
+                              <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                                {payment.paymentDueDate ? fmtDate(payment.paymentDueDate) : fmtDate(payment.dueDate)}
+                              </td>
+                              <td className="px-5 py-4">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  payment.status === 'paid'
+                                    ? 'text-emerald-500 bg-emerald-500/10'
+                                    : payment.status === 'overdue'
+                                      ? 'text-red-500 bg-red-500/10'
+                                      : 'text-amber-500 bg-amber-500/10'
+                                }`}>
+                                  {payment.status}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4 text-xs">
+                                {payment.status === 'paid' ? (
+                                  <div>
+                                    <div className="capitalize">{payment.paymentMethod?.replace('_', ' ')}</div>
+                                    <div className={`text-[10px] mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>Ref: {payment.paymentReference}</div>
+                                  </div>
+                                ) : (
+                                  <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>—</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-4">
+                                {payment.status !== 'paid' ? (
+                                  <button
+                                    onClick={() => {
+                                      setPayForm(p => ({ ...p, paymentId: payment._id }));
+                                      setShowPayForm(true);
+                                    }}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                  >
+                                    Mark Paid
+                                  </button>
+                                ) : (
+                                  <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>Recorded</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>

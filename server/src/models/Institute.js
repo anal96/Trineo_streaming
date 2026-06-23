@@ -8,6 +8,48 @@ const instituteSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  instituteCode: {
+    type: String,
+    unique: true,
+    required: true,
+    index: true
+  },
+  subscriptionStatus: {
+    type: String,
+    enum: ['inactive', 'active', 'payment_due', 'grace_period', 'suspended'],
+    default: 'inactive'
+  },
+  onboardingStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  address: {
+    type: String,
+    default: ''
+  },
+  planId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SubscriptionPlan'
+  },
+  billingCycle: {
+    type: String,
+    enum: ['monthly', 'quarterly', 'half_yearly', 'yearly'],
+    default: 'monthly'
+  },
+  nextBillingDate: Date,
+  gracePeriodEndDate: Date,
+  approvedAt: Date,
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  trialStartDate: Date,
+  trialEndDate: Date,
+  isTrialActive: {
+    type: Boolean,
+    default: false
+  },
   instituteId: {
     type: String,
     unique: true,
@@ -225,13 +267,21 @@ const instituteSchema = new mongoose.Schema({
 
 instituteSchema.index({ 'integration.crmInstituteId': 1 }, { sparse: true });
 
-instituteSchema.pre('save', async function (next) {
+instituteSchema.pre('validate', function (next) {
+  if (!this.instituteCode) {
+    const randomHex = crypto.randomBytes(4).toString('hex').toUpperCase();
+    this.instituteCode = `TEMP-${randomHex}`;
+  }
+
   if (!this.instituteId) {
     const prefix = (this.name || 'inst').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 3).padEnd(3, 'x');
     const randomHex = crypto.randomBytes(4).toString('hex');
     this.instituteId = `inst_${prefix}_${randomHex}`;
   }
-  
+  next();
+});
+
+instituteSchema.pre('save', async function (next) {
   if (this.isModified('apiKey') && this.apiKey) {
     const salt = await bcrypt.genSalt(10);
     this.apiKeyHash = await bcrypt.hash(this.apiKey, salt);

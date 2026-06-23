@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
@@ -31,10 +32,12 @@ import accessRoutes from './routes/accessRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
 import pushSubscriptionRoutes from './routes/pushSubscriptionRoutes.js';
 import scheduledNotificationRoutes from './routes/scheduledNotificationRoutes.js';
+import onboardingRoutes from './routes/onboardingRoutes.js';
 import { startBackgroundScheduler } from './services/schedulerService.js';
 import { checkSecurityPenalty } from './middleware/securityCheck.js';
 import { protect, adminOnly } from './middleware/auth.js';
 import { getInstituteYouTubeStatus } from './controllers/youtubeController.js';
+import { requireActiveSubscription } from './middleware/requireActiveSubscription.js';
 
 // Seed model imports
 import { User } from './models/User.js';
@@ -45,12 +48,15 @@ import { Institute } from './models/Institute.js';
 import { Announcement } from './models/Announcement.js';
 import { Faculty } from './models/Faculty.js';
 import { Purchase } from './models/Purchase.js';
+import { SubscriptionPlan } from './models/SubscriptionPlan.js';
+import { SubscriptionPayment } from './models/SubscriptionPayment.js';
+
 
 
 const bootStart = Date.now();
 const app = express();
 
-
+app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false })); // Harden headers against XSS and clickjacking
 const allowedOrigins = [
   'https://trineo-streaming.vercel.app',
@@ -92,7 +98,29 @@ app.use([
   '/api/certificates'
 ], checkSecurityPenalty);
 
+app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/auth', authRoutes);
+
+// Apply active subscription enforcement to all LMS and student/admin endpoints
+app.use([
+  '/api/courses',
+  '/api/programs',
+  '/api/lessons',
+  '/api/progress',
+  '/api/videos',
+  '/api/hls',
+  '/api/materials',
+  '/api/downloads',
+  '/api/certificates',
+  '/api/student',
+  '/api/student-import',
+  '/api/student-account',
+  '/api/student-notifications',
+  '/api/live-classes',
+  '/api/access',
+  '/api/scheduled-notifications'
+], protect, requireActiveSubscription);
+
 app.use('/api/courses', programRoutes);
 app.use('/api/programs', programRoutes);
 app.use('/api/subjects', subjectRoutes);
@@ -130,12 +158,55 @@ const PORT = process.env.PORT || 5000;
 // Seed Function
 const seedData = async () => {
   try {
+    // Seed Subscription Plans
+    const plansCount = await SubscriptionPlan.countDocuments();
+    if (plansCount === 0) {
+      await SubscriptionPlan.insertMany([
+        {
+          name: 'Starter',
+          description: 'Great for small teams starting their online academy.',
+          price: 49,
+          billingCycle: 'monthly',
+          studentLimit: 100,
+          storageLimit: 100,
+          features: ['Core LMS', 'Course Builder', 'YouTube Status'],
+          isActive: true
+        },
+        {
+          name: 'Professional',
+          description: 'Perfect for growing institutes requiring advanced video and live classes.',
+          price: 149,
+          billingCycle: 'monthly',
+          studentLimit: 500,
+          storageLimit: 500,
+          features: ['Core LMS', 'Course Builder', 'YouTube Status', 'Video Uploads', 'Live Classes', 'Push Notifications'],
+          isActive: true
+        },
+        {
+          name: 'Enterprise',
+          description: 'SaaS level scale for large organizations with custom limits.',
+          price: 499,
+          billingCycle: 'monthly',
+          studentLimit: 2000,
+          storageLimit: 2000,
+          features: ['Core LMS', 'Course Builder', 'YouTube Status', 'Video Uploads', 'Live Classes', 'Push Notifications', 'Custom Domain', 'CRM Sync', 'Security Session Monitor'],
+          isActive: true
+        }
+      ]);
+      console.log('Seeded default SubscriptionPlans (Starter, Professional, Enterprise)');
+    }
+
     // 0. Seed Default Institute
     let defaultInstitute = await Institute.findOne({ name: 'GFI Institute' });
     if (!defaultInstitute) {
+      const enterprisePlan = await SubscriptionPlan.findOne({ name: 'Enterprise' });
       defaultInstitute = new Institute({
         name: 'GFI Institute',
         instituteId: 'inst_gfi',
+        instituteCode: 'GFI001',
+        subscriptionStatus: 'active',
+        onboardingStatus: 'approved',
+        planId: enterprisePlan ? enterprisePlan._id : null,
         apiKey: 'trn_gfi_9a8c7d6e5f4a',
         email: 'info@gfi.edu',
         contactPerson: 'Sarah Manager',
@@ -165,7 +236,7 @@ const seedData = async () => {
         }
       });
       await defaultInstitute.save();
-      console.log('Seeded default Institute: GFI Institute');
+      console.log('Seeded default Institute: GFI Institute (Code: GFI001, Plan: Enterprise, Status: active)');
     } else {
       let docModified = false;
       if (!defaultInstitute.instituteId || !defaultInstitute.apiKeyHash) {

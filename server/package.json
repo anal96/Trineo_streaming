@@ -7,11 +7,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test tests/tenant-isolation.test.js tests/content-access.test.js tests/crm-integration.test.js tests/sso.test.js tests/crmSync.test.js tests/onboarding.test.js tests/lms-restructure.test.js tests/security-isolation.test.js",
+    "test": "node --test tests/tenant-isolation.test.js tests/content-access.test.js tests/crm-integration.test.js tests/sso.test.js tests/crmSync.test.js tests/onboarding.test.js tests/lms-restructure.test.js tests/security-isolation.test.js tests/saas-lifecycle.test.js",
     "backfill:slugs": "node src/scripts/backfillSlugs.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "compression": "^1.7.5",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

@@ -63,13 +63,15 @@ const LANDING_HTML = `
                           class="img-fluid animate-spin">Contact</a>
                     </li>
                   </ul>
-                  <div class="hstack gap-3">
+                  <div class="hstack gap-3 flex-wrap">
                     <a href="/login"
                       class="btn btn-outline-light fs-6 bg-white px-3 py-2 text-dark w-50 hstack justify-content-center" data-nav="login">Sign
                       In</a>
                     <a href="/signup"
                       class="btn btn-dark text-white fs-6 bg-dark px-3 py-2 w-50 hstack justify-content-center" data-nav="signup">Sign
                       Up</a>
+                    <a href="/register-institute"
+                      class="btn btn-primary text-white fs-6 bg-primary px-3 py-2 w-100 hstack justify-content-center mt-2" data-nav="register-institute">Register Academy</a>
                   </div>
                 </div>
                 <div>
@@ -1280,7 +1282,7 @@ export default function LandingPage() {
       if (!href) return;
 
       // Internal React routes
-      if (href === '/login' || href === '/signup' || href === '/') {
+      if (href === '/login' || href === '/signup' || href === '/' || href === '/register-institute') {
         e.preventDefault();
         navigate(href);
         return;

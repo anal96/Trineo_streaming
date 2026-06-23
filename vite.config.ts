@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { visualizer } from 'rollup-plugin-visualizer'
 
 
 function figmaAssetResolver() {
@@ -23,6 +24,13 @@ export default defineConfig({
     // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
+    visualizer({
+      filename: 'stats.html',
+      title: 'Trineo Stream Bundle Analysis',
+      template: 'treemap',
+      gzipSize: true,
+      brotliSize: true,
+    }),
   ],
   resolve: {
     alias: {

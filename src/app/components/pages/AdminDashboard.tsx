@@ -31,6 +31,8 @@ import {
   Youtube,
   Loader2,
   Palette,
+  Crown,
+  CreditCard,
   Building2,
   Save,
   Link2,
@@ -59,6 +61,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { apiFetch, getApiUrl } from '../../utils/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { PanelDrawerNav } from '../responsive/PanelDrawerNav';
 import { ResponsiveDataView, MobileRecordCard } from '../responsive/ResponsiveDataView';
@@ -86,7 +89,8 @@ const tabLabels: Record<string, string> = {
   securityCenter: 'Security Center',
   payments: 'Analytics',
   announcements: 'Notifications',
-  branding: 'Institute Branding'
+  branding: 'Institute Branding',
+  subscription: 'Subscription & Plan'
 };
 
 const navItems = [
@@ -101,6 +105,7 @@ const navItems = [
   { icon: ShieldCheck, label: 'Security Center', id: 'securityCenter' },
   { icon: Users, label: 'Student Management', id: 'students' },
   { icon: Bell, label: 'Notifications', id: 'announcements' },
+  { icon: Crown, label: 'Subscription & Plan', id: 'subscription' },
   { icon: Palette, label: 'Institute Branding', id: 'branding' }
 ];
 
@@ -114,23 +119,58 @@ export default function AdminDashboard() {
   const [curriculumBuilderProgramId, setCurriculumBuilderProgramId] = useState<string | undefined>(undefined);
   
   // Dynamic metrics & statistics from API
-  const [metrics, setMetrics] = useState<any>({
-    totalStudents: 0,
-    totalRevenue: 0,
-    activeCourses: 0,
-    completionRate: '0%'
-  });
-  const [revenueData, setRevenueData] = useState<any[]>([]);
-  const [topCourses, setTopCourses] = useState<any[]>([]);
-  const [studentsList, setStudentsList] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
-  const [coursesList, setCoursesList] = useState<any[]>([]);
+  const queryClient = useQueryClient();
 
-  // Enterprise additions
-  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
-  const [announcementTitle, setAnnouncementTitle] = useState('');
-  const [announcementMsg, setAnnouncementMsg] = useState('');
-  const [videoJobs, setVideoJobs] = useState<any[]>([]);
+  // Queries
+  const { data: overviewData, isLoading: isOverviewLoading, error: overviewError } = useQuery({
+    queryKey: ['overview'],
+    queryFn: () => apiFetch('/analytics/overview'),
+  });
+
+  const { data: coursesList = [], isLoading: isCoursesLoading } = useQuery({
+    queryKey: ['courses'],
+    queryFn: () => apiFetch('/courses'),
+  });
+
+  const { data: programsList = [], isLoading: isProgramsLoading } = useQuery({
+    queryKey: ['programs'],
+    queryFn: () => apiFetch('/programs'),
+  });
+
+  const { data: pendingPayments = [], isLoading: isPaymentsLoading } = useQuery({
+    queryKey: ['pending-payments'],
+    queryFn: () => apiFetch('/purchases/pending-payments'),
+  });
+
+  const { data: videoJobs = [], isLoading: isJobsLoading } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => apiFetch('/videos/jobs'),
+    refetchInterval: activeTab === 'upload' ? 5000 : false,
+  });
+
+  const { data: youtubeIntegration = {
+    youtubeConnected: false,
+    youtubeChannelName: '',
+    youtubeChannelId: '',
+    youtubeConnectedAt: null,
+    youtubeLastSync: null,
+    videosUploaded: 0
+  }, refetch: refetchYoutubeStatus } = useQuery({
+    queryKey: ['status', 'youtube'],
+    queryFn: () => apiFetch('/videos/youtube/integration/status'),
+    refetchOnWindowFocus: true,
+  });
+
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => apiFetch('/auth/profile'),
+  });
+
+  const { data: billingData, isLoading: isBillingLoading } = useQuery({
+    queryKey: ['billing'],
+    queryFn: () => apiFetch('/analytics/billing'),
+    enabled: activeTab === 'subscription',
+  });
 
   // Branding state
   const [brandingInstituteName, setBrandingInstituteName] = useState('');
@@ -143,11 +183,6 @@ export default function AdminDashboard() {
   const [brandingSupportPhone, setBrandingSupportPhone] = useState('');
   const [brandingSaving, setBrandingSaving] = useState(false);
   const [brandingSuccess, setBrandingSuccess] = useState('');
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  
-  // Course/Program creation state has been removed - unified under Curriculum Builder
 
   // Student management state
   const [showStudentModal, setShowStudentModal] = useState(false);
@@ -187,111 +222,103 @@ export default function AdminDashboard() {
   const [selectedUploadUnitId, setSelectedUploadUnitId] = useState('');
   const [availableLessons, setAvailableLessons] = useState<any[]>([]);
   const [selectedUploadLessonId, setSelectedUploadLessonId] = useState('');
-  const [programsList, setProgramsList] = useState<any[]>([]);
   
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState('');
-  const [youtubeIntegration, setYoutubeIntegration] = useState<any>({
-    youtubeConnected: false,
-    youtubeChannelName: '',
-    youtubeChannelId: '',
-    youtubeConnectedAt: null,
-    youtubeLastSync: null,
-    videosUploaded: 0
-  });
   const [youtubeActionLoading, setYoutubeActionLoading] = useState(false);
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementMsg, setAnnouncementMsg] = useState('');
 
   const [studentSearch, setStudentSearch] = useState('');
 
-  // Load CRM details on mount
+  // Derived state fields from queries
+  const metrics = overviewData?.metrics || {
+    totalStudents: 0,
+    totalRevenue: 0,
+    activeCourses: 0,
+    completionRate: '0%'
+  };
+  const revenueData = overviewData?.revenueData || [];
+  const topCourses = overviewData?.topCourses || [];
+  const studentsList = overviewData?.students || [];
+  const recentActivity = overviewData?.recentActivity || [];
+
+  const loading = isOverviewLoading && !overviewData;
+  const [error, setError] = useState('');
+
+  // Handle overview query errors
+  useEffect(() => {
+    if (overviewError) {
+      setError((overviewError as any).message || 'Failed to load administrator metrics.');
+    } else {
+      setError('');
+    }
+  }, [overviewError]);
+
+  // Synchronize profile data with branding form state
+  useEffect(() => {
+    if (profile) {
+      localStorage.setItem('user', JSON.stringify(profile));
+      const institute = profile.institute;
+      if (institute) {
+        setBrandingInstituteName(institute.name || '');
+        setBrandingLogo(institute.logo || '');
+        setBrandingFavicon(institute.favicon || '');
+        setBrandingBrandColor(institute.theme?.brandColor || '#7c3aed');
+        setBrandingSecondaryColor(institute.theme?.secondaryColor || '#4f46e5');
+        setBrandingBranchName(institute.branchName || '');
+        setBrandingSupportEmail(institute.supportEmail || '');
+        setBrandingSupportPhone(institute.supportPhone || '');
+        setNewStudentBranch(prev => prev || institute.name || '');
+      }
+    }
+  }, [profile]);
+
+  // Keep compatibility with inline mutations
   const loadCrmData = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await apiFetch('/analytics/overview');
-      setMetrics(data.metrics);
-      setRevenueData(data.revenueData);
-      setTopCourses(data.topCourses);
-      setStudentsList(data.students);
-      setRecentActivity(data.recentActivity);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['overview'] }),
+      queryClient.invalidateQueries({ queryKey: ['courses'] }),
+      queryClient.invalidateQueries({ queryKey: ['programs'] }),
+      queryClient.invalidateQueries({ queryKey: ['pending-payments'] }),
+      queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+      queryClient.invalidateQueries({ queryKey: ['status', 'youtube'] }),
+      queryClient.invalidateQueries({ queryKey: ['profile'] }),
+      queryClient.invalidateQueries({ queryKey: ['billing'] })
+    ]);
+  };
 
-      const courses = await apiFetch('/courses');
-      setCoursesList(courses);
+  // Prefetch tabs on mount
+  useEffect(() => {
+    queryClient.prefetchQuery({ queryKey: ['programs'], queryFn: () => apiFetch('/programs') });
+    queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/auth/profile') });
+  }, []);
 
-      const programs = await apiFetch('/programs');
-      setProgramsList(programs);
-
-      const payments = await apiFetch('/purchases/pending-payments');
-      setPendingPayments(payments);
-
-      const jobs = await apiFetch('/videos/jobs');
-      setVideoJobs(jobs);
-      try {
-        const ytStatus = await apiFetch('/videos/youtube/integration/status');
-        console.log("Frontend Integration State");
-        console.log("YouTube Status Response:", ytStatus);
-        setYoutubeIntegration(ytStatus);
-      } catch (_e) {}
-
-      // Load current institute branding
-      try {
-        const profile = await apiFetch('/auth/profile');
-        if (profile) {
-          localStorage.setItem('user', JSON.stringify(profile));
-        }
-        const institute = profile?.institute;
-        if (institute) {
-          setBrandingInstituteName(institute.name || '');
-          setBrandingLogo(institute.logo || '');
-          setBrandingFavicon(institute.favicon || '');
-          setBrandingBrandColor(institute.theme?.brandColor || '#7c3aed');
-          setBrandingSecondaryColor(institute.theme?.secondaryColor || '#4f46e5');
-          setBrandingBranchName(institute.branchName || '');
-          setBrandingSupportEmail(institute.supportEmail || '');
-          setBrandingSupportPhone(institute.supportPhone || '');
-          setNewStudentBranch(prev => prev || institute.name || '');
-        }
-      } catch (_) {}
-    } catch (err: any) {
-      setError(err.message || 'Failed to load administrator metrics.');
-    } finally {
-      setLoading(false);
+  const prefetchTab = (tabId: string) => {
+    if (tabId === 'lessons') {
+      queryClient.prefetchQuery({ queryKey: ['programs'], queryFn: () => apiFetch('/programs') });
+    } else if (tabId === 'overview') {
+      queryClient.prefetchQuery({ queryKey: ['overview'], queryFn: () => apiFetch('/analytics/overview') });
+    } else if (tabId === 'branding') {
+      queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/auth/profile') });
+    } else if (tabId === 'subscription') {
+      queryClient.prefetchQuery({ queryKey: ['billing'], queryFn: () => apiFetch('/analytics/billing') });
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'students' || activeTab === 'overview' || activeTab === 'youtube') {
+    if (activeTab === 'students' || activeTab === 'overview' || activeTab === 'youtube' || activeTab === 'subscription') {
       loadCrmData();
     }
-  }, [activeTab]);
-
-  useEffect(() => {
-    const handleFocus = async () => {
-      if (activeTab === 'youtube') {
-        try {
-          const status = await apiFetch('/videos/youtube/integration/status');
-          console.log("Frontend Integration State");
-          console.log("YouTube Status Response:", status);
-          setYoutubeIntegration(status);
-        } catch (_) {}
-      }
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
   }, [activeTab]);
 
   useEffect(() => {
     const onOAuthResult = async (event: MessageEvent) => {
       if (!event?.data || event.data.type !== 'YOUTUBE_CONNECT_RESULT') return;
       if (event.data.success) {
-        const status = await apiFetch('/videos/youtube/integration/status');
-        console.log("Frontend Integration State");
-        console.log("YouTube Status Response:", status);
-        setYoutubeIntegration(status);
-        toast.success('YouTube Channel Connected', {
-          description: `Channel Name: ${event.data.channelName || status.youtubeChannelName || 'Connected Channel'}`
-        });
+        await queryClient.invalidateQueries({ queryKey: ['status', 'youtube'] });
+        toast.success('YouTube Channel Connected');
       } else {
         toast.error('Connection Failed', {
           description: event.data.message || 'Unable to connect your YouTube channel.'
@@ -300,21 +327,7 @@ export default function AdminDashboard() {
     };
     window.addEventListener('message', onOAuthResult);
     return () => window.removeEventListener('message', onOAuthResult);
-  }, []);
-
-  // Poll video processing status
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (activeTab === 'upload') {
-      interval = setInterval(async () => {
-        try {
-          const jobs = await apiFetch('/videos/jobs');
-          setVideoJobs(jobs);
-        } catch (e) {}
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [activeTab]);
+  }, [queryClient]);
 
   const handleLogout = async () => {
     try {
@@ -670,8 +683,7 @@ export default function AdminDashboard() {
     try {
       setYoutubeActionLoading(true);
       await apiFetch('/videos/youtube/integration/sync', { method: 'POST' });
-      const status = await apiFetch('/videos/youtube/integration/status');
-      setYoutubeIntegration(status);
+      await queryClient.invalidateQueries({ queryKey: ['status', 'youtube'] });
     } catch (err: any) {
       alert(err.message || 'Failed to sync YouTube channel');
     } finally {
@@ -684,8 +696,7 @@ export default function AdminDashboard() {
     try {
       setYoutubeActionLoading(true);
       await apiFetch('/videos/youtube/integration/disconnect', { method: 'POST' });
-      const status = await apiFetch('/videos/youtube/integration/status');
-      setYoutubeIntegration(status);
+      await queryClient.invalidateQueries({ queryKey: ['status', 'youtube'] });
     } catch (err: any) {
       alert(err.message || 'Failed to disconnect YouTube channel');
     } finally {
@@ -1116,6 +1127,7 @@ export default function AdminDashboard() {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
+                onMouseEnter={() => prefetchTab(item.id)}
                 className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative ${
                   activeTab === item.id
                     ? 'bg-gradient-to-r from-violet-600/20 to-indigo-600/10 text-foreground border border-violet-500/30 shadow-sm'
@@ -2106,6 +2118,280 @@ export default function AdminDashboard() {
 
             {activeTab === 'accessManager' && (
               <ContentAccessManager />
+            )}
+
+            {activeTab === 'subscription' && (
+              <div className="space-y-6">
+                {isBillingLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20">
+                    <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+                    <p className="text-sm text-muted-foreground">Loading subscription & billing details...</p>
+                  </div>
+                ) : !billingData ? (
+                  <Card className="border-border/50 bg-card p-8 text-center">
+                    <AlertCircle className="w-12 h-12 mx-auto text-destructive mb-3" />
+                    <CardTitle className="mb-2">Failed to Load Billing Information</CardTitle>
+                    <p className="text-sm text-muted-foreground">We were unable to retrieve your subscription data. Please check your network or try again later.</p>
+                  </Card>
+                ) : (() => {
+                  const renderUsageBar = ({ title, current, max, unit, icon: Icon }: any) => {
+                    const isUnlimited = max === 0;
+                    const percentage = isUnlimited ? 0 : Math.min(100, Math.round((current / max) * 100));
+                    const isWarning = percentage >= 85;
+                    
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2 font-medium">
+                            <Icon className="w-4 h-4 text-muted-foreground" />
+                            <span>{title}</span>
+                          </div>
+                          <div className="text-muted-foreground text-xs">
+                            <span className="font-semibold text-foreground">{current}</span>
+                            <span> / </span>
+                            <span>{isUnlimited ? 'Unlimited' : `${max} ${unit}`}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                isWarning 
+                                  ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' 
+                                  : 'bg-primary'
+                              }`}
+                              style={{ width: isUnlimited ? '0%' : `${percentage}%` }}
+                            />
+                          </div>
+                          {!isUnlimited && (
+                            <span className={`text-xs font-bold w-8 text-right ${isWarning ? 'text-red-500' : 'text-muted-foreground'}`}>
+                              {percentage}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const getStatusBadge = (status: string, isTrial: boolean) => {
+                    if (isTrial) return <Badge className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white border-0 shadow-sm">14-Day Free Trial</Badge>;
+                    const statusColors: Record<string, string> = {
+                      active: 'bg-green-500/10 text-green-500 border-green-500/20',
+                      payment_due: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+                      grace_period: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+                      suspended: 'bg-red-500/10 text-red-500 border-red-500/20',
+                      inactive: 'bg-slate-500/10 text-slate-500 border-slate-500/20'
+                    };
+                    return (
+                      <Badge variant="outline" className={statusColors[status] || 'text-muted-foreground'}>
+                        {status ? status.toUpperCase().replace('_', ' ') : 'INACTIVE'}
+                      </Badge>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-6">
+                      {/* Subscription Info Cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Plan Card */}
+                        <Card className="border-border/50 bg-card overflow-hidden relative">
+                          <div className="absolute inset-0 bg-gradient-to-r from-violet-500/5 via-transparent to-transparent pointer-events-none" />
+                          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                            <div>
+                              <CardDescription className="text-xs uppercase tracking-wider font-semibold">Active Plan</CardDescription>
+                              <CardTitle className="text-xl font-bold mt-1 text-primary">
+                                {billingData.plan ? `${billingData.plan.name} Plan` : 'Custom Plan'}
+                              </CardTitle>
+                            </div>
+                            <div className="w-10 h-10 rounded-xl bg-violet-600/10 flex items-center justify-center text-violet-500">
+                              <Crown className="w-5 h-5" />
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold text-foreground">
+                              {billingData.plan ? `$${billingData.plan.price}` : 'Contact Support'}
+                              {billingData.plan && <span className="text-xs font-normal text-muted-foreground"> / month</span>}
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* Status Card */}
+                        <Card className="border-border/50 bg-card overflow-hidden relative">
+                          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                            <div>
+                              <CardDescription className="text-xs uppercase tracking-wider font-semibold">Subscription Status</CardDescription>
+                              <div className="mt-2.5">
+                                {getStatusBadge(billingData.institute.subscriptionStatus, billingData.institute.isTrialActive)}
+                              </div>
+                            </div>
+                            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                              <ShieldCheck className="w-5 h-5" />
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-xs text-muted-foreground">
+                              {billingData.institute.isTrialActive ? (
+                                <>
+                                  Trial ends on <strong className="text-foreground">{formatDate(billingData.institute.trialEndDate)}</strong>
+                                </>
+                              ) : (
+                                <>
+                                  Renewal date: <strong className="text-foreground">{formatDate(billingData.institute.nextBillingDate)}</strong>
+                                </>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* Billing Details Card */}
+                        <Card className="border-border/50 bg-card overflow-hidden relative">
+                          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                            <div>
+                              <CardDescription className="text-xs uppercase tracking-wider font-semibold">Billing Details</CardDescription>
+                              <CardTitle className="text-base font-bold mt-1.5 truncate max-w-[180px]">
+                                Code: {billingData.institute.instituteCode}
+                              </CardTitle>
+                            </div>
+                            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                              <Building2 className="w-5 h-5" />
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-xs text-muted-foreground">
+                              Billing Cycle: <strong className="text-foreground capitalize">{billingData.institute.billingCycle}</strong>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      {/* Quotas and Usage */}
+                      <Card className="border-border/50 bg-card">
+                        <CardHeader>
+                          <CardTitle className="text-base font-bold">Resource Quota & Usage</CardTitle>
+                          <CardDescription>Monitor your resource usage relative to your plan limits.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          {renderUsageBar({
+                            title: 'Student Accounts',
+                            current: billingData.usage.students,
+                            max: billingData.plan ? billingData.plan.studentLimit : 500,
+                            unit: 'students',
+                            icon: Users
+                          })}
+                          {renderUsageBar({
+                            title: 'Disk Storage',
+                            current: Number((billingData.institute.storageUsedGB || 0).toFixed(2)),
+                            max: billingData.plan ? billingData.plan.storageLimit : 1000,
+                            unit: 'GB',
+                            icon: Upload
+                          })}
+                          {renderUsageBar({
+                            title: 'Courses',
+                            current: billingData.usage.courses,
+                            max: billingData.institute.quotas?.maxCourses || 50,
+                            unit: 'courses',
+                            icon: BookOpen
+                          })}
+                          {renderUsageBar({
+                            title: 'Streaming Videos',
+                            current: billingData.usage.videos,
+                            max: billingData.institute.quotas?.maxVideos || 2000,
+                            unit: 'videos',
+                            icon: Video
+                          })}
+                          {renderUsageBar({
+                            title: 'Study Materials',
+                            current: billingData.usage.studyMaterials,
+                            max: billingData.institute.quotas?.maxStudyMaterials || 5000,
+                            unit: 'files',
+                            icon: FileText
+                          })}
+                        </CardContent>
+                      </Card>
+
+                      {/* Plan Features */}
+                      <Card className="border-border/50 bg-card">
+                        <CardHeader>
+                          <CardTitle className="text-base font-bold">Plan Features</CardTitle>
+                          <CardDescription>Included features in your subscription package.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {billingData.plan && billingData.plan.features ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {billingData.plan.features.map((feat: string) => (
+                                <div key={feat} className="flex items-center gap-2.5 text-sm">
+                                  <div className="w-5 h-5 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center shrink-0">
+                                    <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                  </div>
+                                  <span className="text-muted-foreground">{feat}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No features details found for this plan.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Invoice & Billing History */}
+                      <Card className="border-border/50 bg-card">
+                        <CardHeader>
+                          <CardTitle className="text-base font-bold">Invoice & Billing History</CardTitle>
+                          <CardDescription>Track generated invoices and manual transaction receipts.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {billingData.invoices && billingData.invoices.length === 0 ? (
+                            <div className="text-center py-10 border border-dashed rounded-xl border-border/50 bg-background/30">
+                              <FileText className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
+                              <p className="text-sm text-muted-foreground">No billing invoice history found.</p>
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Invoice #</TableHead>
+                                    <TableHead>Amount</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Due Date</TableHead>
+                                    <TableHead>Paid Date</TableHead>
+                                    <TableHead>Payment Method</TableHead>
+                                    <TableHead>Reference</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {billingData.invoices.map((inv: any) => {
+                                    const statusColors: Record<string, string> = {
+                                      paid: 'text-green-400 border-green-500/20 bg-green-500/10',
+                                      unpaid: 'text-amber-400 border-amber-500/20 bg-amber-500/10',
+                                      overdue: 'text-red-400 border-red-500/20 bg-red-500/10'
+                                    };
+                                    return (
+                                      <TableRow key={inv._id}>
+                                        <TableCell className="font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
+                                        <TableCell className="font-bold">${inv.amount}</TableCell>
+                                        <TableCell>
+                                          <Badge variant="outline" className={statusColors[inv.status] || 'text-muted-foreground'}>
+                                            {inv.status ? inv.status.toUpperCase() : 'N/A'}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{inv.paymentDueDate ? formatDate(inv.paymentDueDate) : 'N/A'}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{inv.paidDate ? formatDate(inv.paidDate) : 'N/A'}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground capitalize">{inv.paymentMethod ? inv.paymentMethod.replace('_', ' ') : 'N/A'}</TableCell>
+                                        <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[120px]">{inv.paymentReference || 'N/A'}</TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  );
+                })()}
+              </div>
             )}
 
             {/* TAB 4: ANALYTICS */}
