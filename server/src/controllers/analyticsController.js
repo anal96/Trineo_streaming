@@ -331,7 +331,7 @@ export const getAdminOverview = async (req, res) => {
             latestLogin: { $first: '$createdAt' }
           }
         }
-      ]).lean()),
+      ])),
       timedQuery('latestWatchesBulk', WatchHistory.aggregate([
         {
           $match: {
@@ -346,7 +346,7 @@ export const getAdminOverview = async (req, res) => {
             watchedAt: { $first: '$watchedAt' }
           }
         }
-      ]).lean()),
+      ])),
       timedQuery('purchaseCountsBulk', Purchase.aggregate([
         {
           $match: {
@@ -360,7 +360,7 @@ export const getAdminOverview = async (req, res) => {
             count: { $sum: 1 }
           }
         }
-      ]).lean())
+      ]))
     ]);
 
     // Build lookup maps in O(1) JavaScript memory

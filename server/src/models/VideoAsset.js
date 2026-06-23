@@ -60,7 +60,6 @@ const videoAssetSchema = new mongoose.Schema({
   }
 });
 
-videoAssetSchema.index({ institute: 1 });
 videoAssetSchema.index({ courseId: 1 });
 videoAssetSchema.index({ createdAt: -1 });
 videoAssetSchema.index({ uploadStatus: 1 });
