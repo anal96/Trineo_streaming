@@ -40,7 +40,7 @@ const studentAccessSchema = new mongoose.Schema({
   },
   expiryDate: {
     type: Date,
-    required: true
+    default: null
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

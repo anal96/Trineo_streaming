@@ -33,6 +33,8 @@ import pushSubscriptionRoutes from './routes/pushSubscriptionRoutes.js';
 import scheduledNotificationRoutes from './routes/scheduledNotificationRoutes.js';
 import { startBackgroundScheduler } from './services/schedulerService.js';
 import { checkSecurityPenalty } from './middleware/securityCheck.js';
+import { protect, adminOnly } from './middleware/auth.js';
+import { getInstituteYouTubeStatus } from './controllers/youtubeController.js';
 
 // Seed model imports
 import { User } from './models/User.js';
@@ -45,7 +47,9 @@ import { Faculty } from './models/Faculty.js';
 import { Purchase } from './models/Purchase.js';
 
 
+const bootStart = Date.now();
 const app = express();
+
 
 app.use(helmet({ contentSecurityPolicy: false })); // Harden headers against XSS and clickjacking
 const allowedOrigins = [
@@ -99,6 +103,7 @@ app.use('/api/purchases', enrollmentRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/videos', youtubeRoutes);
+app.get('/api/youtube/status', protect, adminOnly, getInstituteYouTubeStatus);
 app.use('/api/security', securityRoutes);
 app.use('/api/owner', ownerRoutes);
 app.use('/api/student', studentRoutes);
@@ -498,9 +503,18 @@ const seedData = async () => {
 // No FFmpeg. No HLS transcoding loop. YouTube integration is active.
 
 const server = app.listen(PORT, async () => {
+  const dbStart = Date.now();
   await connectDB();
+  console.log(`[BOOT] Database connection took ${Date.now() - dbStart} ms`);
+  
+  const seedStart = Date.now();
   await seedData();
+  console.log(`[BOOT] Database seeding took ${Date.now() - seedStart} ms`);
+  
   startBackgroundScheduler();
+  console.log(`[BOOT] Server startup listener execution took ${Date.now() - dbStart} ms`);
+  console.log(`[BOOT] Total startup cold-start duration: ${Date.now() - bootStart} ms`);
+
   console.log(`\n=== Trineo Stream Server Started ===`);
   console.log(`Port        : ${PORT}`);
   console.log(`Environment : ${process.env.NODE_ENV || 'development'}`);

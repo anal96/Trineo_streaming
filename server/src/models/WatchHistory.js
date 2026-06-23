@@ -64,6 +64,10 @@ const watchHistorySchema = new mongoose.Schema({
 // Dual indexes to prevent duplicates in new schema and optimize old schema lookup
 watchHistorySchema.index({ studentId: 1, contentId: 1 }, { unique: true, partialFilterExpression: { contentId: { $exists: true } } });
 watchHistorySchema.index({ studentId: 1, lessonId: 1 }, { partialFilterExpression: { lessonId: { $exists: true } } });
+watchHistorySchema.index({ studentId: 1 });
+watchHistorySchema.index({ lastWatchedAt: -1 });
+watchHistorySchema.index({ watchedAt: -1 });
+
 
 watchHistorySchema.pre('save', async function (next) {
   if (this.institute && !this.instituteId) {

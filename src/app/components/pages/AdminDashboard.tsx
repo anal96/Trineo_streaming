@@ -229,6 +229,8 @@ export default function AdminDashboard() {
       setVideoJobs(jobs);
       try {
         const ytStatus = await apiFetch('/videos/youtube/integration/status');
+        console.log("Frontend Integration State");
+        console.log("YouTube Status Response:", ytStatus);
         setYoutubeIntegration(ytStatus);
       } catch (_e) {}
 
@@ -259,9 +261,24 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (activeTab === 'students' || activeTab === 'overview') {
+    if (activeTab === 'students' || activeTab === 'overview' || activeTab === 'youtube') {
       loadCrmData();
     }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleFocus = async () => {
+      if (activeTab === 'youtube') {
+        try {
+          const status = await apiFetch('/videos/youtube/integration/status');
+          console.log("Frontend Integration State");
+          console.log("YouTube Status Response:", status);
+          setYoutubeIntegration(status);
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [activeTab]);
 
   useEffect(() => {
@@ -269,6 +286,8 @@ export default function AdminDashboard() {
       if (!event?.data || event.data.type !== 'YOUTUBE_CONNECT_RESULT') return;
       if (event.data.success) {
         const status = await apiFetch('/videos/youtube/integration/status');
+        console.log("Frontend Integration State");
+        console.log("YouTube Status Response:", status);
         setYoutubeIntegration(status);
         toast.success('YouTube Channel Connected', {
           description: `Channel Name: ${event.data.channelName || status.youtubeChannelName || 'Connected Channel'}`

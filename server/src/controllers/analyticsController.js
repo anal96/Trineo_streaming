@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Course } from '../models/Course.js';
 import { Purchase } from '../models/Purchase.js';
@@ -13,6 +14,16 @@ import { generateTemporaryPassword } from '../utils/passwordGenerator.js';
 import { sendStudentWelcomeEmail } from '../services/emailService.js';
 
 export const getAdminOverview = async (req, res) => {
+  const start = Date.now();
+  console.log("Overview Start");
+
+  const timedQuery = async (queryName, queryPromise) => {
+    const qStart = Date.now();
+    const result = await queryPromise;
+    console.log(`[PROFILE] Query "${queryName}" took ${Date.now() - qStart} ms`);
+    return result;
+  };
+
   try {
     if (req.user.role !== 'owner' && !req.user.institute) {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
@@ -43,29 +54,154 @@ export const getAdminOverview = async (req, res) => {
       fromDate.setDate(fromDate.getDate() - 30); // default 30d
     }
 
-    // --- 1. Top Summary Cards ---
-    // Total Students
-    const totalStudents = await User.countDocuments(userQuery);
+    const purchaseMatch = isOwner
+      ? { status: 'completed' }
+      : { status: 'completed', institute: req.user.institute };
 
-    // Active Students
-    const activeLoginUserIds = await AuditLog.distinct('userId', {
-      ...instQuery,
-      eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] },
-      createdAt: { $gte: fromDate, $lte: toDate }
-    });
-    const activeWatchUserIds = await WatchHistory.distinct('studentId', {
-      ...instQuery,
-      $or: [
-        { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
-        { watchedAt: { $gte: fromDate, $lte: toDate } }
-      ]
-    });
-    const activeDownloadUserIds = await SecurityEvent.distinct('studentId', {
-      ...instQuery,
-      eventType: 'download_attempt',
-      createdAt: { $gte: fromDate, $lte: toDate }
-    });
+    // --- Execute First Batch of Queries in Parallel ---
+    const [
+      totalStudents,
+      activeLoginUserIds,
+      activeWatchUserIds,
+      activeDownloadUserIds,
+      distinctBatches,
+      distinctCourses,
+      totalTopics,
+      distinctSubjects,
+      watchHistoryInRange,
+      totalStudyMaterials,
+      revenueResult,
+      newEnrollments,
+      activeCourses,
+      totalWatchHistory,
+      completedWatchHistory,
+      revenueMonthlyAgg,
+      topCoursesAgg,
+      loginsList,
+      viewsList,
+      downloadsList,
+      allStudents,
+      watchHistoriesWithLesson,
+      downloadEvents,
+      recentWatch,
+      recentDown
+    ] = await Promise.all([
+      timedQuery('totalStudents', User.countDocuments(userQuery)),
+      timedQuery('activeLoginUserIds', AuditLog.distinct('userId', {
+        ...instQuery,
+        eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] },
+        createdAt: { $gte: fromDate, $lte: toDate }
+      })),
+      timedQuery('activeWatchUserIds', WatchHistory.distinct('studentId', {
+        ...instQuery,
+        $or: [
+          { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
+          { watchedAt: { $gte: fromDate, $lte: toDate } }
+        ]
+      })),
+      timedQuery('activeDownloadUserIds', SecurityEvent.distinct('studentId', {
+        ...instQuery,
+        eventType: 'download_attempt',
+        createdAt: { $gte: fromDate, $lte: toDate }
+      })),
+      timedQuery('distinctBatches', User.distinct('batchName', {
+        ...userQuery,
+        batchName: { $ne: '' }
+      })),
+      timedQuery('distinctCourses', User.distinct('courseName', {
+        ...userQuery,
+        courseName: { $ne: '' }
+      })),
+      timedQuery('totalTopics', Lesson.countDocuments({
+        ...instQuery,
+        publishStatus: 'published',
+        isDeleted: { $ne: true }
+      })),
+      timedQuery('distinctSubjects', Lesson.distinct('subjectTitle', {
+        ...instQuery,
+        isDeleted: { $ne: true }
+      })),
+      timedQuery('watchHistoryInRange', WatchHistory.find({
+        ...instQuery,
+        $or: [
+          { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
+          { watchedAt: { $gte: fromDate, $lte: toDate } }
+        ]
+      }).select('watchTime progress').lean()),
+      timedQuery('totalStudyMaterials', StudyMaterial.countDocuments(instQuery)),
+      timedQuery('revenueResult', Purchase.aggregate([
+        { $match: purchaseMatch },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ])),
+      timedQuery('newEnrollments', Purchase.countDocuments({
+        ...purchaseMatch,
+        purchasedAt: { $gte: fromDate }
+      })),
+      timedQuery('activeCourses', Course.countDocuments({ ...instQuery, status: 'active' })),
+      timedQuery('totalWatchHistory', WatchHistory.countDocuments(instQuery)),
+      timedQuery('completedWatchHistory', WatchHistory.countDocuments({ ...instQuery, completed: true })),
+      timedQuery('revenueMonthlyAgg', Purchase.aggregate([
+        { $match: { ...purchaseMatch, purchasedAt: { $gte: fromDate } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m', date: '$purchasedAt' } },
+            revenue: { $sum: '$amount' }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ])),
+      timedQuery('topCoursesAgg', Purchase.aggregate([
+        { $match: purchaseMatch },
+        { $group: { _id: '$courseId', enrollments: { $sum: 1 } } },
+        { $sort: { enrollments: -1 } },
+        { $limit: 5 }
+      ])),
+      timedQuery('loginsList', AuditLog.find({
+        ...instQuery,
+        eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] },
+        createdAt: { $gte: fromDate, $lte: toDate }
+      }).select('createdAt').lean()),
+      timedQuery('viewsList', WatchHistory.find({
+        ...instQuery,
+        $or: [
+          { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
+          { watchedAt: { $gte: fromDate, $lte: toDate } }
+        ]
+      }).select('lastWatchedAt watchedAt watchTime progress studentId').lean()),
+      timedQuery('downloadsList', SecurityEvent.find({
+        ...instQuery,
+        eventType: 'download_attempt',
+        createdAt: { $gte: fromDate, $lte: toDate }
+      }).select('createdAt').lean()),
+      timedQuery('allStudents', User.find(userQuery).select('_id name email batchName createdAt enrollmentDate packageExpiryDate joined phone courseName status branchName').lean()),
+      timedQuery('watchHistoriesWithLesson', WatchHistory.find({
+        ...instQuery
+      }).populate({
+        path: 'lessonId',
+        select: 'title subjectTitle'
+      }).select('lessonId watchTime progress completed').lean()),
+      timedQuery('downloadEvents', SecurityEvent.find({
+        ...instQuery,
+        eventType: 'download_attempt',
+        createdAt: { $gte: fromDate, $lte: toDate }
+      }).select('details topicTitle').lean()),
+      timedQuery('recentWatch', WatchHistory.find(instQuery)
+        .populate('studentId', 'name')
+        .populate('lessonId', 'title')
+        .sort({ lastWatchedAt: -1, watchedAt: -1 })
+        .limit(15)
+        .lean()),
+      timedQuery('recentDown', SecurityEvent.find({
+        ...instQuery,
+        eventType: 'download_attempt'
+      })
+        .populate('studentId', 'name')
+        .sort({ createdAt: -1 })
+        .limit(15)
+        .lean())
+    ]);
 
+    // Active users size check
     const activeUserIdsSet = new Set([
       ...activeLoginUserIds.filter(Boolean).map(String),
       ...activeWatchUserIds.filter(Boolean).map(String),
@@ -75,86 +211,26 @@ export const getAdminOverview = async (req, res) => {
     const activeRate = totalStudents > 0 ? parseFloat(((activeStudentsCount / totalStudents) * 100).toFixed(1)) : 0;
 
     // Total Batches
-    const distinctBatches = await User.distinct('batchName', {
-      ...userQuery,
-      batchName: { $ne: '' }
-    });
-    const distinctCourses = await User.distinct('courseName', {
-      ...userQuery,
-      courseName: { $ne: '' }
-    });
     const totalBatches = new Set([...distinctBatches, ...distinctCourses].filter(Boolean)).size;
 
-    // Total Topics (published lessons)
-    const totalTopics = await Lesson.countDocuments({
-      ...instQuery,
-      publishStatus: 'published',
-      isDeleted: { $ne: true }
-    });
-
     // Total Subjects (distinct subjectTitle)
-    const distinctSubjects = await Lesson.distinct('subjectTitle', {
-      ...instQuery,
-      isDeleted: { $ne: true }
-    });
     const totalSubjects = distinctSubjects.filter(Boolean).length;
 
     // Total Watch Hours
-    const watchHistoryInRange = await WatchHistory.find({
-      ...instQuery,
-      $or: [
-        { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
-        { watchedAt: { $gte: fromDate, $lte: toDate } }
-      ]
-    }).select('watchTime progress');
     const totalWatchSeconds = watchHistoryInRange.reduce((sum, entry) => sum + (entry.watchTime || Math.round((entry.progress || 0) * 0.6)), 0);
     const totalWatchHours = parseFloat((totalWatchSeconds / 3600).toFixed(1));
 
-    // Study Materials
-    const totalStudyMaterials = await StudyMaterial.countDocuments(instQuery);
-
-    // Backward-Compatible revenue and enrollment stats
-    const purchaseMatch = isOwner
-      ? { status: 'completed' }
-      : { status: 'completed', institute: req.user.institute };
-
-    const revenueResult = await Purchase.aggregate([
-      { $match: purchaseMatch },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+    // Revenue
     const totalRevenue = revenueResult[0]?.total || 0;
 
-    const newEnrollments = await Purchase.countDocuments({
-      ...purchaseMatch,
-      purchasedAt: { $gte: fromDate }
-    });
-
-    const activeCourses = await Course.countDocuments({ ...instQuery, status: 'active' });
-
-    const totalWatchHistory = await WatchHistory.countDocuments(instQuery);
-    const completedWatchHistory = await WatchHistory.countDocuments({ ...instQuery, completed: true });
+    // Course completion rate
     const completionRate = totalWatchHistory > 0 ? ((completedWatchHistory / totalWatchHistory) * 100).toFixed(1) : '0';
 
-    const revenueMonthlyAgg = await Purchase.aggregate([
-      { $match: { ...purchaseMatch, purchasedAt: { $gte: fromDate } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m', date: '$purchasedAt' } },
-          revenue: { $sum: '$amount' }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
+    // Revenue chart data
     const revenueData = revenueMonthlyAgg.map((item) => ({ month: item._id, revenue: item.revenue }));
 
-    const topCoursesAgg = await Purchase.aggregate([
-      { $match: purchaseMatch },
-      { $group: { _id: '$courseId', enrollments: { $sum: 1 } } },
-      { $sort: { enrollments: -1 } },
-      { $limit: 5 }
-    ]);
-
-    const populatedTopCourses = await Course.populate(topCoursesAgg, { path: '_id', select: 'title' });
+    // Top courses data
+    const populatedTopCourses = await timedQuery('populatedTopCourses', Course.populate(topCoursesAgg, { path: '_id', select: 'title' }));
     const topCoursesData = populatedTopCourses.map(item => ({
       name: item._id?.title || 'Unknown Course',
       enrollments: item.enrollments
@@ -177,26 +253,6 @@ export const getAdminOverview = async (req, res) => {
 
     // --- 2. Section 1: Student Engagement Trend ---
     let engagementTrend = [];
-    const loginsList = await AuditLog.find({
-      ...instQuery,
-      eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] },
-      createdAt: { $gte: fromDate, $lte: toDate }
-    }).select('createdAt');
-
-    const viewsList = await WatchHistory.find({
-      ...instQuery,
-      $or: [
-        { lastWatchedAt: { $gte: fromDate, $lte: toDate } },
-        { watchedAt: { $gte: fromDate, $lte: toDate } }
-      ]
-    }).select('lastWatchedAt watchedAt watchTime progress studentId');
-
-    const downloadsList = await SecurityEvent.find({
-      ...instQuery,
-      eventType: 'download_attempt',
-      createdAt: { $gte: fromDate, $lte: toDate }
-    }).select('createdAt');
-
     if (range === 'today') {
       const hourMap = {};
       for (let i = 0; i < 24; i++) {
@@ -204,20 +260,20 @@ export const getAdminOverview = async (req, res) => {
         hourMap[hourStr] = { date: hourStr, logins: 0, views: 0, downloads: 0 };
       }
       loginsList.forEach(item => {
-        const hour = item.createdAt.getHours();
+        const hour = new Date(item.createdAt).getHours();
         const hourStr = `${String(hour).padStart(2, '0')}:00`;
         if (hourMap[hourStr]) hourMap[hourStr].logins++;
       });
       viewsList.forEach(item => {
         const dateObj = item.lastWatchedAt || item.watchedAt;
         if (dateObj) {
-          const hour = dateObj.getHours();
+          const hour = new Date(dateObj).getHours();
           const hourStr = `${String(hour).padStart(2, '0')}:00`;
           if (hourMap[hourStr]) hourMap[hourStr].views++;
         }
       });
       downloadsList.forEach(item => {
-        const hour = item.createdAt.getHours();
+        const hour = new Date(item.createdAt).getHours();
         const hourStr = `${String(hour).padStart(2, '0')}:00`;
         if (hourMap[hourStr]) hourMap[hourStr].downloads++;
       });
@@ -231,28 +287,83 @@ export const getAdminOverview = async (req, res) => {
         current.setDate(current.getDate() + 1);
       }
       loginsList.forEach(item => {
-        const dStr = item.createdAt.toISOString().split('T')[0];
+        const dStr = new Date(item.createdAt).toISOString().split('T')[0];
         if (dateMap[dStr]) dateMap[dStr].logins++;
       });
       viewsList.forEach(item => {
         const dateObj = item.lastWatchedAt || item.watchedAt;
         if (dateObj) {
-          const dStr = dateObj.toISOString().split('T')[0];
+          const dStr = new Date(dateObj).toISOString().split('T')[0];
           if (dateMap[dStr]) dateMap[dStr].views++;
         }
       });
       downloadsList.forEach(item => {
-        const dStr = item.createdAt.toISOString().split('T')[0];
+        const dStr = new Date(item.createdAt).toISOString().split('T')[0];
         if (dateMap[dStr]) dateMap[dStr].downloads++;
       });
       engagementTrend = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
     }
 
-    // --- 3. Section 2: Student Progress Distribution (Doughnut Chart) ---
-    const allStudents = await User.find(userQuery).select('_id name email batchName createdAt enrollmentDate packageExpiryDate joined phone courseName status branchName');
+    // --- 3. Extract Student IDs and execute Bulk dependent queries ---
     const studentIds = allStudents.map(s => String(s._id));
+    const studentObjectIds = studentIds.map(id => new mongoose.Types.ObjectId(id));
 
-    const allHistory = await WatchHistory.find({ studentId: { $in: studentIds } }).select('studentId progress');
+    const [
+      allHistory,
+      batchWatchHistories,
+      latestLogins,
+      latestWatches,
+      purchaseCounts
+    ] = await Promise.all([
+      timedQuery('allHistory', WatchHistory.find({ studentId: { $in: studentIds } }).select('studentId progress').lean()),
+      timedQuery('batchWatchHistories', WatchHistory.find({ studentId: { $in: studentIds } }).select('studentId watchTime progress completed').lean()),
+      timedQuery('latestLoginsBulk', AuditLog.aggregate([
+        {
+          $match: {
+            userId: { $in: studentObjectIds },
+            eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] }
+          }
+        },
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: '$userId',
+            latestLogin: { $first: '$createdAt' }
+          }
+        }
+      ]).lean()),
+      timedQuery('latestWatchesBulk', WatchHistory.aggregate([
+        {
+          $match: {
+            studentId: { $in: studentObjectIds }
+          }
+        },
+        { $sort: { lastWatchedAt: -1, watchedAt: -1 } },
+        {
+          $group: {
+            _id: '$studentId',
+            lastWatchedAt: { $first: '$lastWatchedAt' },
+            watchedAt: { $first: '$watchedAt' }
+          }
+        }
+      ]).lean()),
+      timedQuery('purchaseCountsBulk', Purchase.aggregate([
+        {
+          $match: {
+            studentId: { $in: studentObjectIds },
+            status: 'completed'
+          }
+        },
+        {
+          $group: {
+            _id: '$studentId',
+            count: { $sum: 1 }
+          }
+        }
+      ]).lean())
+    ]);
+
+    // Build lookup maps in O(1) JavaScript memory
     const progressMap = {};
     studentIds.forEach(id => { progressMap[id] = []; });
     allHistory.forEach(h => {
@@ -262,6 +373,25 @@ export const getAdminOverview = async (req, res) => {
       }
     });
 
+    const latestLoginsMap = {};
+    latestLogins.forEach(item => {
+      latestLoginsMap[item._id.toString()] = item.latestLogin;
+    });
+
+    const latestWatchesMap = {};
+    latestWatches.forEach(item => {
+      latestWatchesMap[item._id.toString()] = {
+        lastWatchedAt: item.lastWatchedAt,
+        watchedAt: item.watchedAt
+      };
+    });
+
+    const purchaseCountsMap = {};
+    purchaseCounts.forEach(item => {
+      purchaseCountsMap[item._id.toString()] = item.count;
+    });
+
+    // Student Progress Distribution (Doughnut Chart)
     let g1 = 0, g2 = 0, g3 = 0, g4 = 0;
     Object.values(progressMap).forEach((progressList) => {
       const avg = progressList.length > 0
@@ -290,10 +420,6 @@ export const getAdminOverview = async (req, res) => {
       batchMap[bName].studentIds.push(String(s._id));
     });
 
-    const batchWatchHistories = await WatchHistory.find({
-      studentId: { $in: studentIds }
-    }).select('studentId watchTime progress completed');
-
     batchWatchHistories.forEach(h => {
       const sId = String(h.studentId);
       Object.values(batchMap).forEach(b => {
@@ -318,13 +444,6 @@ export const getAdminOverview = async (req, res) => {
     }).sort((a, b) => b.completion - a.completion || b.watchHours - a.watchHours);
 
     // --- 5. Section 4: Subject Performance ---
-    const watchHistoriesWithLesson = await WatchHistory.find({
-      ...instQuery
-    }).populate({
-      path: 'lessonId',
-      select: 'title subjectTitle'
-    }).select('lessonId watchTime progress completed');
-
     const subjectMap = {};
     watchHistoriesWithLesson.forEach(h => {
       const subjName = h.lessonId?.subjectTitle || 'General';
@@ -372,7 +491,7 @@ export const getAdminOverview = async (req, res) => {
         const hourStr = `${String(i).padStart(2, '0')}:00`;
         const hourViews = viewsList.filter(item => {
           const dateObj = item.lastWatchedAt || item.watchedAt;
-          return dateObj && dateObj.getHours() === i;
+          return dateObj && new Date(dateObj).getHours() === i;
         });
         const hourSeconds = hourViews.reduce((sum, item) => sum + (item.watchTime || Math.round((item.progress || 0) * 0.6)), 0);
         accumulatedSeconds += hourSeconds;
@@ -387,7 +506,7 @@ export const getAdminOverview = async (req, res) => {
         const dateStr = currentD.toISOString().split('T')[0];
         const dayViews = viewsList.filter(item => {
           const dateObj = item.lastWatchedAt || item.watchedAt;
-          return dateObj && dateObj.toISOString().split('T')[0] === dateStr;
+          return dateObj && new Date(dateObj).toISOString().split('T')[0] === dateStr;
         });
         const daySeconds = dayViews.reduce((sum, item) => sum + (item.watchTime || Math.round((item.progress || 0) * 0.6)), 0);
         accumulatedSeconds += daySeconds;
@@ -404,25 +523,17 @@ export const getAdminOverview = async (req, res) => {
     const nowTime = new Date().getTime();
 
     for (const student of allStudents) {
-      // Find latest login
-      const latestLogin = await AuditLog.findOne({
-        userId: student._id,
-        eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] }
-      }).sort({ createdAt: -1 }).select('createdAt');
-
-      // Find latest watch
-      const latestWatch = await WatchHistory.findOne({
-        studentId: student._id
-      }).sort({ lastWatchedAt: -1, watchedAt: -1 }).select('lastWatchedAt watchedAt');
+      const studentIdStr = student._id.toString();
+      const latestLoginTime = latestLoginsMap[studentIdStr];
+      const latestWatchInfo = latestWatchesMap[studentIdStr];
 
       const lastActiveDate = [
-        latestLogin?.createdAt,
-        latestWatch?.lastWatchedAt,
-        latestWatch?.watchedAt
+        latestLoginTime,
+        latestWatchInfo?.lastWatchedAt,
+        latestWatchInfo?.watchedAt
       ].filter(Boolean).sort((a, b) => b - a)[0] || student.createdAt;
 
-      // Student progress list
-      const sProgressList = progressMap[String(student._id)] || [];
+      const sProgressList = progressMap[studentIdStr] || [];
       const progress = sProgressList.length > 0
         ? Math.round(sProgressList.reduce((a, b) => a + b, 0) / sProgressList.length)
         : 0;
@@ -460,35 +571,31 @@ export const getAdminOverview = async (req, res) => {
 
     // --- 9. Section 8: Top Student Leaderboard & Enriched Students list ---
     const leaderboard = [];
-    const enrichedStudents = await Promise.all(allStudents.map(async (student) => {
-      const courseCount = await Purchase.countDocuments({ studentId: student._id, status: 'completed' });
-      const sProgressList = progressMap[String(student._id)] || [];
+    const enrichedStudents = allStudents.map((student) => {
+      const studentIdStr = student._id.toString();
+      const courseCount = purchaseCountsMap[studentIdStr] || 0;
+      const sProgressList = progressMap[studentIdStr] || [];
       const progress = sProgressList.length > 0
         ? Math.round(sProgressList.reduce((a, b) => a + b, 0) / sProgressList.length)
         : 0;
 
       const totalWatchSec = viewsList
-        .filter(v => String(v.studentId) === String(student._id))
+        .filter(v => String(v.studentId) === studentIdStr)
         .reduce((sum, h) => sum + (h.watchTime || Math.round((h.progress || 0) * 0.6)), 0);
       const watchHours = parseFloat((totalWatchSec / 3600).toFixed(1));
 
-      // Latest login/activity
-      const latestLogin = await AuditLog.findOne({
-        userId: student._id,
-        eventType: { $in: ['login', 'LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS'] }
-      }).sort({ createdAt: -1 }).select('createdAt');
-
-      const latestWatch = await WatchHistory.findOne({
-        studentId: student._id
-      }).sort({ lastWatchedAt: -1, watchedAt: -1 }).select('lastWatchedAt watchedAt');
+      const latestLoginTime = latestLoginsMap[studentIdStr];
+      const latestWatchInfo = latestWatchesMap[studentIdStr];
 
       const lastActiveDate = [
-        latestLogin?.createdAt,
-        latestWatch?.lastWatchedAt,
-        latestWatch?.watchedAt
+        latestLoginTime,
+        latestWatchInfo?.lastWatchedAt,
+        latestWatchInfo?.watchedAt
       ].filter(Boolean).sort((a, b) => b - a)[0] || student.createdAt;
 
-      const dateStr = student.createdAt.toISOString().split('T')[0];
+      const dateStr = student.createdAt instanceof Date 
+        ? student.createdAt.toISOString().split('T')[0] 
+        : new Date(student.createdAt).toISOString().split('T')[0];
 
       const enriched = {
         id: student._id,
@@ -503,8 +610,12 @@ export const getAdminOverview = async (req, res) => {
         branchName: student.branchName || '',
         batchName: student.batchName || '',
         courseName: student.courseName || '',
-        enrollmentDate: student.enrollmentDate ? student.enrollmentDate.toISOString().split('T')[0] : '',
-        packageExpiryDate: student.packageExpiryDate ? student.packageExpiryDate.toISOString().split('T')[0] : null,
+        enrollmentDate: student.enrollmentDate 
+          ? (student.enrollmentDate instanceof Date ? student.enrollmentDate.toISOString().split('T')[0] : new Date(student.enrollmentDate).toISOString().split('T')[0]) 
+          : '',
+        packageExpiryDate: student.packageExpiryDate 
+          ? (student.packageExpiryDate instanceof Date ? student.packageExpiryDate.toISOString().split('T')[0] : new Date(student.packageExpiryDate).toISOString().split('T')[0]) 
+          : null,
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${student.name}`
       };
 
@@ -518,17 +629,11 @@ export const getAdminOverview = async (req, res) => {
       });
 
       return enriched;
-    }));
+    });
 
     leaderboard.sort((a, b) => b.watchHours - a.watchHours);
 
     // --- 10. Section 9: Resource Analytics ---
-    const downloadEvents = await SecurityEvent.find({
-      ...instQuery,
-      eventType: 'download_attempt',
-      createdAt: { $gte: fromDate, $lte: toDate }
-    }).select('details topicTitle');
-
     let pdfCount = 0;
     let notesCount = 0;
     let assignmentCount = 0;
@@ -551,20 +656,6 @@ export const getAdminOverview = async (req, res) => {
     ];
 
     // --- 11. Section 10: Recent Activity Feed ---
-    const recentWatch = await WatchHistory.find(instQuery)
-      .populate('studentId', 'name')
-      .populate('lessonId', 'title')
-      .sort({ lastWatchedAt: -1, watchedAt: -1 })
-      .limit(15);
-
-    const recentDown = await SecurityEvent.find({
-      ...instQuery,
-      eventType: 'download_attempt'
-    })
-      .populate('studentId', 'name')
-      .sort({ createdAt: -1 })
-      .limit(15);
-
     const feed = [];
     recentWatch.forEach(h => {
       if (h.studentId && h.lessonId) {
@@ -577,7 +668,7 @@ export const getAdminOverview = async (req, res) => {
           studentName,
           action,
           target: topicTitle,
-          timestamp: timestamp.toISOString()
+          timestamp: new Date(timestamp).toISOString()
         });
       }
     });
@@ -592,7 +683,7 @@ export const getAdminOverview = async (req, res) => {
           studentName,
           action: 'downloaded',
           target,
-          timestamp: timestamp.toISOString()
+          timestamp: new Date(timestamp).toISOString()
         });
       }
     });
@@ -600,6 +691,8 @@ export const getAdminOverview = async (req, res) => {
     const finalFeed = feed
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 15);
+
+    console.log("Overview Duration:", Date.now() - start, "ms");
 
     res.json({
       metrics,
@@ -618,9 +711,11 @@ export const getAdminOverview = async (req, res) => {
       recentActivity: finalFeed
     });
   } catch (error) {
+    console.error("Overview Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
+
 
 export const updateStudentStatus = async (req, res) => {
   const { studentId, status } = req.body;

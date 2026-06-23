@@ -230,6 +230,9 @@ export const getYouTubeAuthUrl = (req, res) => {
 export const youtubeCallback = async (req, res) => {
   try {
     const { code, state, error } = req.query;
+    console.log("OAuth Callback Hit");
+    console.log("OAuth Callback Reached");
+    console.log("Authorization Code:", code);
     const dashboardUrl = `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/admin`;
     if (error) {
       const safeMsg = buildUserSafeGoogleError({ message: String(error) });
@@ -277,6 +280,8 @@ export const youtubeCallback = async (req, res) => {
       }));
     }
     const tokens = await exchangeCodeForTokens(code);
+    console.log("Token Exchange Success");
+    console.log("Tokens Received:", tokens);
     const rawOldRefreshToken = institute.refreshToken || institute.youtubeRefreshToken || '';
     const oldRefreshToken = rawOldRefreshToken && rawOldRefreshToken.includes(':') ? decryptRefreshToken(rawOldRefreshToken) : rawOldRefreshToken;
     const refreshToken = tokens.refresh_token || oldRefreshToken;
@@ -296,6 +301,8 @@ export const youtubeCallback = async (req, res) => {
       refreshToken,
       accessToken: tokens.access_token
     });
+    console.log("Channel Fetch Success");
+    console.log("Channel Data:", identity);
 
     institute.youtubeConnected = true;
     institute.youtubeChannelId = identity.channelId;
@@ -324,6 +331,16 @@ export const youtubeCallback = async (req, res) => {
     institute.youtubeConnectedAt = new Date();
     institute.youtubeLastSync = new Date();
     await institute.save();
+    console.log("Database Save Success");
+    console.log("Saving YouTube Integration...");
+    console.log({
+      accessToken: tokens.access_token,
+      refreshToken,
+      channelId: identity.channelId,
+      channelTitle: identity.channelName,
+      connected: true,
+      connectedAt: institute.youtubeConnectedAt
+    });
 
     return res.status(200).send(renderOAuthResultPage({
       success: true,
@@ -366,14 +383,24 @@ export const getInstituteYouTubeStatus = async (req, res) => {
     const institute = await Institute.findById(req.user.institute);
     if (!institute) return res.status(404).json({ message: 'Institute not found' });
     const videosUploaded = await Lesson.countDocuments({ institute: institute._id, youtubeVideoId: { $exists: true, $ne: '' } });
-    res.json({
+    
+    const responsePayload = {
       youtubeConnected: Boolean(institute.youtubeConnected),
       youtubeChannelName: institute.youtubeChannelName || '',
       youtubeChannelId: institute.youtubeChannelId || '',
       youtubeConnectedAt: institute.youtubeConnectedAt || null,
       youtubeLastSync: institute.youtubeLastSync || null,
-      videosUploaded
-    });
+      videosUploaded,
+      // Spec compliance for the investigation checklist
+      connected: Boolean(institute.youtubeConnected),
+      channelId: institute.youtubeChannelId || '',
+      channelTitle: institute.youtubeChannelName || ''
+    };
+
+    console.log("Status Endpoint Response");
+    console.log(responsePayload);
+    
+    res.json(responsePayload);
   } catch (_err) {
     res.status(500).json({ message: 'Unable to load YouTube integration status.' });
   }

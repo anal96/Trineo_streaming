@@ -41,4 +41,9 @@ const paymentSchema = new mongoose.Schema({
   }
 });
 
+paymentSchema.index({ studentId: 1 });
+paymentSchema.index({ status: 1 });
+paymentSchema.index({ createdAt: -1 });
+
 export const Payment = mongoose.model('Payment', paymentSchema);
+

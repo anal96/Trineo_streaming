@@ -72,14 +72,14 @@ export const getCourses = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
     const query = req.user.role === 'owner' ? {} : { institute: req.user.institute };
-    const courses = await Course.find(query);
+    const courses = await Course.find(query).lean();
 
     // Aggregate real lesson counts per course
     const courseIds = courses.map(c => c._id);
     const lessonCounts = await Lesson.aggregate([
       { $match: { courseId: { $in: courseIds } } },
       { $group: { _id: '$courseId', count: { $sum: 1 } } }
-    ]);
+    ]).lean();
     const lessonCountMap = {};
     for (const lc of lessonCounts) {
       lessonCountMap[lc._id.toString()] = lc.count;
@@ -88,7 +88,7 @@ export const getCourses = async (req, res) => {
     // For students, check their access status
     if (req.user.role === 'student') {
       const coursesWithPurchaseStatus = await Promise.all(courses.map(async course => {
-        const courseObj = course.toObject();
+        const courseObj = course.toObject ? course.toObject() : { ...course };
         
         const access = await verifyStudentAccess({
           user: req.user,
@@ -110,7 +110,7 @@ export const getCourses = async (req, res) => {
     }
 
     const coursesWithCounts = courses.map(course => {
-      const courseObj = course.toObject();
+      const courseObj = course.toObject ? course.toObject() : { ...course };
       courseObj.lessonsCount = lessonCountMap[course._id.toString()] || 0;
       return courseObj;
     });
@@ -119,6 +119,7 @@ export const getCourses = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 export const getCourseById = async (req, res) => {
   try {

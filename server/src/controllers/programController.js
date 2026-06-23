@@ -8,10 +8,23 @@ import { ContentProgress } from '../models/ContentProgress.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
 import { StudentContentAccess } from '../models/StudentContentAccess.js';
 
-
 // Helper to filter by active institute
 const instituteFilter = (req) => {
   return req.user.role === 'owner' ? { isDeleted: false } : { institute: req.user.institute, isDeleted: false };
+};
+
+// Helper to transform lean Lesson documents
+const transformLessonObj = (lesson) => {
+  const ret = lesson.toObject ? lesson.toObject() : { ...lesson };
+  if (ret.videoAssetId && typeof ret.videoAssetId === 'object') {
+    ret.youtubeVideoId = ret.videoAssetId.youtubeVideoId || ret.youtubeVideoId;
+    ret.youtubeThumbnail = ret.videoAssetId.youtubeThumbnail || ret.youtubeThumbnail;
+    ret.youtubeDuration = ret.videoAssetId.youtubeDuration || ret.youtubeDuration;
+    ret.duration = ret.videoAssetId.youtubeDuration || ret.duration;
+    ret.durationSeconds = ret.videoAssetId.durationSeconds || ret.durationSeconds;
+    ret.uploadStatus = ret.videoAssetId.uploadStatus || ret.uploadStatus;
+  }
+  return ret;
 };
 
 export const getPrograms = async (req, res) => {
@@ -20,24 +33,24 @@ export const getPrograms = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
     const filter = instituteFilter(req);
-    const programs = await Program.find(filter).sort({ displayOrder: 1, createdAt: 1 });
+    const programs = await Program.find(filter).sort({ displayOrder: 1, createdAt: 1 }).lean();
 
     const programIds = programs.map(p => p._id);
 
     // Get subjects under these programs
-    const subjects = await Subject.find({ programId: { $in: programIds }, isDeleted: false });
+    const subjects = await Subject.find({ programId: { $in: programIds }, isDeleted: false }).lean();
     const subjectIds = subjects.map(s => s._id);
 
     // Get units under these subjects
-    const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false });
+    const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false }).lean();
     const unitIds = units.map(u => u._id);
 
     // Get lessons under units
-    const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false });
+    const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false }).lean();
     const lessonIds = lessons.map(l => l._id);
 
     // Get content under lessons
-    const contents = await Content.find({ lessonId: { $in: lessonIds }, isDeleted: false });
+    const contents = await Content.find({ lessonId: { $in: lessonIds }, isDeleted: false }).lean();
 
     // Map content counts to lessons, lessons counts to units, etc.
     const programStats = {};
@@ -60,8 +73,14 @@ export const getPrograms = async (req, res) => {
     }
 
     if (req.user.role === 'student') {
+      const completedProgress = await ContentProgress.find({
+        studentId: req.user._id,
+        completed: true
+      }).lean();
+      const completedContentIds = new Set(completedProgress.map(cp => cp.contentId.toString()));
+
       const programsWithAccess = await Promise.all(programs.map(async program => {
-        const progObj = program.toObject();
+        const progObj = program.toObject ? program.toObject() : { ...program };
         progObj.title = progObj.name;
         const access = await verifyStudentAccess({
           user: req.user,
@@ -83,11 +102,7 @@ export const getPrograms = async (req, res) => {
 
         // Calculate progress percentage
         if (stats.contentIds.length > 0) {
-          const completedCount = await ContentProgress.countDocuments({
-            studentId: req.user._id,
-            contentId: { $in: stats.contentIds },
-            completed: true
-          });
+          const completedCount = stats.contentIds.filter(cid => completedContentIds.has(cid)).length;
           progObj.completedCount = completedCount;
           progObj.progressPercentage = Math.round((completedCount / stats.contentIds.length) * 100);
         } else {
@@ -102,7 +117,7 @@ export const getPrograms = async (req, res) => {
     }
 
     const programsWithStats = programs.map(program => {
-      const progObj = program.toObject();
+      const progObj = program.toObject ? program.toObject() : { ...program };
       progObj.title = progObj.name;
       const stats = programStats[program._id.toString()] || { subjectsCount: 0, lessonsCount: 0, contentsCount: 0 };
       progObj.subjectsCount = stats.subjectsCount;
@@ -123,49 +138,43 @@ export const getProgramById = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
     const program = req.user.role === 'owner'
-      ? await Program.findOne({ _id: req.params.id, isDeleted: false })
-      : await Program.findOne({ _id: req.params.id, institute: req.user.institute, isDeleted: false });
+      ? await Program.findOne({ _id: req.params.id, isDeleted: false }).lean()
+      : await Program.findOne({ _id: req.params.id, institute: req.user.institute, isDeleted: false }).lean();
 
     if (!program) {
       return res.status(404).json({ message: 'Program not found' });
     }
 
-    // Assemble nested hierarchy tree
-    const subjects = await Subject.find({ programId: program._id, isDeleted: false }).sort({ displayOrder: 1 });
+    // Assemble nested hierarchy tree in parallel
+    const [subjects, access, blocks] = await Promise.all([
+      Subject.find({ programId: program._id, isDeleted: false }).sort({ displayOrder: 1 }).lean(),
+      verifyStudentAccess({ user: req.user, programId: program._id }),
+      req.user.role === 'student'
+        ? StudentContentAccess.find({
+            studentId: req.user._id,
+            batchId: program._id,
+            status: 'blocked'
+          }).lean()
+        : []
+    ]);
+
     const subjectIds = subjects.map(s => s._id);
 
-    const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false }).sort({ displayOrder: 1 });
+    const units = await Unit.find({ subjectId: { $in: subjectIds }, isDeleted: false }).sort({ displayOrder: 1 }).lean();
     const unitIds = units.map(u => u._id);
 
-    const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false }).populate('videoAssetId').sort({ order: 1 });
+    const lessons = await Lesson.find({ unitId: { $in: unitIds }, isDeleted: false }).populate('videoAssetId').sort({ order: 1 }).lean();
     const lessonIds = lessons.map(l => l._id);
 
-    const contents = await Content.find({ lessonId: { $in: lessonIds }, isDeleted: false }).sort({ order: 1 }).populate('videoAssetId');
+    const contents = await Content.find({ lessonId: { $in: lessonIds }, isDeleted: false }).sort({ order: 1 }).populate('videoAssetId').lean();
 
     // For students, check progress on each content item
     const studentId = req.user._id;
     const progressRecords = req.user.role === 'student'
-      ? await ContentProgress.find({ studentId, contentId: { $in: contents.map(c => c._id) } })
+      ? await ContentProgress.find({ studentId, contentId: { $in: contents.map(c => c._id) } }).lean()
       : [];
 
     const progressMap = new Map(progressRecords.map(r => [r.contentId.toString(), r]));
-
-    // Check program enrollment access
-    const access = await verifyStudentAccess({ user: req.user, programId: program._id });
-
-    // Fetch granular content restrictions if user is a student
-    let blocks = [];
-    if (req.user.role === 'student') {
-      try {
-        blocks = await StudentContentAccess.find({
-          studentId: req.user._id,
-          batchId: program._id,
-          status: 'blocked'
-        });
-      } catch (err) {
-        console.error('Error fetching restrictions in getProgramById:', err);
-      }
-    }
 
     const isBatchBlocked = blocks.some(b => !b.subjectId && !b.unitId && !b.topicId);
     const isSubjectBlocked = (subId) => blocks.some(b => b.subjectId && b.subjectId.toString() === subId.toString() && !b.unitId && !b.topicId);
@@ -182,19 +191,19 @@ export const getProgramById = async (req, res) => {
 
     // Build the structural tree in memory
     const subjectsList = subjects.map(subject => {
-      const subObj = subject.toObject();
+      const subObj = subject.toObject ? subject.toObject() : { ...subject };
       const subjectBlocked = isSubjectBlocked(subject._id);
 
       const subUnits = units.filter(u => u.subjectId.toString() === subject._id.toString()).map(unit => {
-        const unitObj = unit.toObject();
+        const unitObj = unit.toObject ? unit.toObject() : { ...unit };
         const unitBlocked = subjectBlocked || isUnitBlocked(unit._id);
 
         const unitLessons = lessons.filter(l => l.unitId.toString() === unit._id.toString()).map(lesson => {
-          const lessonObj = lesson.toObject();
+          const lessonObj = transformLessonObj(lesson);
           const lessonBlocked = unitBlocked || isLessonBlocked(lesson._id);
 
           const lessonContents = contents.filter(c => c.lessonId.toString() === lesson._id.toString()).map(content => {
-            const contentObj = content.toObject();
+            const contentObj = content.toObject ? content.toObject() : { ...content };
             if (req.user.role === 'student') {
               const progRec = progressMap.get(content._id.toString());
               contentObj.completed = progRec ? progRec.completed : false;
@@ -251,7 +260,7 @@ export const getProgramById = async (req, res) => {
       return subObj;
     });
 
-    const progObj = program.toObject();
+    const progObj = program.toObject ? program.toObject() : { ...program };
     progObj.title = progObj.name;
     progObj.subjects = subjectsList;
     progObj.isEnrolled = programAccessGranted;
@@ -271,6 +280,7 @@ export const getProgramById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 export const createProgram = async (req, res) => {
   const { name, description, thumbnail, bannerImage, displayOrder, status, isLocked } = req.body;

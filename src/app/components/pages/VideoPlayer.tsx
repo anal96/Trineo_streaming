@@ -62,6 +62,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../u
 import { apiFetch, getApiUrl } from '../../utils/api';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { toast } from 'sonner';
+import { initializePushNotifications } from '../../utils/pushManager';
 
 const xorEncryptDecrypt = (str: string, key: string): string => {
   let result = '';
@@ -617,6 +618,8 @@ export default function VideoPlayer() {
   useEffect(() => {
     const cachedUser = localStorage.getItem('user');
     if (cachedUser) setUser(JSON.parse(cachedUser));
+
+    initializePushNotifications().catch(err => console.error('Push init failed:', err));
 
     const runHeartbeat = async () => {
       try {

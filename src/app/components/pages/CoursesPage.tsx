@@ -37,6 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { apiFetch } from '../../utils/api';
+import { initializePushNotifications } from '../../utils/pushManager';
 
 const categories = ['All', 'Development', 'Data Science', 'Design', 'Cloud', 'Business'];
 const levels = ['All Levels', 'Beginner', 'Intermediate', 'Advanced'];
@@ -104,6 +105,7 @@ export default function CoursesPage() {
 
   useEffect(() => {
     loadCourses();
+    initializePushNotifications().catch(err => console.error('Push init failed:', err));
   }, []);
 
   const handleAccessRequest = async (courseId: string) => {

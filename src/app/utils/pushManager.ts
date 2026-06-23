@@ -57,35 +57,50 @@ export async function getPushSubscriptionState(): Promise<PushSubscription | nul
 }
 
 export async function subscribeToPush(): Promise<PushSubscription | null> {
+  console.log('[PushManager] subscribeToPush starting...');
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.error('[PushManager] Push or serviceWorker missing in window/navigator');
     throw new Error('Push notifications not supported on this browser');
   }
 
+  console.log('[PushManager] Requesting permission...');
   const permission = await Notification.requestPermission();
+  console.log('[PushManager] Permission status:', permission);
   if (permission !== 'granted') {
     throw new Error('Notification permission denied by user');
   }
 
+  console.log('[PushManager] Waiting for service worker to be ready...');
   const reg = await navigator.serviceWorker.ready;
+  console.log('[PushManager] Service worker ready. Scope:', reg.scope);
+
+  console.log('[PushManager] Getting existing push subscription...');
   let sub = await reg.pushManager.getSubscription();
   if (sub) {
+    console.log('[PushManager] Existing subscription found:', sub.endpoint);
     await syncSubscriptionWithBackend(sub);
     return sub;
   }
 
+  console.log('[PushManager] Fetching VAPID public key...');
   const { publicKey } = await apiFetch('/push-subscriptions/vapid-public-key');
+  console.log('[PushManager] VAPID public key fetched:', publicKey);
   if (!publicKey) {
     throw new Error('VAPID public key not found');
   }
 
   const convertedVapidKey = urlBase64ToUint8Array(publicKey);
 
+  console.log('[PushManager] Subscribing to push service...');
   sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: convertedVapidKey
   });
+  console.log('[PushManager] Subscription successful:', sub.endpoint);
 
+  console.log('[PushManager] Syncing subscription with backend...');
   await syncSubscriptionWithBackend(sub);
+  console.log('[PushManager] Sync complete.');
   return sub;
 }
 
@@ -136,3 +151,35 @@ async function syncSubscriptionWithBackend(sub: PushSubscription) {
     })
   });
 }
+
+export async function initializePushNotifications() {
+  if (typeof window === 'undefined') return;
+
+  // 1. Register Service Worker first
+  await registerServiceWorker();
+
+  // 2. Check token. If no token is active, skip push subscription syncing
+  const token = localStorage.getItem('token');
+  if (!token) return;
+
+  // 3. Cache the token for the service worker
+  await syncAuthTokenToCache(token);
+
+  // 4. Handle notification subscription permissions
+  if ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window) {
+    try {
+      if (Notification.permission === 'granted') {
+        // Silently ensure subscription is registered in backend
+        try {
+          await subscribeToPush();
+          console.log('[PushManager] Automatically verified push subscription.');
+        } catch (e) {
+          console.error('[PushManager] Silent auto-subscribe failed:', e);
+        }
+      }
+    } catch (err) {
+      console.error('[PushManager] Push status check failed:', err);
+    }
+  }
+}
+

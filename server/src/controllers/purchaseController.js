@@ -118,19 +118,19 @@ export const getPurchasedCourses = async (req, res) => {
       if (req.user.role !== 'owner') {
         filter.institute = req.user.institute;
       }
-      const courses = await Course.find(filter);
+      const courses = await Course.find(filter).lean();
       return res.json(courses);
     }
 
-    // For students, fetch all courses in their institute
-    const courses = await Course.find({ institute: req.user.institute });
-    const assignedCourses = [];
+    // For students, fetch all courses in their institute & purchases in parallel
+    const [courses, purchases] = await Promise.all([
+      Course.find({ institute: req.user.institute }).lean(),
+      Purchase.find({ studentId: req.user._id, institute: req.user.institute }).lean()
+    ]);
 
-    // Also get all course IDs from student's purchases
-    const purchases = await Purchase.find({ studentId: req.user._id, institute: req.user.institute });
     const purchasedCourseIds = new Set(purchases.map(p => p.courseId.toString()));
 
-    for (const course of courses) {
+    const assignedCoursesResults = await Promise.all(courses.map(async (course) => {
       const access = await verifyStudentAccess({
         user: req.user,
         courseId: course._id.toString()
@@ -143,7 +143,7 @@ export const getPurchasedCourses = async (req, res) => {
 
       if (isAssigned) {
         // Embed the access status directly so the frontend knows if it's locked
-        const courseObj = course.toObject();
+        const courseObj = course.toObject ? course.toObject() : { ...course };
         courseObj.isPurchased = access.granted;
         if (!access.granted) {
           courseObj.isLocked = true;
@@ -152,10 +152,12 @@ export const getPurchasedCourses = async (req, res) => {
         } else {
           courseObj.isLocked = false;
         }
-        assignedCourses.push(courseObj);
+        return courseObj;
       }
-    }
+      return null;
+    }));
 
+    const assignedCourses = assignedCoursesResults.filter(Boolean);
     res.json(assignedCourses);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -235,7 +237,8 @@ export const getPendingPayments = async (req, res) => {
       .populate({
         path: 'purchaseId',
         populate: { path: 'courseId', select: 'title price' }
-      });
+      })
+      .lean();
     res.json(payments);
   } catch (error) {
     res.status(500).json({ message: error.message });

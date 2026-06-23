@@ -74,8 +74,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { apiFetch, getApiUrl } from '../../utils/api';
-import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush } from '../../utils/pushManager';
+import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush, initializePushNotifications } from '../../utils/pushManager';
 import { toast } from 'sonner';
+
+function formatAccessDate(date: any) {
+  if (!date) return 'Unlimited Access';
+
+  return new Date(date).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+}
 
 const SecuritySection = lazy(() => import('./settings/SecuritySection'));
 const PaymentsSection = lazy(() => import('./settings/PaymentsSection'));
@@ -336,6 +346,11 @@ export default function StudentDashboard() {
       }
     };
     checkSubscription();
+    initializePushNotifications().then(() => {
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+        getPushSubscriptionState().then(sub => setIsPushSubscribed(!!sub));
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -1558,22 +1573,12 @@ export default function StudentDashboard() {
                   </div>
                 )}
                 {(() => {
-                  // Fallbacks for mockup alignment
-                  const mockAnnouncements = [
-                    { title: "Upcoming Live Q&A Session", message: "Join our live doubt clearing session with Mr. Noel Babu tomorrow at 5:00 PM.", author: "Noel Babu", createdAt: new Date().toISOString() },
-                    { title: "Welcome to GFI Institute!", message: "We are thrilled to welcome you to the BCA C Programming module. Check your learning path below to begin.", author: "GFI Admin", createdAt: new Date(Date.now() - 86400000).toISOString() }
-                  ];
-                  const displayAnnouncements = announcements.length > 0 ? announcements : mockAnnouncements;
-
-                  const mockActivities = [
-                    { type: 'pdf', title: 'Intro Notes.pdf', courseTitle: 'C Programming', detail: 'Downloaded successfully', progress: 100, relativeTime: '2h ago' },
-                    { type: 'video', title: 'Introduction to pointers', courseTitle: 'C Programming', detail: 'Watched 78%', progress: 78, relativeTime: '1d ago' },
-                    { type: 'reading', title: 'Arrays vs Pointers Overview', courseTitle: 'C Programming', detail: 'Completed reading', progress: 100, relativeTime: '2d ago' }
-                  ];
+                  // Filter out mock data. Always use real database results.
+                  const displayAnnouncements = announcements || [];
 
                   const displayActivities = watchHistory.length > 0 ? watchHistory.slice(0, 3).map((h: any) => {
-                    const courseTitle = h.contentId?.lessonId?.unitId?.subjectId?.programId?.name || h.courseId?.title || 'C Programming';
-                    const lessonTitle = h.contentId?.title || h.lessonId?.title || 'Introduction to pointers';
+                    const courseTitle = h.contentId?.lessonId?.unitId?.subjectId?.programId?.name || h.courseId?.title || '';
+                    const lessonTitle = h.contentId?.title || h.lessonId?.title || '';
                     const progress = h.progress || 0;
                     const watchedAt = h.lastWatchedAt ? new Date(h.lastWatchedAt) : (h.watchedAt ? new Date(h.watchedAt) : new Date());
                     const relativeTime = (() => {
@@ -1595,27 +1600,16 @@ export default function StudentDashboard() {
                       programSlug: h.contentId?.lessonId?.unitId?.subjectId?.programId?.slug || h.courseId?.slug,
                       lessonSlug: h.contentId?.lessonId?.slug || h.lessonId?.slug
                     };
-                  }) : mockActivities;
+                  }) : [];
 
-                  const continueWatchingList = [
-                    { title: 'C Programming', progress: 78, instructor: 'Noel Babu', thumbnail: 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=400&q=80', isMock: true },
-                    { title: 'Data Structures', progress: 45, instructor: 'Jane Smith', thumbnail: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400&q=80', isMock: true },
-                    { title: 'Database Systems', progress: 20, instructor: 'John Doe', thumbnail: 'https://images.unsplash.com/photo-1544383835-bda2bc66a55d?w=400&q=80', isMock: true }
-                  ];
-
-                  const displayContinueWatching = continueWatching.length > 0
-                    ? [
-                      ...continueWatching.map(c => ({
-                        title: c.title,
-                        progress: c.progress || 78,
-                        instructor: c.instructor || 'Noel Babu',
-                        thumbnail: c.thumbnail || 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=400&q=80',
-                        _id: c._id,
-                        isMock: false
-                      })),
-                      ...continueWatchingList.filter(m => !continueWatching.some(c => c.title.toLowerCase() === m.title.toLowerCase()))
-                    ].slice(0, 3)
-                    : continueWatchingList;
+                  const displayContinueWatching = continueWatching.map(c => ({
+                    title: c.title,
+                    progress: c.progress || 0,
+                    instructor: c.instructor || 'Faculty Instructor',
+                    thumbnail: c.thumbnail || 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=400&q=80',
+                    _id: c._id,
+                    isMock: false
+                  })).slice(0, 3);
 
                   // Compute stats for mobile
                   const continueLearningWidgetData = (() => {
@@ -1769,17 +1763,7 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
-                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
-                              <div className="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-550 flex items-center justify-center shrink-0">
-                                <Flame className="w-5.5 h-5.5 fill-current text-rose-555 animate-pulse" />
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Daily Streak</h4>
-                                <p className="text-xs font-black text-foreground mt-0.5">🔥 5 Days Active</p>
-                              </div>
-                            </div>
-
-                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+                            <div className="w-full col-span-2 bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
                               <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
                                 securityScore >= 90 
                                   ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
@@ -1898,37 +1882,10 @@ export default function StudentDashboard() {
                             }
 
                             return (
-                              <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card/65 backdrop-blur-md p-4 shadow-sm space-y-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 shrink-0">
-                                      <Video className="w-5 h-5" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2">
-                                        <h4 className="text-xs font-extrabold text-foreground truncate">Pointers & Memory Allocation</h4>
-                                        <Badge variant="outline" className="text-indigo-500 border-indigo-500/30 text-[8px] uppercase tracking-wider font-bold">Upcoming</Badge>
-                                      </div>
-                                      <p className="text-[10px] text-muted-foreground truncate">C Programming · Noel Babu</p>
-                                    </div>
-                                  </div>
-                                  <Badge variant="secondary" className="text-[9px] uppercase font-black tracking-wider py-0.5 px-2 bg-muted/65">Zoom</Badge>
-                                </div>
-
-                                <div className="flex items-center justify-between gap-3 pt-1">
-                                  <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
-                                    <Clock className="w-3.5 h-3.5 text-muted-foreground/60" />
-                                    <span>Tomorrow at 5:00 PM</span>
-                                  </div>
-
-                                  <Button
-                                    size="sm"
-                                    disabled
-                                    className="bg-primary/20 text-muted-foreground font-bold rounded-xl text-[11px] px-4 h-9 border-0"
-                                  >
-                                    Join Class
-                                  </Button>
-                                </div>
+                              <div className="rounded-2xl border border-dashed border-border p-6 text-center bg-card/45 backdrop-blur-sm shadow-sm select-none">
+                                <Video className="w-8 h-8 text-muted-foreground/60 mx-auto mb-2" />
+                                <p className="text-xs font-bold text-foreground">No upcoming live classes scheduled</p>
+                                <p className="text-[10px] text-muted-foreground mt-1">Please check back later for updates.</p>
                               </div>
                             );
                           })()}
@@ -1937,22 +1894,28 @@ export default function StudentDashboard() {
                         {/* 7. Recent Learning Activity timeline */}
                         <div className="space-y-3">
                           <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Recent Activity</h3>
-                          <div className="relative border-l-2 border-border/40 pl-4 ml-3 space-y-4">
-                            {displayActivities.slice(0, 3).map((act, index) => (
-                              <div key={index} className="relative space-y-1">
-                                <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full bg-background border-2 border-primary flex items-center justify-center shadow-sm">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                          {displayActivities.length > 0 ? (
+                            <div className="relative border-l-2 border-border/40 pl-4 ml-3 space-y-4">
+                              {displayActivities.slice(0, 3).map((act, index) => (
+                                <div key={index} className="relative space-y-1">
+                                  <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full bg-background border-2 border-primary flex items-center justify-center shadow-sm">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                  </div>
+                                  <div className="flex justify-between items-start gap-2">
+                                    <h4 className="text-xs font-extrabold text-foreground leading-snug">{act.title}</h4>
+                                    <span className="text-[9px] font-bold text-muted-foreground whitespace-nowrap">{act.relativeTime}</span>
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground font-semibold">
+                                    {act.courseTitle} · <span className="text-primary font-bold">{act.detail}</span>
+                                  </p>
                                 </div>
-                                <div className="flex justify-between items-start gap-2">
-                                  <h4 className="text-xs font-extrabold text-foreground leading-snug">{act.title}</h4>
-                                  <span className="text-[9px] font-bold text-muted-foreground whitespace-nowrap">{act.relativeTime}</span>
-                                </div>
-                                <p className="text-[10px] text-muted-foreground font-semibold">
-                                  {act.courseTitle} · <span className="text-primary font-bold">{act.detail}</span>
-                                </p>
-                              </div>
-                            ))}
-                          </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center py-6 text-xs text-muted-foreground font-semibold bg-card/65 backdrop-blur-md rounded-2xl border border-border/45 p-4 shadow-sm">
+                              No recent activity recorded.
+                            </div>
+                          )}
                         </div>
 
                         {/* 8. Modern Announcement cards with category icons */}
@@ -1978,6 +1941,11 @@ export default function StudentDashboard() {
                                 </div>
                               );
                             })}
+                            {displayAnnouncements.length === 0 && (
+                              <div className="text-center py-6 text-xs text-muted-foreground font-semibold bg-card/65 backdrop-blur-md rounded-2xl border border-border/45 p-4 shadow-sm">
+                                No announcements available.
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2041,7 +2009,7 @@ export default function StudentDashboard() {
                                     strokeWidth="5" 
                                     fill="transparent" 
                                     strokeDasharray="163" 
-                                    strokeDashoffset={163 - (163 * 78) / 100} 
+                                    strokeDashoffset={163 - (163 * avgProgress) / 100} 
                                     strokeLinecap="round" 
                                     className="transition-all duration-1000 ease-out"
                                   />
@@ -2053,13 +2021,13 @@ export default function StudentDashboard() {
                                   </defs>
                                 </svg>
                                 <div className="absolute flex flex-col items-center justify-center">
-                                  <span className="text-xs font-extrabold tracking-tight">78%</span>
+                                  <span className="text-xs font-extrabold tracking-tight">{avgProgress}%</span>
                                 </div>
                               </div>
                               <div className="space-y-0.5 min-w-0">
                                 <h4 className="text-[11px] font-bold tracking-wide uppercase opacity-75">Overall Progress</h4>
-                                <h3 className="text-xs font-bold text-white truncate max-w-[130px]" title={purchasedCourses[0]?.title || 'C Programming'}>
-                                  Continue: {purchasedCourses[0]?.title || 'C Programming'}
+                                <h3 className="text-xs font-bold text-white truncate max-w-[130px]" title={continueLearningWidgetData ? continueLearningWidgetData.courseTitle : 'No progress recorded'}>
+                                  {continueLearningWidgetData ? `Continue: ${continueLearningWidgetData.courseTitle}` : 'Resume Learning'}
                                 </h3>
                               </div>
                             </div>
@@ -2073,14 +2041,14 @@ export default function StudentDashboard() {
                                 </div>
                                 <div className="flex flex-col border-b border-white/10 pb-1">
                                   <span className="text-[9px] text-indigo-200 uppercase font-bold tracking-wider">Campus</span>
-                                  <span className="font-extrabold text-white mt-0.5 truncate" title={user?.branchName || user?.institute?.branchName || 'GFI Institute'}>
-                                    {user?.branchName || user?.institute?.branchName || 'GFI Institute'}
+                                  <span className="font-extrabold text-white mt-0.5 truncate" title={user?.branchName || user?.institute?.name || 'GFI Institute'}>
+                                    {user?.branchName || user?.institute?.name || 'GFI Institute'}
                                   </span>
                                 </div>
                                 <div className="flex flex-col pt-0.5">
                                   <span className="text-[9px] text-indigo-200 uppercase font-bold tracking-wider">Admission</span>
                                   <span className="font-extrabold text-white mt-0.5 truncate">
-                                    {user?.enrollmentDate ? new Date(user.enrollmentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '15 Jan 2026'}
+                                    {user?.enrollmentDate ? new Date(user.enrollmentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : (user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '')}
                                   </span>
                                 </div>
                                 <div className="flex flex-col pt-0.5">
@@ -2098,39 +2066,32 @@ export default function StudentDashboard() {
                           </div>
                         </div>
                       </div>
-
-                      {/* 2️⃣ KPI STATS ROW */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                             {/* 2️⃣ KPI STATS ROW */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         {[
                           {
                             label: 'Batches Enrolled',
                             value: totalCourses,
                             icon: <BookOpen className="w-5 h-5 text-purple-600 dark:text-purple-400" />,
-                            color: 'from-purple-500/10 via-purple-500/5 to-transparent border-purple-500/20 text-purple-600 dark:text-purple-400 hover:border-purple-500/40 shadow-purple-500/5'
+                            color: 'from-purple-500/10 via-purple-500/5 to-transparent border-purple-500/20 text-purple-650 dark:text-purple-400 hover:border-purple-500/40 shadow-purple-500/5'
                           },
                           {
                             label: 'Watch Hours',
-                            value: `${watchHours > 0 ? watchHours : 12.4}h`,
+                            value: `${watchHours}h`,
                             icon: <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400" />,
                             color: 'from-blue-500/10 via-blue-500/5 to-transparent border-blue-500/20 text-blue-600 dark:text-blue-400 hover:border-blue-500/40 shadow-blue-500/5'
                           },
                           {
                             label: 'Topics Completed',
-                            value: completedLessons > 0 ? completedLessons : 31,
+                            value: completedLessons,
                             icon: <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
                             color: 'from-emerald-500/10 via-emerald-500/5 to-transparent border-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:border-emerald-500/40 shadow-emerald-500/5'
                           },
                           {
-                            label: 'Day Streak',
-                            value: '12 Days',
-                            icon: <Flame className="w-5 h-5 text-orange-500 animate-pulse" />,
-                            color: 'from-orange-500/10 via-orange-500/5 to-transparent border-orange-500/20 text-orange-500 dark:text-orange-400 hover:border-orange-500/40 shadow-orange-500/5'
-                          },
-                          {
-                            label: 'Rank in Batch',
-                            value: '#4',
-                            icon: <Trophy className="w-5 h-5 text-rose-500" />,
-                            color: 'from-rose-500/10 via-rose-500/5 to-transparent border-rose-500/20 text-rose-600 dark:text-rose-400 hover:border-rose-500/40 shadow-rose-500/5'
+                            label: 'Security Score',
+                            value: `${securityScore} / 100`,
+                            icon: <Shield className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+                            color: 'from-emerald-500/10 via-emerald-500/5 to-transparent border-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:border-emerald-500/40 shadow-emerald-500/5'
                           },
                         ].map((stat, i) => (
                           <Card
@@ -2233,6 +2194,11 @@ export default function StudentDashboard() {
                                 </CardContent>
                               </Card>
                             ))}
+                            {displayAnnouncements.length === 0 && (
+                              <div className="text-center py-10 text-xs text-muted-foreground font-semibold border border-dashed rounded-2xl bg-card shadow-sm">
+                                No announcements available.
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2278,6 +2244,11 @@ export default function StudentDashboard() {
                                 </CardContent>
                               </Card>
                             ))}
+                            {displayActivities.length === 0 && (
+                              <div className="text-center py-10 text-xs text-muted-foreground font-semibold border border-dashed rounded-2xl bg-card shadow-sm">
+                                No recent activity recorded.
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -2322,6 +2293,11 @@ export default function StudentDashboard() {
                                 </CardContent>
                               </Card>
                             ))}
+                            {displayContinueWatching.length === 0 && (
+                              <div className="text-center py-10 text-xs text-muted-foreground font-semibold border border-dashed rounded-2xl bg-card shadow-sm">
+                                No courses currently in progress. Start learning from My Batches!
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -3508,12 +3484,10 @@ export default function StudentDashboard() {
                         {user?.assignedPackage ? (
                           <div className="space-y-2">
                             <div className="text-sm font-extrabold text-violet-950">{user.assignedPackage.name}</div>
-                            {user.packageExpiryDate && (
-                              <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                                <Clock className="w-4 h-4 text-violet-500" />
-                                <span>Expires on: {new Date(user.packageExpiryDate).toLocaleDateString()}</span>
-                              </div>
-                            )}
+                            <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                              <Clock className="w-4 h-4 text-violet-500" />
+                              <span>Access Expires On: {formatAccessDate(user.packageExpiryDate)}</span>
+                            </div>
                           </div>
                         ) : (
                           <p className="text-xs text-muted-foreground italic font-medium">No custom content packages assigned by your institute.</p>
@@ -3569,7 +3543,7 @@ export default function StudentDashboard() {
                                       </Badge>
                                     </TableCell>
                                     <TableCell className="text-xs font-semibold text-slate-500 px-4 py-3">
-                                      {rule.expiryDate ? new Date(rule.expiryDate).toLocaleDateString() : 'Lifetime'}
+                                      {formatAccessDate(rule.expiryDate)}
                                     </TableCell>
                                   </TableRow>
                                 );

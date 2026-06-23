@@ -62,4 +62,8 @@ const liveClassSchema = new mongoose.Schema({
   }
 });
 
+liveClassSchema.index({ status: 1 });
+liveClassSchema.index({ createdAt: -1 });
+
 export const LiveClass = mongoose.model('LiveClass', liveClassSchema);
+

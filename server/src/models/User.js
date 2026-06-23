@@ -176,6 +176,9 @@ userSchema.index(
     }
   }
 );
+userSchema.index({ createdAt: -1 });
+userSchema.index({ status: 1 });
+userSchema.index({ role: 1, institute: 1 });
 
 // Pre-save hook to generate user_id and hash password
 userSchema.pre('save', async function (next) {

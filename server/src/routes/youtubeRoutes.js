@@ -32,6 +32,7 @@ router.get('/stream/:lessonId/:fileName', protect, tenantGuard({ model: Lesson, 
 router.get('/youtube/auth', protect, adminOnly, getYouTubeAuthUrl);
 router.get('/youtube/callback', youtubeCallback); // Google redirects here after OAuth consent
 router.get('/youtube/integration/status', protect, adminOnly, getInstituteYouTubeStatus);
+router.get('/youtube/status', protect, adminOnly, getInstituteYouTubeStatus);
 router.post('/youtube/integration/sync', protect, adminOnly, syncInstituteYouTubeChannel);
 router.post('/youtube/integration/disconnect', protect, adminOnly, disconnectInstituteYouTubeChannel);
 

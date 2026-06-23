@@ -61,6 +61,8 @@ notificationSchema.pre('save', function (next) {
 });
 
 notificationSchema.index({ institute: 1, createdAt: -1 });
+notificationSchema.index({ userId: 1, createdAt: -1 });
+
 
 // Model compilation deferred to the end of file after hooks registration
 

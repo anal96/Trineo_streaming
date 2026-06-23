@@ -91,4 +91,8 @@ courseSchema.pre('save', async function (next) {
   next();
 });
 
+courseSchema.index({ createdAt: -1 });
+courseSchema.index({ status: 1 });
+
 export const Course = mongoose.model('Course', courseSchema);
+

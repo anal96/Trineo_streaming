@@ -27,6 +27,15 @@ export const getStudents = async (req, res) => {
 };
 
 // 2. Edit student status/expiry directly
+// Helper to calculate student access status based on active state and expiry date
+function calculateAccessStatus(userStatus, expiryDate) {
+  if (userStatus === 'inactive') return 'suspended';
+  if (!expiryDate) return 'active';
+  return new Date(expiryDate) < new Date()
+    ? 'expired'
+    : 'active';
+}
+
 export const editStudentAccessRuleById = async (req, res) => {
   try {
     if (!checkAdminOrOwner(req)) {
@@ -46,6 +55,21 @@ export const editStudentAccessRuleById = async (req, res) => {
     }
 
     const saved = await student.save();
+
+    // Synchronize direct permission rules
+    const targetExpiry = student.packageExpiryDate;
+    const targetStatus = calculateAccessStatus(student.status, targetExpiry);
+
+    await StudentAccess.updateMany(
+      { studentId: student._id },
+      {
+        $set: {
+          expiryDate: targetExpiry,
+          status: targetStatus
+        }
+      }
+    );
+
     res.json(saved);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -71,6 +95,23 @@ export const bulkToggleAccess = async (req, res) => {
       { $set: { status } }
     );
 
+    // Sync all related StudentAccess records using the status mapping table
+    const students = await User.find({ _id: { $in: studentIds }, institute: req.user.institute, role: 'student' });
+    const bulkOps = [];
+    for (const student of students) {
+      const targetStatus = calculateAccessStatus(status, student.packageExpiryDate);
+      bulkOps.push({
+        updateMany: {
+          filter: { studentId: student._id },
+          update: { $set: { status: targetStatus } }
+        }
+      });
+    }
+
+    if (bulkOps.length > 0) {
+      await StudentAccess.bulkWrite(bulkOps);
+    }
+
     res.json({ success: true, message: `Successfully updated status to ${status} for ${studentIds.length} students.` });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -95,6 +136,23 @@ export const bulkSetExpiry = async (req, res) => {
       { $set: { packageExpiryDate: expiry } }
     );
 
+    // Sync to related StudentAccess records
+    const students = await User.find({ _id: { $in: studentIds }, institute: req.user.institute, role: 'student' });
+    const bulkOps = [];
+    for (const student of students) {
+      const targetStatus = calculateAccessStatus(student.status, expiry);
+      bulkOps.push({
+        updateMany: {
+          filter: { studentId: student._id },
+          update: { $set: { expiryDate: expiry, status: targetStatus } }
+        }
+      });
+    }
+
+    if (bulkOps.length > 0) {
+      await StudentAccess.bulkWrite(bulkOps);
+    }
+
     res.json({ success: true, message: `Successfully updated expiry date for ${studentIds.length} students.` });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -118,23 +176,38 @@ export const bulkExtendExpiry = async (req, res) => {
 
     const students = await User.find({ _id: { $in: studentIds }, institute: req.user.institute, role: 'student' });
     
-    const bulkOps = students.map(student => {
+    const userBulkOps = [];
+    const studentBulkOps = [];
+
+    for (const student of students) {
       let currentExpiry = student.packageExpiryDate ? new Date(student.packageExpiryDate) : new Date();
       if (isNaN(currentExpiry.getTime()) || currentExpiry < new Date()) {
         currentExpiry = new Date();
       }
       currentExpiry.setDate(currentExpiry.getDate() + daysNum);
       
-      return {
+      userBulkOps.push({
         updateOne: {
           filter: { _id: student._id },
           update: { $set: { packageExpiryDate: currentExpiry } }
         }
-      };
-    });
+      });
 
-    if (bulkOps.length > 0) {
-      await User.bulkWrite(bulkOps);
+      const targetStatus = calculateAccessStatus(student.status, currentExpiry);
+      studentBulkOps.push({
+        updateMany: {
+          filter: { studentId: student._id },
+          update: { $set: { expiryDate: currentExpiry, status: targetStatus } }
+        }
+      });
+    }
+
+    if (userBulkOps.length > 0) {
+      await User.bulkWrite(userBulkOps);
+    }
+
+    if (studentBulkOps.length > 0) {
+      await StudentAccess.bulkWrite(studentBulkOps);
     }
 
     res.json({ success: true, message: `Successfully extended access by ${daysNum} days for ${students.length} students.` });
