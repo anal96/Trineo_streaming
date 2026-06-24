@@ -12,6 +12,7 @@ import { AuditLog } from '../models/AuditLog.js';
 import { SecurityEvent } from '../models/SecurityEvent.js';
 import { SubscriptionPlan } from '../models/SubscriptionPlan.js';
 import { SubscriptionPayment } from '../models/SubscriptionPayment.js';
+import { SubscriptionInvoice } from '../models/SubscriptionInvoice.js';
 import { generateTemporaryPassword } from '../utils/passwordGenerator.js';
 import { sendStudentWelcomeEmail } from '../services/emailService.js';
 
@@ -1071,7 +1072,7 @@ export const getBillingInfo = async (req, res) => {
     const videoCount = await Lesson.countDocuments({ institute: req.user.institute, isDeleted: { $ne: true }, publishStatus: 'published' });
     const studyMaterialsCount = await StudyMaterial.countDocuments({ institute: req.user.institute });
 
-    const invoices = await SubscriptionPayment.find({ institute: req.user.institute }).sort({ createdAt: -1 });
+    const invoices = await SubscriptionInvoice.find({ instituteId: req.user.institute }).sort({ createdAt: -1 });
 
     res.json({
       institute: {
@@ -1085,7 +1086,10 @@ export const getBillingInfo = async (req, res) => {
         trialStartDate: institute.trialStartDate,
         trialEndDate: institute.trialEndDate,
         isTrialActive: institute.isTrialActive,
-        storageUsedGB: institute.storageUsedGB || 0
+        storageUsedGB: institute.storageUsedGB || 0,
+        billingContactName: institute.billingContactName || '',
+        billingContactEmail: institute.billingContactEmail || '',
+        billingContactPhone: institute.billingContactPhone || ''
       },
       plan: institute.planId || null,
       usage: {

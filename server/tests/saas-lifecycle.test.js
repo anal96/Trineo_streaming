@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
+import { S3Client } from '@aws-sdk/client-s3';
 import { registerInstitute, getActivePlans } from '../src/controllers/onboardingController.js';
 import {
   getOnboardingRequests,
@@ -8,9 +9,9 @@ import {
   rejectOnboardingRequest,
   requestOnboardingInfo,
   getBillingDashboard,
-  getBillingPayments,
-  createBillingPayment,
-  recordBillingPaymentPaid
+  getBillingInvoices,
+  createBillingInvoice,
+  recordBillingInvoicePaid
 } from '../src/controllers/ownerController.js';
 import { checkStudentQuota, checkStorageQuota } from '../src/utils/quotaEnforcer.js';
 import { requireActiveSubscription } from '../src/middleware/requireActiveSubscription.js';
@@ -18,7 +19,9 @@ import { loginUser } from '../src/controllers/authController.js';
 import { Institute } from '../src/models/Institute.js';
 import { User } from '../src/models/User.js';
 import { SubscriptionPlan } from '../src/models/SubscriptionPlan.js';
-import { SubscriptionPayment } from '../src/models/SubscriptionPayment.js';
+import { SubscriptionInvoice } from '../src/models/SubscriptionInvoice.js';
+import { InvoiceCounter } from '../src/models/InvoiceCounter.js';
+import { InvoiceAudit } from '../src/models/InvoiceAudit.js';
 import { AuditLog } from '../src/models/AuditLog.js';
 import { OwnerActionLog } from '../src/models/OwnerActionLog.js';
 
@@ -64,6 +67,12 @@ const withMocks = async (mocks, fn) => {
 };
 
 test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
+  // Set fake env variables to make isR2Configured return true globally for tests
+  process.env.R2_ACCESS_KEY_ID = 'fake';
+  process.env.R2_SECRET_ACCESS_KEY = 'fake';
+  process.env.R2_ENDPOINT = 'https://fake-endpoint.com';
+  process.env.R2_BUCKET_NAME = 'fake-bucket';
+  process.env.R2_PUBLIC_URL = 'https://fake-public.com';
 
   await t.test('registerInstitute - successfully registers new pending institute', async () => {
     let instituteCreated = null;
@@ -186,6 +195,40 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
         impl: () => Promise.resolve(mockAdminUser)
       },
       {
+        target: SubscriptionPlan,
+        method: 'findById',
+        impl: () => Promise.resolve({ _id: '507f1f77bcf86cd799439014', name: 'Starter', price: 99, studentLimit: 100, storageLimit: 100, billingCycle: 'monthly' })
+      },
+      {
+        target: SubscriptionPlan,
+        method: 'findOne',
+        impl: () => Promise.resolve({ _id: '507f1f77bcf86cd799439014', name: 'Starter', price: 99, studentLimit: 100, storageLimit: 100, billingCycle: 'monthly' })
+      },
+      {
+        target: InvoiceCounter,
+        method: 'findOneAndUpdate',
+        impl: () => Promise.resolve({ year: new Date().getFullYear(), sequence: 6 })
+      },
+      {
+        target: SubscriptionInvoice.prototype,
+        method: 'save',
+        impl: function() {
+          return Promise.resolve(this);
+        }
+      },
+      {
+        target: InvoiceAudit,
+        method: 'create',
+        impl: (data) => {
+          return Promise.resolve(data);
+        }
+      },
+      {
+        target: S3Client.prototype,
+        method: 'send',
+        impl: () => Promise.resolve({})
+      },
+      {
         target: AuditLog,
         method: 'create',
         impl: (data) => {
@@ -212,6 +255,9 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
       const { res, state } = makeResponse();
       await approveOnboardingRequest(req, res);
 
+      if (state.statusCode !== 200) {
+        throw new Error('Approve Onboarding Request Failed. Body: ' + JSON.stringify(state.body));
+      }
       assert.equal(state.statusCode, 200);
       assert.ok(savedInstitute);
       assert.equal(savedInstitute.onboardingStatus, 'approved');
@@ -226,15 +272,25 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
     });
   });
 
-  await t.test('createBillingPayment - creates invoice with manual invoiceNumber', async () => {
-    let savedPayment = null;
-    let auditLog = null;
+  await t.test('createBillingInvoice - creates invoice with manual invoiceNumber', async () => {
+    let savedInvoice = null;
+    let auditsCreated = [];
+
+    // Set fake env variables to make isR2Configured return true
+    process.env.R2_ACCESS_KEY_ID = 'fake';
+    process.env.R2_SECRET_ACCESS_KEY = 'fake';
+    process.env.R2_ENDPOINT = 'https://fake-endpoint.com';
+    process.env.R2_BUCKET_NAME = 'fake-bucket';
+    process.env.R2_PUBLIC_URL = 'https://fake-public.com';
 
     const mockInstitute = {
       _id: '507f1f77bcf86cd799439011',
       instituteCode: 'GFI001',
+      name: 'GFI Academy',
       billingCycle: 'monthly',
-      planId: '507f1f77bcf86cd799439014'
+      planId: '507f1f77bcf86cd799439014',
+      email: 'admin@gfi.edu',
+      contactPerson: 'Director GFI'
     };
 
     const mocks = [
@@ -244,25 +300,36 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
         impl: () => Promise.resolve(mockInstitute)
       },
       {
-        target: SubscriptionPayment,
-        method: 'countDocuments',
-        impl: () => Promise.resolve(5)
+        target: SubscriptionPlan,
+        method: 'findById',
+        impl: () => Promise.resolve({ _id: '507f1f77bcf86cd799439014', name: 'Starter', price: 99, studentLimit: 100, storageLimit: 100, billingCycle: 'monthly' })
       },
       {
-        target: SubscriptionPayment.prototype,
+        target: InvoiceCounter,
+        method: 'findOneAndUpdate',
+        impl: () => Promise.resolve({ year: new Date().getFullYear(), sequence: 6 })
+      },
+      {
+        target: SubscriptionInvoice.prototype,
         method: 'save',
         impl: function() {
-          savedPayment = this;
+          savedInvoice = this;
+          this.notesTimeline = [];
           return Promise.resolve(this);
         }
       },
       {
-        target: AuditLog,
+        target: InvoiceAudit,
         method: 'create',
         impl: (data) => {
-          auditLog = data;
+          auditsCreated.push(data);
           return Promise.resolve(data);
         }
+      },
+      {
+        target: S3Client.prototype,
+        method: 'send',
+        impl: () => Promise.resolve({})
       }
     ];
 
@@ -270,6 +337,7 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
       const req = {
         body: {
           instituteId: '507f1f77bcf86cd799439011',
+          planId: '507f1f77bcf86cd799439014',
           amount: 99,
           dueDate: '2026-07-10',
           notes: 'Invoice for Starter plan'
@@ -279,31 +347,39 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
         socket: {}
       };
       const { res, state } = makeResponse();
-      await createBillingPayment(req, res);
+      await createBillingInvoice(req, res);
 
+      if (state.statusCode !== 201) {
+        throw new Error('Create Billing Invoice Failed. Body: ' + JSON.stringify(state.body));
+      }
       assert.equal(state.statusCode, 201);
-      assert.ok(savedPayment);
-      assert.equal(savedPayment.invoiceNumber, `INV-${new Date().getFullYear()}-0006`);
-      assert.equal(savedPayment.amount, 99);
-      assert.equal(savedPayment.status, 'pending');
-      assert.equal(auditLog.eventType, 'PAYMENT_DUE');
+      assert.ok(savedInvoice);
+      assert.equal(savedInvoice.invoiceNumber, `INV-${new Date().getFullYear()}-000006`);
+      assert.equal(savedInvoice.amountSnapshot, 99);
+      assert.equal(savedInvoice.status, 'pending');
+      assert.equal(auditsCreated.length, 2);
+      assert.equal(auditsCreated[0].action, 'Invoice Created');
+      assert.equal(auditsCreated[1].action, 'Invoice Emailed');
     });
   });
 
-  await t.test('recordBillingPaymentPaid - marks paid and restores active subscription status', async () => {
-    let savedPayment = null;
+  await t.test('recordBillingInvoicePaid - marks paid and restores active subscription status', async () => {
+    let savedInvoice = null;
     let savedInstitute = null;
-    const auditLogs = [];
+    const auditsCreated = [];
 
-    const mockPayment = {
+    const mockInvoice = {
       _id: '507f1f77bcf86cd799439015',
+      invoiceNumber: 'INV-2026-000006',
       instituteId: '507f1f77bcf86cd799439011',
       instituteCode: 'GFI001',
-      amount: 99,
-      billingCycle: 'monthly',
+      billingCycleSnapshot: 'monthly',
+      totalAmountSnapshot: 99,
       status: 'pending',
+      notesTimeline: [],
+      generatedPdfUrl: 'https://fake-public.com/invoices/GFI001/INV-2026-000006.pdf',
       save: function() {
-        savedPayment = this;
+        savedInvoice = this;
         return Promise.resolve(this);
       }
     };
@@ -311,6 +387,7 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
     const mockInstitute = {
       _id: '507f1f77bcf86cd799439011',
       instituteCode: 'GFI001',
+      name: 'GFI Academy',
       subscriptionStatus: 'payment_due',
       save: function() {
         savedInstitute = this;
@@ -320,9 +397,9 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
 
     const mocks = [
       {
-        target: SubscriptionPayment,
+        target: SubscriptionInvoice,
         method: 'findById',
-        impl: () => Promise.resolve(mockPayment)
+        impl: () => Promise.resolve(mockInvoice)
       },
       {
         target: Institute,
@@ -330,10 +407,10 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
         impl: () => Promise.resolve(mockInstitute)
       },
       {
-        target: AuditLog,
+        target: InvoiceAudit,
         method: 'create',
         impl: (data) => {
-          auditLogs.push(data);
+          auditsCreated.push(data);
           return Promise.resolve(data);
         }
       }
@@ -352,18 +429,18 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
         socket: {}
       };
       const { res, state } = makeResponse();
-      await recordBillingPaymentPaid(req, res);
+      await recordBillingInvoicePaid(req, res);
 
       assert.equal(state.statusCode, 200);
-      assert.ok(savedPayment);
-      assert.equal(savedPayment.status, 'paid');
-      assert.equal(savedPayment.paymentMethod, 'upi');
-      assert.equal(savedPayment.paymentReference, 'UPI123456789');
+      assert.ok(savedInvoice);
+      assert.equal(savedInvoice.status, 'paid');
+      assert.equal(savedInvoice.paymentMethod, 'upi');
+      assert.equal(savedInvoice.paymentReference, 'UPI123456789');
       assert.equal(savedInstitute.subscriptionStatus, 'active');
       assert.equal(savedInstitute.isTrialActive, false);
-      assert.equal(auditLogs.length, 2);
-      assert.equal(auditLogs[0].eventType, 'PAYMENT_RECEIVED');
-      assert.equal(auditLogs[1].eventType, 'SUBSCRIPTION_REACTIVATED');
+      assert.equal(auditsCreated.length, 2);
+      assert.equal(auditsCreated[0].action, 'Marked Paid');
+      assert.equal(auditsCreated[1].action, 'Reactivated');
     });
   });
 

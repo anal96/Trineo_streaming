@@ -160,7 +160,7 @@ export const loginUser = async (req, res) => {
       if (user.role !== 'owner' && user.institute) {
         const inst = await Institute.findById(user.institute);
         if (inst && (inst.subscriptionStatus === 'suspended' || inst.subscriptionStatus === 'inactive')) {
-          return res.status(403).json({ message: 'Your institute subscription is currently inactive. Please contact your institute administrator.' });
+          return res.status(403).json({ message: 'Subscription Suspended. Please contact Trineo Support.' });
         }
       }
 
@@ -590,8 +590,8 @@ export const ssoLogin = async (req, res) => {
       return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
     }
 
-    if (inst.status !== 'active') {
-      const error = new Error(`Target institute '${inst.name}' is inactive`);
+    if (inst.status !== 'active' || inst.subscriptionStatus === 'suspended' || inst.subscriptionStatus === 'inactive') {
+      const error = new Error(`Target institute '${inst.name}' is suspended or inactive`);
       console.error('SSO FAILURE REASON:');
       console.error(error);
       console.error('SSO FAILURE STACK:');
@@ -601,13 +601,12 @@ export const ssoLogin = async (req, res) => {
         institute: inst._id,
         instituteId,
         eventType: 'SSO_LOGIN_FAILED',
-        details: `SSO failed: Target institute '${inst.name}' is inactive.`,
+        details: `SSO failed: Target institute '${inst.name}' is inactive, suspended, or deleted.`,
         ipAddress: normalizedIp,
         userAgent
       });
       console.error('REDIRECTING TO LOGIN WITH ERROR');
-      console.error('Invalid or expired SSO token');
-      return res.redirect(`${frontendUrl}/login?error=Invalid or expired SSO token`);
+      return res.redirect(`${frontendUrl}/login?error=Subscription Suspended. Please contact Trineo Support.`);
     }
 
     console.log('STEP 5: Looking up user');

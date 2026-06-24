@@ -44,11 +44,9 @@ const instituteSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
-  trialStartDate: Date,
-  trialEndDate: Date,
-  isTrialActive: {
-    type: Boolean,
-    default: false
+  storageUsed: {
+    type: Number,
+    default: 0
   },
   instituteId: {
     type: String,
@@ -82,6 +80,19 @@ const instituteSchema = new mongoose.Schema({
     default: ''
   },
   phone: {
+    type: String,
+    default: ''
+  },
+  billingContactName: {
+    type: String,
+    default: ''
+  },
+  billingContactEmail: {
+    type: String,
+    default: '',
+    lowercase: true
+  },
+  billingContactPhone: {
     type: String,
     default: ''
   },

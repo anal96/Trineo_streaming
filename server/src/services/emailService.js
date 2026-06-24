@@ -246,7 +246,7 @@ function buildOnboardingSubmittedHtml({ name, planName }) {
           </div>
         </div>
         <p style="color: rgba(255,255,255,0.6); font-size: 14px; line-height: 1.6;">
-          Our platform owner is review processing your registration details. You will receive an email immediately once your application is approved and your 14-day trial is active.
+          Our platform owner is reviewing your registration details. You will receive an email once your application is approved and your subscription is activated.
         </p>
       </div>
       <div class="footer">
@@ -295,7 +295,7 @@ function buildOnboardingApprovedHtml({ name, instituteCode, email, temporaryPass
       </div>
       <div class="body">
         <h1 class="title">Welcome to Trineo Stream! 🎉</h1>
-        <p class="subtitle">Your institute has been approved and your 14-day free trial is now active.</p>
+        <p class="subtitle">Your institute has been approved and your subscription is now active.</p>
         <div class="info-card">
           <div class="info-row">
             <span class="info-label">Institute Code</span>
@@ -449,7 +449,7 @@ function buildBillingInvoiceHtml({ name, invoiceNumber, amount, dueDate }) {
 </html>`;
 }
 
-export async function sendBillingInvoiceEmail(email, name, invoiceNumber, amount, dueDate) {
+export async function sendBillingInvoiceEmail(email, name, invoiceNumber, amount, dueDate, pdfBuffer) {
   const subject = `Invoice ${invoiceNumber} Due – Trineo Stream Subscription`;
   if (!isResendConfigured()) {
     console.log(`[EMAIL FALLBACK — RESEND NOT CONFIGURED]`);
@@ -458,12 +458,21 @@ export async function sendBillingInvoiceEmail(email, name, invoiceNumber, amount
     return;
   }
   try {
-    await getResend().emails.send({
+    const emailOptions = {
       from: EMAIL_FROM(),
       to: [email],
       subject,
       html: buildBillingInvoiceHtml({ name, invoiceNumber, amount, dueDate })
-    });
+    };
+    if (pdfBuffer) {
+      emailOptions.attachments = [
+        {
+          filename: `Invoice_${invoiceNumber}.pdf`,
+          content: pdfBuffer
+        }
+      ];
+    }
+    await getResend().emails.send(emailOptions);
   } catch (err) {
     console.error(`[Resend] Billing invoice email error:`, err.message);
   }
@@ -506,7 +515,7 @@ function buildGracePeriodHtml({ name, amount, graceEndDate }) {
 </html>`;
 }
 
-export async function sendGracePeriodEmail(email, name, amount, graceEndDate) {
+export async function sendGracePeriodEmail(email, name, amount, graceEndDate, invoiceNumber, pdfBuffer) {
   const subject = 'Warning: Trineo Stream Subscription Grace Period Active';
   if (!isResendConfigured()) {
     console.log(`[EMAIL FALLBACK — RESEND NOT CONFIGURED]`);
@@ -515,12 +524,21 @@ export async function sendGracePeriodEmail(email, name, amount, graceEndDate) {
     return;
   }
   try {
-    await getResend().emails.send({
+    const emailOptions = {
       from: EMAIL_FROM(),
       to: [email],
       subject,
       html: buildGracePeriodHtml({ name, amount, graceEndDate })
-    });
+    };
+    if (pdfBuffer) {
+      emailOptions.attachments = [
+        {
+          filename: `Invoice_${invoiceNumber || 'Detail'}.pdf`,
+          content: pdfBuffer
+        }
+      ];
+    }
+    await getResend().emails.send(emailOptions);
   } catch (err) {
     console.error(`[Resend] Grace period email error:`, err.message);
   }
@@ -557,7 +575,7 @@ function buildSuspensionHtml({ name }) {
 </html>`;
 }
 
-export async function sendSuspensionEmail(email, name) {
+export async function sendSuspensionEmail(email, name, invoiceNumber, pdfBuffer) {
   const subject = 'Alert: Trineo Stream Institute Subscription Suspended';
   if (!isResendConfigured()) {
     console.log(`[EMAIL FALLBACK — RESEND NOT CONFIGURED]`);
@@ -565,12 +583,21 @@ export async function sendSuspensionEmail(email, name) {
     return;
   }
   try {
-    await getResend().emails.send({
+    const emailOptions = {
       from: EMAIL_FROM(),
       to: [email],
       subject,
       html: buildSuspensionHtml({ name })
-    });
+    };
+    if (pdfBuffer) {
+      emailOptions.attachments = [
+        {
+          filename: `Invoice_${invoiceNumber || 'Detail'}.pdf`,
+          content: pdfBuffer
+        }
+      ];
+    }
+    await getResend().emails.send(emailOptions);
   } catch (err) {
     console.error(`[Resend] Suspension email error:`, err.message);
   }
@@ -608,7 +635,7 @@ function buildReactivationHtml({ name }) {
 </html>`;
 }
 
-export async function sendReactivationEmail(email, name) {
+export async function sendReactivationEmail(email, name, invoiceNumber, pdfBuffer) {
   const subject = 'Success: Trineo Stream Subscription Restored';
   if (!isResendConfigured()) {
     console.log(`[EMAIL FALLBACK — RESEND NOT CONFIGURED]`);
@@ -616,12 +643,21 @@ export async function sendReactivationEmail(email, name) {
     return;
   }
   try {
-    await getResend().emails.send({
+    const emailOptions = {
       from: EMAIL_FROM(),
       to: [email],
       subject,
       html: buildReactivationHtml({ name })
-    });
+    };
+    if (pdfBuffer) {
+      emailOptions.attachments = [
+        {
+          filename: `Invoice_${invoiceNumber || 'Detail'}.pdf`,
+          content: pdfBuffer
+        }
+      ];
+    }
+    await getResend().emails.send(emailOptions);
   } catch (err) {
     console.error(`[Resend] Reactivation email error:`, err.message);
   }

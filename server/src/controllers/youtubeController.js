@@ -23,6 +23,7 @@ import {
   decryptRefreshToken
 } from '../utils/youtubeService.js';
 import { getVideoProvider, getThumbnailUrl } from '../utils/videoProvider.js';
+import { isR2Configured, uploadToR2 } from '../utils/r2Service.js';
 
 const parseDurationToSeconds = (duration = '0:00') => {
   const parts = String(duration).split(':').map((v) => Number(v || 0));
@@ -473,29 +474,38 @@ export const disconnectInstituteYouTubeChannel = async (req, res) => {
  * No video file is ever stored permanently on the server.
  */
 export const uploadVideoToYouTube = async (req, res) => {
-  const { title, courseId, lessonId, duration, attachmentName, attachmentUrl } = req.body;
+  const { title, courseId, lessonId, duration, attachmentName } = req.body;
+
+  const videoFile = req.files && req.files.video ? req.files.video[0] : null;
+  const attachmentFile = req.files && req.files.attachment ? req.files.attachment[0] : null;
+
+  const cleanupFiles = () => {
+    if (videoFile && fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+    if (attachmentFile && fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
+  };
 
   if (!courseId) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    cleanupFiles();
     return res.status(400).json({ message: 'Please select a course.' });
   }
   if (!lessonId) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    cleanupFiles();
     return res.status(400).json({ message: 'Please select a lesson.' });
   }
-  if (!req.file) {
+  if (!videoFile) {
+    cleanupFiles();
     return res.status(400).json({ message: 'Please select a video file.' });
   }
   if (!title) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    cleanupFiles();
     return res.status(400).json({ message: 'Please select a video title.' });
   }
 
-  const tempFilePath = req.file.path;
+  const tempFilePath = videoFile.path;
 
   try {
     if (req.user.role !== 'owner' && !req.user.institute) {
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+      cleanupFiles();
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
 
@@ -504,7 +514,7 @@ export const uploadVideoToYouTube = async (req, res) => {
       ? await Program.findById(courseId).populate('institute')
       : await Program.findOne({ _id: courseId, institute: req.user.institute }).populate('institute');
     if (!course) {
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+      cleanupFiles();
       return res.status(404).json({ message: 'Program not found' });
     }
 
@@ -513,12 +523,40 @@ export const uploadVideoToYouTube = async (req, res) => {
       ? await Lesson.findById(lessonId)
       : await Lesson.findOne({ _id: lessonId, institute: req.user.institute });
     if (!lesson) {
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+      cleanupFiles();
       return res.status(404).json({ message: 'Lesson not found' });
     }
 
     const targetInstituteId = req.user.role === 'owner' ? (course.institute?._id || course.institute) : req.user.institute;
     const { institute } = await getInstituteYoutubeContext(targetInstituteId);
+
+    // Handle attachment upload to R2
+    let attachmentUrl = null;
+    let attachmentNameVal = attachmentName || '';
+    if (attachmentFile) {
+      if (isR2Configured()) {
+        try {
+          const fileBuffer = fs.readFileSync(attachmentFile.path);
+          const r2Key = `lesson-attachments/${institute?.instituteCode || 'default'}/${attachmentFile.filename}`;
+          attachmentUrl = await uploadToR2(fileBuffer, r2Key, attachmentFile.mimetype || 'application/pdf');
+          attachmentNameVal = attachmentNameVal || attachmentFile.originalname;
+          if (fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
+
+          // Track storage usage
+          const inst = await Institute.findById(targetInstituteId);
+          if (inst) {
+            inst.storageUsed = (inst.storageUsed || 0) + attachmentFile.size;
+            await inst.save();
+          }
+        } catch (r2Err) {
+          cleanupFiles();
+          return res.status(500).json({ message: `R2 Attachment Upload Failed: ${r2Err.message}` });
+        }
+      } else {
+        // R2 not configured — discard attachment silently
+        if (fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
+      }
+    }
 
     // Create the VideoAsset record immediately so admin gets instant feedback
     const videoAsset = new VideoAsset({
@@ -548,6 +586,10 @@ export const uploadVideoToYouTube = async (req, res) => {
     if (duration) {
       videoContent.youtubeDuration = duration;
     }
+    if (attachmentUrl) {
+      videoContent.attachmentUrl = attachmentUrl;
+      videoContent.attachmentName = attachmentNameVal;
+    }
     
     // ROOT CAUSE AUDIT - STEP 1
     console.log('[DEBUG] STEP 1 - Before Saving Content:', {
@@ -563,6 +605,10 @@ export const uploadVideoToYouTube = async (req, res) => {
     // Link VideoAsset to selected lesson for backward compatibility with frontend checks
     lesson.videoAssetId = savedAsset._id;
     lesson.uploadStatus = 'uploading';
+    if (attachmentUrl) {
+      lesson.attachmentUrl = attachmentUrl;
+      lesson.attachmentName = attachmentNameVal;
+    }
     await lesson.save();
 
     // Create upload job record for tracking
@@ -736,6 +782,8 @@ export const uploadVideoToYouTube = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
 
 /**
  * GET /api/videos/youtube/status/:lessonId

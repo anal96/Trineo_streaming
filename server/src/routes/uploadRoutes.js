@@ -23,7 +23,7 @@ router.post(
     },
     bodyParam: 'courseId'
   }),
-  upload.single('video'),
+  upload.fields([{ name: 'video', maxCount: 1 }, { name: 'attachment', maxCount: 1 }]),
   uploadVideo
 );
 router.get('/jobs', protect, adminOnly, getUploadJobs);

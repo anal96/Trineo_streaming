@@ -71,7 +71,7 @@ import {
   Cell,
   Legend
 } from 'recharts';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, getApiUrl } from '../../utils/api';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { PanelDrawerNav } from '../responsive/PanelDrawerNav';
 import { MobileRecordCard } from '../responsive/ResponsiveDataView';
@@ -373,6 +373,16 @@ export default function OwnerPanel() {
   const [payForm, setPayForm] = useState({ paymentId: '', paymentMethod: 'upi', paymentReference: '', notes: '' });
   const [paySubmitting, setPaySubmitting] = useState(false);
 
+  // Grace Period Extension & Timeline states
+  const [showGraceForm, setShowGraceForm] = useState(false);
+  const [graceForm, setGraceForm] = useState({ invoiceId: '', extendDays: 2, customDate: '' });
+  const [graceSubmitting, setGraceSubmitting] = useState(false);
+
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [timelineInvoiceNumber, setTimelineInvoiceNumber] = useState('');
+  const [invoiceTimeline, setInvoiceTimeline] = useState<any[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+
   // ── Loaders ──────────────────────────────────────────────────────────────
   const loadStats = useCallback(async () => {
     try {
@@ -461,14 +471,18 @@ export default function OwnerPanel() {
 
   const loadBillingDashboard = useCallback(async () => {
     try {
-      const data = await apiFetch('/owner/billing/dashboard');
-      setBillingStats(data);
+      const dashboardData = await apiFetch('/owner/billing/dashboard');
+      const metricsData = await apiFetch('/owner/billing/metrics');
+      setBillingStats({
+        ...dashboardData,
+        ...metricsData
+      });
     } catch (e: any) { setError(e.message); }
   }, []);
 
   const loadBillingPayments = useCallback(async () => {
     try {
-      const data = await apiFetch('/owner/billing/payments');
+      const data = await apiFetch('/owner/billing/invoices');
       setBillingPayments(data);
     } catch (e: any) { setError(e.message); }
   }, []);
@@ -581,7 +595,7 @@ export default function OwnerPanel() {
 
   // ── SaaS Onboarding & Billing Action Handlers ────────────────────────────
   const handleApproveOnboarding = async (id: string) => {
-    if (!confirm('Are you sure you want to approve this institute onboarding application? This will generate their unique institute code and start their 14-day free trial.')) return;
+    if (!confirm('Are you sure you want to approve this institute? This will generate their unique institute code, activate their subscription, and generate a paid invoice.')) return;
     try {
       const res = await apiFetch(`/owner/onboarding/${id}/approve`, {
         method: 'POST'
@@ -633,7 +647,7 @@ export default function OwnerPanel() {
     }
     setInvoiceSubmitting(true);
     try {
-      await apiFetch('/owner/billing/payments', {
+      await apiFetch('/owner/billing/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(invoiceForm)
@@ -654,7 +668,7 @@ export default function OwnerPanel() {
     if (!payForm.paymentId) return;
     setPaySubmitting(true);
     try {
-      await apiFetch(`/owner/billing/payments/${payForm.paymentId}/pay`, {
+      await apiFetch(`/owner/billing/invoices/${payForm.paymentId}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -671,6 +685,73 @@ export default function OwnerPanel() {
       alert(e.message || 'Failed to record payment.');
     } finally {
       setPaySubmitting(false);
+    }
+  };
+
+  const handleExtendGrace = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!graceForm.invoiceId) return;
+    setGraceSubmitting(true);
+    try {
+      await apiFetch(`/owner/billing/invoices/${graceForm.invoiceId}/extend-grace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          extendDays: graceForm.extendDays,
+          customDate: graceForm.customDate
+        })
+      });
+      alert('Grace period extended successfully.');
+      setGraceForm({ invoiceId: '', extendDays: 2, customDate: '' });
+      setShowGraceForm(false);
+      await Promise.all([loadBillingDashboard(), loadBillingPayments(), loadInstitutes()]);
+    } catch (e: any) {
+      alert(e.message || 'Failed to extend grace period.');
+    } finally {
+      setGraceSubmitting(false);
+    }
+  };
+
+  const handleShowTimeline = async (invoiceId: string, invoiceNumber: string) => {
+    setTimelineLoading(true);
+    setTimelineInvoiceNumber(invoiceNumber);
+    setShowTimeline(true);
+    try {
+      const data = await apiFetch(`/owner/billing/invoices/${invoiceId}/audits`);
+      setInvoiceTimeline(data);
+    } catch (e: any) {
+      alert(e.message || 'Failed to load timeline.');
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = async (invoiceId: string, invoiceNumber: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = {} as Record<string, string>;
+      if (token && token !== 'session_active') {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const response = await fetch(getApiUrl(`/billing/invoices/${invoiceId}/download`), {
+        headers,
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Download failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Failed to download invoice PDF.');
     }
   };
 
@@ -1537,7 +1618,7 @@ export default function OwnerPanel() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Subscriptions & Billing</h1>
-                      <p className={`text-sm mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>Track trials, invoices, and record manual payments</p>
+                      <p className={`text-sm mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>Track subscriptions, invoices, and record manual payments</p>
                     </div>
                     <button
                       onClick={() => setShowInvoiceForm(true)}
@@ -1550,14 +1631,14 @@ export default function OwnerPanel() {
 
                   {/* Billing Metrics Widgets */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatCard icon={Clock}        label="Active Trials"          value={billingStats.activeTrials} color="from-sky-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={AlertCircle}  label="Trial Expiring Soon"    value={billingStats.trialExpiringSoon} color="from-yellow-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={DollarSign}   label="Payment Due"            value={billingStats.paymentDue} color="from-orange-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={AlertTriangle} label="Grace Period"          value={billingStats.gracePeriod} color="from-red-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={Building2}    label="Suspended Institutes"   value={billingStats.suspendedInstitutes} color="from-rose-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={CheckCircle2} label="Active Subscriptions"  value={billingStats.activeSubscriptions} color="from-emerald-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={TrendingUp}   label="Monthly Revenue"        value={fmtRevenue(billingStats.monthlyRevenue)} color="from-violet-500/5 to-transparent" isDark={isDark} />
-                    <StatCard icon={Star}         label="Annual Revenue"         value={fmtRevenue(billingStats.annualRevenue)} color="from-amber-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={TrendingUp}   label="Total Revenue"          value={fmtRevenue(billingStats.totalRevenue)} color="from-violet-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={Clock}        label="Revenue This Month"     value={fmtRevenue(billingStats.revenueThisMonth)} color="from-sky-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={Star}         label="Revenue This Year"      value={fmtRevenue(billingStats.revenueThisYear)} color="from-amber-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={Zap}          label="Collection Rate"        value={`${billingStats.collectionRate || 0}%`} color="from-emerald-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={Building2}    label="Suspended Institutes"   value={billingStats.suspendedInstitutes || 0} color="from-rose-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={AlertTriangle} label="Overdue Invoices"       value={billingStats.overdueInvoices || 0} color="from-red-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={DollarSign}   label="Pending Collections"    value={fmtRevenue(billingStats.pendingCollections)} color="from-orange-500/5 to-transparent" isDark={isDark} />
+                    <StatCard icon={CheckCircle2} label="Active Institutes"      value={billingStats.activeInstitutes || 0} color="from-emerald-500/5 to-transparent" isDark={isDark} />
                   </div>
 
                   {/* Create Invoice Form Modal-like Inline form */}
@@ -1777,14 +1858,14 @@ export default function OwnerPanel() {
                             <tr key={payment._id} className={`transition-colors ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/50'}`}>
                               <td className="px-5 py-4 font-mono text-xs">{payment.invoiceNumber}</td>
                               <td className="px-5 py-4">
-                                <div className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{payment.instituteId?.name || 'N/A'}</div>
+                                <div className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{payment.instituteNameSnapshot || payment.instituteName || payment.instituteId?.name || 'N/A'}</div>
                                 <div className={`text-xs mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>Code: {payment.instituteCode}</div>
                               </td>
-                              <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{payment.planId?.name || 'N/A'}</td>
-                              <td className="px-5 py-4 capitalize text-xs">{payment.billingCycle}</td>
-                              <td className="px-5 py-4 font-semibold text-emerald-400">${payment.amount}</td>
+                              <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{payment.planNameSnapshot || payment.planId?.name || 'N/A'}</td>
+                              <td className="px-5 py-4 capitalize text-xs">{payment.billingCycleSnapshot || payment.billingCycle || 'N/A'}</td>
+                              <td className="px-5 py-4 font-semibold text-emerald-400">${payment.totalAmountSnapshot ?? payment.amount ?? 0}</td>
                               <td className={`px-5 py-4 text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                                {payment.paymentDueDate ? fmtDate(payment.paymentDueDate) : fmtDate(payment.dueDate)}
+                                {payment.dueDate ? fmtDate(payment.dueDate) : 'N/A'}
                               </td>
                               <td className="px-5 py-4">
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -1807,20 +1888,47 @@ export default function OwnerPanel() {
                                   <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>—</span>
                                 )}
                               </td>
-                              <td className="px-5 py-4">
-                                {payment.status !== 'paid' ? (
+                              <td className="px-5 py-4 text-xs">
+                                <div className="flex items-center gap-2">
+                                  {payment.status !== 'paid' && (
+                                    <button
+                                      onClick={() => {
+                                        setPayForm(p => ({ ...p, paymentId: payment._id }));
+                                        setShowPayForm(true);
+                                      }}
+                                      className="px-2 py-1 text-xs font-semibold rounded bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                      title="Mark Paid"
+                                    >
+                                      Pay
+                                    </button>
+                                  )}
+                                  {payment.status !== 'paid' && (
+                                    <button
+                                      onClick={() => {
+                                        setGraceForm({ invoiceId: payment._id, extendDays: 2, customDate: '' });
+                                        setShowGraceForm(true);
+                                      }}
+                                      className="px-2 py-1 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
+                                      title="Extend Grace Period"
+                                    >
+                                      Grace
+                                    </button>
+                                  )}
                                   <button
-                                    onClick={() => {
-                                      setPayForm(p => ({ ...p, paymentId: payment._id }));
-                                      setShowPayForm(true);
-                                    }}
-                                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                    onClick={() => handleDownloadPdf(payment._id, payment.invoiceNumber)}
+                                    className="px-2 py-1 text-xs font-semibold rounded border border-white/10 hover:bg-white/5 text-white cursor-pointer"
+                                    title="Download Invoice PDF"
                                   >
-                                    Mark Paid
+                                    PDF
                                   </button>
-                                ) : (
-                                  <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>Recorded</span>
-                                )}
+                                  <button
+                                    onClick={() => handleShowTimeline(payment._id, payment.invoiceNumber)}
+                                    className="px-2 py-1 text-xs font-semibold rounded border border-violet-500/20 hover:bg-violet-500/10 text-violet-400 cursor-pointer"
+                                    title="Timeline & Logs"
+                                  >
+                                    Logs
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1828,6 +1936,202 @@ export default function OwnerPanel() {
                       </table>
                     </div>
                   </div>
+
+                  {/* Additional Billing Support Panels */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+                    {/* Recent Payments Panel */}
+                    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-[#0f0f23] border-white/[0.06]' : 'bg-white border-slate-200 shadow-sm'}`}>
+                      <h4 className={`font-semibold text-sm mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <TrendingUp className="w-4 h-4 text-emerald-500" />
+                        Recent Payments
+                      </h4>
+                      <div className="space-y-3">
+                        {(!billingStats.recentPayments || billingStats.recentPayments.length === 0) ? (
+                          <div className={`text-xs text-center py-4 ${isDark ? 'text-white/20' : 'text-slate-400'}`}>No recent payments</div>
+                        ) : billingStats.recentPayments.map((p: any) => (
+                          <div key={p._id} className="flex justify-between items-center text-xs py-1.5 border-b border-white/[0.04] last:border-0">
+                            <div>
+                              <div className="font-semibold">{p.invoiceNumber}</div>
+                              <div className={isDark ? 'text-white/40' : 'text-slate-500'}>{p.instituteNameSnapshot || p.instituteName || 'Institute'}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-semibold text-emerald-400">+${p.totalAmountSnapshot}</div>
+                              <div className={isDark ? 'text-white/30' : 'text-slate-500'}>{p.paidDate ? new Date(p.paidDate).toLocaleDateString() : ''}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Upcoming Renewals Panel */}
+                    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-[#0f0f23] border-white/[0.06]' : 'bg-white border-slate-200 shadow-sm'}`}>
+                      <h4 className={`font-semibold text-sm mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <Clock className="w-4 h-4 text-amber-500" />
+                        Upcoming Renewals
+                      </h4>
+                      <div className="space-y-3">
+                        {(!billingStats.upcomingRenewals || billingStats.upcomingRenewals.length === 0) ? (
+                          <div className={`text-xs text-center py-4 ${isDark ? 'text-white/20' : 'text-slate-400'}`}>No upcoming renewals</div>
+                        ) : billingStats.upcomingRenewals.map((r: any, idx: number) => (
+                          <div key={idx} className="flex justify-between items-center text-xs py-1.5 border-b border-white/[0.04] last:border-0">
+                            <div>
+                              <div className="font-semibold">{r.name}</div>
+                              <div className={isDark ? 'text-white/40' : 'text-slate-500'}>Code: {r.code}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-semibold text-white">${r.amount}</div>
+                              <div className={isDark ? 'text-white/30' : 'text-slate-500'}>{r.nextBillingDate ? new Date(r.nextBillingDate).toLocaleDateString() : ''}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Top Paying Institutes Panel */}
+                    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-[#0f0f23] border-white/[0.06]' : 'bg-white border-slate-200 shadow-sm'}`}>
+                      <h4 className={`font-semibold text-sm mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <Crown className="w-4 h-4 text-violet-500" />
+                        Top Paying Institutes
+                      </h4>
+                      <div className="space-y-3">
+                        {(!billingStats.topPayingInstitutes || billingStats.topPayingInstitutes.length === 0) ? (
+                          <div className={`text-xs text-center py-4 ${isDark ? 'text-white/20' : 'text-slate-400'}`}>No data available</div>
+                        ) : billingStats.topPayingInstitutes.map((t: any, idx: number) => (
+                          <div key={idx} className="flex justify-between items-center text-xs py-1.5 border-b border-white/[0.04] last:border-0">
+                            <div>
+                              <span className="font-bold text-violet-400 mr-2">#{idx+1}</span>
+                              <span className="font-semibold">{t.code}</span>
+                            </div>
+                            <div className="font-bold text-emerald-400">${t.totalPaid}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grace Period Extension Modal */}
+                  <AnimatePresence>
+                    {showGraceForm && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className={`w-full max-w-lg p-6 border rounded-2xl shadow-xl ${
+                            isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white' : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          <h3 className="text-base font-bold mb-4">Extend Grace Period</h3>
+                          <form onSubmit={handleExtendGrace} className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-semibold mb-1 text-white/45">Extension Duration</label>
+                              <select
+                                value={graceForm.extendDays}
+                                onChange={e => setGraceForm(p => ({ ...p, extendDays: Number(e.target.value) }))}
+                                className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none appearance-none ${
+                                  isDark ? 'bg-[#06060f] border-white/[0.08]' : 'bg-slate-50 border-slate-200'
+                                }`}
+                              >
+                                <option value={2}>+2 Days</option>
+                                <option value={7}>+7 Days</option>
+                                <option value={15}>+15 Days</option>
+                                <option value={0}>Custom Date</option>
+                              </select>
+                            </div>
+                            {graceForm.extendDays === 0 && (
+                              <div>
+                                <label className="block text-xs font-semibold mb-1 text-white/45 font-semibold">Custom Date</label>
+                                <input
+                                  type="date"
+                                  value={graceForm.customDate}
+                                  onChange={e => setGraceForm(p => ({ ...p, customDate: e.target.value }))}
+                                  className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none ${
+                                    isDark ? 'bg-[#06060f] border-white/[0.08] text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                                  }`}
+                                  required
+                                />
+                              </div>
+                            )}
+                            <div className="flex gap-3 justify-end pt-2">
+                              <button type="button" onClick={() => setShowGraceForm(false)} className="px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/[0.05]">
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={graceSubmitting}
+                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                              >
+                                {graceSubmitting ? 'Extending…' : 'Extend Grace Period'}
+                              </button>
+                            </div>
+                          </form>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Timeline Audit Logs Modal */}
+                  <AnimatePresence>
+                    {showTimeline && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className={`w-full max-w-xl p-6 border rounded-2xl shadow-xl max-h-[85vh] flex flex-col ${
+                            isDark ? 'bg-[#0f0f23] border-white/[0.08] text-white' : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 mb-4">
+                            <h3 className="text-base font-bold flex items-center gap-2">
+                              <Clock className="w-5 h-5 text-violet-500" />
+                              Billing Notes & Timeline: {timelineInvoiceNumber}
+                            </h3>
+                            <button
+                              onClick={() => setShowTimeline(false)}
+                              className={`p-1.5 rounded-lg hover:bg-white/[0.05] ${isDark ? 'text-white/40' : 'text-slate-500'}`}
+                            >
+                              Close
+                            </button>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                            {timelineLoading ? (
+                              <div className="text-center py-8 text-xs text-white/40">Loading timeline data...</div>
+                            ) : (!invoiceTimeline || invoiceTimeline.length === 0) ? (
+                              <div className="text-center py-8 text-xs text-white/40">No audit events logged yet.</div>
+                            ) : (
+                              <div className="relative border-l-2 border-violet-500/20 ml-3 pl-6 space-y-6">
+                                {invoiceTimeline.map((item: any, idx: number) => (
+                                  <div key={idx} className="relative">
+                                    <span className="absolute -left-[31px] top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-violet-600 ring-4 ring-[#0f0f23] ring-offset-0">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                                    </span>
+                                    <div>
+                                      <span className="font-semibold text-xs text-violet-400 mr-2">
+                                        {new Date(item.timestamp).toLocaleString()}
+                                      </span>
+                                      <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                                        item.action === 'Invoice Created' ? 'bg-blue-500/10 text-blue-400' :
+                                        item.action === 'Marked Paid' ? 'bg-emerald-500/10 text-emerald-400' :
+                                        item.action === 'Grace Period Started' ? 'bg-amber-500/10 text-amber-400' :
+                                        'bg-white/5 text-white/60'
+                                      }`}>
+                                        {item.action}
+                                      </span>
+                                      <p className={`text-xs mt-1.5 font-medium ${isDark ? 'text-white/60' : 'text-slate-600'}`}>
+                                        {item.details}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
 

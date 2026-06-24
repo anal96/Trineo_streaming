@@ -9,6 +9,8 @@ import { Notification } from '../models/Notification.js';
 import { TranscodingJob } from '../models/TranscodingJob.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
 import { checkStorageQuota } from '../utils/quotaEnforcer.js';
+import { isR2Configured, uploadToR2 } from '../utils/r2Service.js';
+import { Institute } from '../models/Institute.js';
 
 const STREAMS_DIR = path.resolve('streams');
 const UPLOADS_DIR = path.resolve('uploads');
@@ -54,27 +56,33 @@ const getFFmpegCmd = () => {
 };
 
 export const uploadVideo = async (req, res) => {
-  const { title, courseId, duration, isLocked, order } = req.body;
+  const { title, courseId, duration, isLocked, order, attachmentName } = req.body;
   
-  if (!req.file) {
+  const videoFile = req.files && req.files.video ? req.files.video[0] : null;
+  const attachmentFile = req.files && req.files.attachment ? req.files.attachment[0] : null;
+
+  if (!videoFile) {
+    if (attachmentFile && fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
     return res.status(400).json({ message: 'No video file uploaded' });
   }
 
-  const tempFilePath = req.file.path;
+  const tempFilePath = videoFile.path;
 
   // Enforce storage plan quota limit checks
   try {
     if (req.user.institute) {
-      await checkStorageQuota(req.user.institute, req.file.size);
+      await checkStorageQuota(req.user.institute, videoFile.size);
     }
   } catch (quotaErr) {
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    if (attachmentFile && fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
     return res.status(403).json({ message: quotaErr.message });
   }
 
   try {
     if (req.user.role !== 'owner' && !req.user.institute) {
       if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+      if (attachmentFile && fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
 
@@ -90,7 +98,35 @@ export const uploadVideo = async (req, res) => {
 
     if (!course) {
       if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+      if (attachmentFile && fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
       return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const inst = await Institute.findById(req.user.institute);
+
+    let attachmentUrl = null;
+    let attachmentNameVal = attachmentName || '';
+    if (attachmentFile) {
+      if (isR2Configured()) {
+        try {
+          const fileBuffer = fs.readFileSync(attachmentFile.path);
+          const r2Key = `lesson-attachments/${inst?.instituteCode || 'default'}/${attachmentFile.filename}`;
+          attachmentUrl = await uploadToR2(fileBuffer, r2Key, 'application/pdf');
+          attachmentNameVal = attachmentNameVal || attachmentFile.originalname;
+          if (fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
+          
+          if (inst) {
+            inst.storageUsed = (inst.storageUsed || 0) + attachmentFile.size;
+            await inst.save();
+          }
+        } catch (r2Err) {
+          if (fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
+          if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+          return res.status(500).json({ message: `R2 Attachment Upload Failed: ${r2Err.message}` });
+        }
+      } else {
+        if (fs.existsSync(attachmentFile.path)) fs.unlinkSync(attachmentFile.path);
+      }
     }
 
     const lesson = new Lesson({
@@ -100,7 +136,9 @@ export const uploadVideo = async (req, res) => {
       duration: duration || '10:00',
       isLocked: isLocked === 'true' || isLocked === true,
       videoUrl: 'queued', // Set state to queued
-      order: Number(order) || 0
+      order: Number(order) || 0,
+      attachmentUrl: attachmentUrl || undefined,
+      attachmentName: attachmentUrl ? attachmentNameVal : undefined
     });
 
     const savedLesson = await lesson.save();

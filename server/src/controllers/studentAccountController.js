@@ -255,21 +255,23 @@ export const uploadStudentAvatar = async (req, res) => {
     const buffer = Buffer.from(base64Data, 'base64');
 
     const filename = `student_${req.user.user_id}_${Date.now()}.webp`;
-    const relativePath = `/uploads/avatars/${filename}`;
-    const filePath = path.join(path.resolve(), 'uploads', 'avatars', filename);
+    const relativePath = `/uploads/profile-pictures/${filename}`;
+    const filePath = path.join(path.resolve(), 'uploads', 'profile-pictures', filename);
 
     // Find and delete the old avatar if it exists
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (user.avatar && user.avatar.startsWith('/uploads/avatars/')) {
-      const oldPath = path.join(path.resolve(), user.avatar.substring(1)); // strip leading slash if absolute in node CWD
-      const cleanOldPath = path.join(path.resolve(), user.avatar.replace(/^\//, ''));
-      if (fs.existsSync(cleanOldPath)) {
-        try {
-          fs.unlinkSync(cleanOldPath);
-        } catch (err) {
-          console.error('Failed to delete old avatar:', err);
+    const oldPaths = [user.avatar, user.profileImageUrl].filter(Boolean);
+    for (const oldPath of oldPaths) {
+      if (oldPath.startsWith('/uploads/profile-pictures/') || oldPath.startsWith('/uploads/avatars/')) {
+        const cleanOldPath = path.join(path.resolve(), oldPath.replace(/^\//, ''));
+        if (fs.existsSync(cleanOldPath)) {
+          try {
+            fs.unlinkSync(cleanOldPath);
+          } catch (err) {
+            console.error('Failed to delete old profile picture:', err);
+          }
         }
       }
     }
@@ -278,11 +280,13 @@ export const uploadStudentAvatar = async (req, res) => {
     fs.writeFileSync(filePath, buffer);
 
     user.avatar = relativePath;
+    user.profileImageUrl = relativePath;
     await user.save();
 
     res.json({
       message: 'Avatar uploaded successfully',
-      avatar: relativePath
+      avatar: relativePath,
+      profileImageUrl: relativePath
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -295,23 +299,28 @@ export const deleteStudentAvatar = async (req, res) => {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (user.avatar && user.avatar.startsWith('/uploads/avatars/')) {
-      const cleanOldPath = path.join(path.resolve(), user.avatar.replace(/^\//, ''));
-      if (fs.existsSync(cleanOldPath)) {
-        try {
-          fs.unlinkSync(cleanOldPath);
-        } catch (err) {
-          console.error('Failed to delete avatar file:', err);
+    const oldPaths = [user.avatar, user.profileImageUrl].filter(Boolean);
+    for (const oldPath of oldPaths) {
+      if (oldPath.startsWith('/uploads/profile-pictures/') || oldPath.startsWith('/uploads/avatars/')) {
+        const cleanOldPath = path.join(path.resolve(), oldPath.replace(/^\//, ''));
+        if (fs.existsSync(cleanOldPath)) {
+          try {
+            fs.unlinkSync(cleanOldPath);
+          } catch (err) {
+            console.error('Failed to delete avatar file:', err);
+          }
         }
       }
     }
 
     user.avatar = '';
+    user.profileImageUrl = '';
     await user.save();
 
     res.json({
       message: 'Avatar removed successfully',
-      avatar: ''
+      avatar: '',
+      profileImageUrl: ''
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

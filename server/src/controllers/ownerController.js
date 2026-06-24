@@ -27,6 +27,11 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import os from 'os';
 import mongoose from 'mongoose';
+import { SubscriptionInvoice } from '../models/SubscriptionInvoice.js';
+import { InvoiceCounter } from '../models/InvoiceCounter.js';
+import { InvoiceAudit } from '../models/InvoiceAudit.js';
+import { isR2Configured, uploadToR2, getSignedR2Url, downloadFromR2, parseR2Key } from '../utils/r2Service.js';
+import { generateInvoicePdfBuffer } from '../utils/pdfGenerator.js';
 
 const toDateRange = ({ range = '30d', startDate, endDate }) => {
   const end = endDate ? new Date(endDate) : new Date();
@@ -987,16 +992,34 @@ export const approveOnboardingRequest = async (req, res) => {
       sequence++;
     }
 
-    // 2. Set statuses and trial settings
+    if (!isR2Configured()) {
+      return res.status(500).json({ message: 'Cannot approve request: Cloudflare R2 storage is not configured. Real-time invoice creation is required.' });
+    }
+
+    // 2. Set statuses — No free trial. Subscription is active immediately.
     inst.instituteCode = code;
     inst.onboardingStatus = 'approved';
     inst.subscriptionStatus = 'active';
-    inst.isTrialActive = true;
-    inst.trialStartDate = new Date();
-    inst.trialEndDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
-    inst.nextBillingDate = inst.trialEndDate;
     inst.approvedAt = new Date();
     inst.approvedBy = req.user._id;
+
+    // Fetch plan
+    const plan = await SubscriptionPlan.findById(inst.planId) || await SubscriptionPlan.findOne({ isActive: true });
+    if (!plan) {
+      return res.status(400).json({ message: 'No active subscription plan found to attach to the institute.' });
+    }
+    inst.planId = plan._id;
+
+    // Calculate next billing date from today based on plan cycle
+    const billingCycle = plan.billingCycle || inst.billingCycle || 'monthly';
+    const now = new Date();
+    if (billingCycle === 'yearly') {
+      inst.nextBillingDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+    } else if (billingCycle === 'quarterly') {
+      inst.nextBillingDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+    } else {
+      inst.nextBillingDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
 
     await inst.save();
 
@@ -1007,21 +1030,81 @@ export const approveOnboardingRequest = async (req, res) => {
       await adminUser.save();
     }
 
+    // Generate Sequential Invoice
+    const year = new Date().getFullYear();
+    const counter = await InvoiceCounter.findOneAndUpdate(
+      { year },
+      { $inc: { sequence: 1 } },
+      { new: true, upsert: true }
+    );
+    const invoiceNumber = `INV-${year}-${String(counter.sequence).padStart(6, '0')}`;
+
+    const amountSnapshot = plan.price || 0;
+    const taxAmountSnapshot = parseFloat((amountSnapshot * 0.18).toFixed(2));
+    const totalAmountSnapshot = parseFloat((amountSnapshot + taxAmountSnapshot).toFixed(2));
+
+    const invoice = new SubscriptionInvoice({
+      invoiceNumber,
+      instituteId: inst._id,
+      instituteCode: inst.instituteCode,
+      instituteName: inst.name,
+      planId: plan._id,
+      planNameSnapshot: plan.name,
+      billingCycleSnapshot: billingCycle,
+      amountSnapshot,
+      taxAmountSnapshot,
+      totalAmountSnapshot,
+      dueDate: now,
+      status: 'paid',
+      paidDate: now,
+      paymentMethod: 'bank_transfer',
+      paymentReference: 'PREPAID_ONBOARDING',
+      generatedPdfUrl: 'TBD',
+      notes: 'Initial invoice generated and marked paid on onboarding approval (pre-paid).'
+    });
+
+    const pdfBuffer = await generateInvoicePdfBuffer(invoice, inst);
+    const r2Key = `invoices/${invoiceNumber}.pdf`;
+    const r2Url = await uploadToR2(pdfBuffer, r2Key, 'application/pdf');
+    invoice.generatedPdfUrl = r2Url;
+
+    invoice.notesTimeline.push({
+      event: 'Invoice Created',
+      details: 'Initial invoice generated and marked paid upon onboarding approval.',
+      timestamp: new Date()
+    });
+    await invoice.save();
+
+    // Log Invoice Created & Emailed Audits
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber,
+      instituteId: inst._id,
+      action: 'Invoice Created',
+      details: 'Initial invoice generated and paid on onboarding approval.',
+      timestamp: new Date()
+    });
+
+    const emailTo = inst.billingContactEmail || inst.email;
+    const nameTo = inst.billingContactName || inst.contactPerson;
+
+    await sendBillingInvoiceEmail(emailTo, nameTo, invoiceNumber, totalAmountSnapshot, inst.nextBillingDate, pdfBuffer);
+
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber,
+      instituteId: inst._id,
+      action: 'Invoice Emailed',
+      details: `Invoice PDF emailed to billing contact: ${emailTo}`,
+      timestamp: new Date()
+    });
+
     // 4. Create Audit Logs
     await AuditLog.create({
       userId: adminUser ? adminUser._id : req.user._id,
       institute: inst._id,
       eventType: 'INSTITUTE_APPROVED',
-      details: `Institute approved by owner (Code: ${code}). Onboarding status: approved.`,
-      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
-      userAgent: req.headers['user-agent'] || 'Unknown'
-    });
-
-    await AuditLog.create({
-      userId: adminUser ? adminUser._id : req.user._id,
-      institute: inst._id,
-      eventType: 'TRIAL_STARTED',
-      details: `14-Day Free Trial started for institute ${code}. Ends on ${inst.trialEndDate.toLocaleDateString()}.`,
+      details: `Institute approved by owner (Code: ${code}). Subscription set to active immediately.`,
       ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
       userAgent: req.headers['user-agent'] || 'Unknown'
     });
@@ -1031,7 +1114,7 @@ export const approveOnboardingRequest = async (req, res) => {
       details: `Approved institute "${inst.name}" with code "${code}"`
     });
 
-    // 5. Send Email via Resend
+    // 5. Send Onboarding Email via Resend
     sendOnboardingApprovedEmail(inst.email, inst.contactPerson, code, 'Your chosen password').catch(err => {
       console.error('[Resend Onboarding Approved Email Error]', err);
     });
@@ -1177,128 +1260,414 @@ export const getBillingDashboard = async (req, res) => {
   }
 };
 
-// GET /api/owner/billing/payments
-export const getBillingPayments = async (req, res) => {
+// GET /api/owner/billing/invoices
+export const getBillingInvoices = async (req, res) => {
   try {
-    const payments = await SubscriptionPayment.find({})
-      .populate('instituteId')
-      .populate('planId')
+    const invoices = await SubscriptionInvoice.find({})
       .sort({ createdAt: -1 })
       .lean();
-    res.json(payments);
+    res.json(invoices);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// POST /api/owner/billing/payments
-// Owner manually tracks or generates invoice
-export const createBillingPayment = async (req, res) => {
-  const { instituteId, amount, dueDate, billingCycle, notes } = req.body;
+// POST /api/owner/billing/invoices
+export const createBillingInvoice = async (req, res) => {
+  const { instituteId, planId, amount, taxAmount, dueDate, notes } = req.body;
   try {
+    if (!isR2Configured()) {
+      return res.status(500).json({ message: 'Cloudflare R2 is not configured. Invoice generation requires R2 storage.' });
+    }
+
     const inst = await Institute.findById(instituteId);
     if (!inst) return res.status(404).json({ message: 'Institute not found.' });
 
-    // Generate Invoice Number (e.g. INV-2026-XXXX)
-    const count = await SubscriptionPayment.countDocuments();
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+    // Fetch Plan details
+    const targetPlanId = planId || inst.planId;
+    const plan = await SubscriptionPlan.findById(targetPlanId);
+    if (!plan) return res.status(404).json({ message: 'Subscription Plan not found.' });
 
-    const payment = new SubscriptionPayment({
+    // Generate Invoice Number (concurrency-safe sequential counter)
+    const year = new Date().getFullYear();
+    const counter = await InvoiceCounter.findOneAndUpdate(
+      { year },
+      { $inc: { sequence: 1 } },
+      { new: true, upsert: true }
+    );
+    const invoiceNumber = `INV-${year}-${String(counter.sequence).padStart(6, '0')}`;
+
+    const amountVal = amount !== undefined ? Number(amount) : (plan.price || 0);
+    const taxVal = taxAmount !== undefined ? Number(taxAmount) : parseFloat((amountVal * 0.18).toFixed(2));
+    const totalVal = parseFloat((amountVal + taxVal).toFixed(2));
+
+    const invoice = new SubscriptionInvoice({
       invoiceNumber,
       instituteId: inst._id,
       instituteCode: inst.instituteCode,
-      planId: inst.planId,
-      amount: amount || 0,
-      billingCycle: billingCycle || inst.billingCycle || 'monthly',
-      dueDate: dueDate ? new Date(dueDate) : new Date(),
-      paymentDueDate: dueDate ? new Date(dueDate) : new Date(),
+      instituteName: inst.name,
+      planId: plan._id,
+      planNameSnapshot: plan.name,
+      billingCycleSnapshot: plan.billingCycle || inst.billingCycle || 'monthly',
+      amountSnapshot: amountVal,
+      taxAmountSnapshot: taxVal,
+      totalAmountSnapshot: totalVal,
+      dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       status: 'pending',
-      notes: notes || '',
-      createdBy: req.user._id
+      generatedPdfUrl: 'TBD',
+      notes: notes || ''
     });
 
-    await payment.save();
+    const pdfBuffer = await generateInvoicePdfBuffer(invoice, inst);
+    const r2Key = `invoices/${inst.instituteCode}/${invoiceNumber}.pdf`;
+    const r2Url = await uploadToR2(pdfBuffer, r2Key, 'application/pdf');
+    invoice.generatedPdfUrl = r2Url;
 
-    // Log payment due audit event
-    await AuditLog.create({
-      userId: req.user._id,
-      institute: inst._id,
-      eventType: 'PAYMENT_DUE',
-      details: `Invoice ${invoiceNumber} created for $${payment.amount}. Due: ${payment.dueDate.toLocaleDateString()}.`,
-      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
-      userAgent: req.headers['user-agent'] || 'Unknown'
+    invoice.notesTimeline.push({
+      event: 'Invoice Generated',
+      details: `Invoice created manually. Amount: $${totalVal}. Due: ${new Date(invoice.dueDate).toLocaleDateString()}`,
+      timestamp: new Date()
+    });
+    await invoice.save();
+
+    // Track Invoice Audit
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber,
+      instituteId: inst._id,
+      action: 'Invoice Created',
+      details: `Invoice created manually. Total amount: $${totalVal}.`,
+      timestamp: new Date()
     });
 
-    // Send Billing Invoice Email
-    sendBillingInvoiceEmail(inst.email, inst.contactPerson, invoiceNumber, payment.amount, payment.dueDate).catch(err => {
-      console.error('[Resend Billing Invoice Email Error]', err);
+    // Send email to billing contact
+    const emailTo = inst.billingContactEmail || inst.email;
+    const nameTo = inst.billingContactName || inst.contactPerson;
+    await sendBillingInvoiceEmail(emailTo, nameTo, invoiceNumber, totalVal, invoice.dueDate, pdfBuffer);
+
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber,
+      instituteId: inst._id,
+      action: 'Invoice Emailed',
+      details: `Invoice PDF sent to billing contact: ${emailTo}`,
+      timestamp: new Date()
     });
 
-    res.status(201).json({ message: 'Invoice generated successfully.', payment });
+    res.status(201).json({ message: 'Invoice generated successfully.', invoice });
   } catch (err) {
+    console.error('[Create Billing Invoice Error]', err);
     res.status(500).json({ message: err.message });
   }
 };
 
-// POST /api/owner/billing/payments/:id/pay
-// Owner records manual payment (Mark Paid)
-export const recordBillingPaymentPaid = async (req, res) => {
+// POST /api/owner/billing/invoices/:id/pay
+export const recordBillingInvoicePaid = async (req, res) => {
   const { id } = req.params;
   const { paymentMethod, paymentReference, notes } = req.body;
   try {
-    const payment = await SubscriptionPayment.findById(id);
-    if (!payment) return res.status(404).json({ message: 'Payment record not found.' });
+    const invoice = await SubscriptionInvoice.findById(id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice record not found.' });
 
-    if (payment.status === 'paid') {
-      return res.status(400).json({ message: 'This payment has already been marked as paid.' });
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ message: 'This invoice has already been marked as paid.' });
     }
 
-    // Update payment record
-    payment.status = 'paid';
-    payment.paymentMethod = paymentMethod || 'cash';
-    payment.paymentReference = paymentReference || 'MANUAL-REC';
-    payment.paidDate = new Date();
-    if (notes) payment.notes = `${payment.notes}\n${notes}`;
-    await payment.save();
+    // Update invoice record
+    invoice.status = 'paid';
+    invoice.paymentMethod = paymentMethod || 'cash';
+    invoice.paymentReference = paymentReference || 'MANUAL-REC';
+    invoice.paidDate = new Date();
+    if (notes) invoice.notes = `${invoice.notes}\n${notes}`;
+
+    invoice.notesTimeline.push({
+      event: 'Marked Paid',
+      details: `Marked paid via ${invoice.paymentMethod}. Ref: ${invoice.paymentReference}. Notes: ${notes || ''}`,
+      timestamp: new Date()
+    });
+    await invoice.save();
+
+    // Track Invoice Audit
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      instituteId: invoice.instituteId,
+      action: 'Marked Paid',
+      details: `Marked paid via ${invoice.paymentMethod}. Ref: ${invoice.paymentReference}.`,
+      timestamp: new Date()
+    });
 
     // Update Institute Status
-    const inst = await Institute.findById(payment.instituteId);
+    const inst = await Institute.findById(invoice.instituteId);
     if (inst) {
+      const oldStatus = inst.subscriptionStatus;
       inst.subscriptionStatus = 'active';
-      inst.isTrialActive = false; // paid disables trial mode
+      inst.isTrialActive = false; // Paid disables trial mode
       inst.gracePeriodEndDate = null;
-      
-      // Calculate next billing date based on cycle
-      const cycleDays = payment.billingCycle === 'yearly' ? 365 : 30;
+
+      // Calculate next billing date based on cycle snapshot
+      const cycleDays = invoice.billingCycleSnapshot === 'yearly' ? 365 : 30;
       inst.nextBillingDate = new Date(Date.now() + cycleDays * 24 * 60 * 60 * 1000);
       await inst.save();
 
-      // Log Payment Received & Reactivation Audits
-      await AuditLog.create({
-        userId: req.user._id,
-        institute: inst._id,
-        eventType: 'PAYMENT_RECEIVED',
-        details: `Recorded payment of $${payment.amount} via ${payment.paymentMethod}. Ref: ${payment.paymentReference}.`,
-        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
-        userAgent: req.headers['user-agent'] || 'Unknown'
+      // Log Reactivated Audit if it was suspended or overdue
+      await InvoiceAudit.create({
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        instituteId: inst._id,
+        action: 'Reactivated',
+        details: `Subscription reactivated from ${oldStatus} state.`,
+        timestamp: new Date()
       });
 
-      await AuditLog.create({
-        userId: req.user._id,
-        institute: inst._id,
-        eventType: 'SUBSCRIPTION_REACTIVATED',
-        details: `Subscription active status restored for institute code ${inst.instituteCode}. Next billing: ${inst.nextBillingDate.toLocaleDateString()}.`,
-        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
-        userAgent: req.headers['user-agent'] || 'Unknown'
-      });
+      // Send reactivation email with PDF attached
+      let pdfBuffer = null;
+      try {
+        if (isR2Configured()) {
+          const key = parseR2Key(invoice.generatedPdfUrl);
+          pdfBuffer = await downloadFromR2(key);
+        }
+      } catch (err) {
+        console.error(`[Record Paid] Failed to download PDF for reactivation email: ${err.message}`);
+      }
 
-      // Send reactivation confirmation email via Resend
-      sendReactivationEmail(inst.email, inst.contactPerson).catch(err => {
+      const emailTo = inst.billingContactEmail || inst.email;
+      const nameTo = inst.billingContactName || inst.contactPerson;
+      sendReactivationEmail(emailTo, nameTo, invoice.invoiceNumber, pdfBuffer).catch(err => {
         console.error('[Resend Reactivation Email Error]', err);
       });
     }
 
-    res.json({ message: 'Payment recorded as paid successfully.', payment });
+    res.json({ message: 'Invoice marked as paid successfully.', invoice });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/owner/billing/invoices/:id/extend-grace
+export const extendGracePeriod = async (req, res) => {
+  const { id } = req.params;
+  const { extendDays, customDate } = req.body;
+  try {
+    const invoice = await SubscriptionInvoice.findById(id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found.' });
+
+    const inst = await Institute.findById(invoice.instituteId);
+    if (!inst) return res.status(404).json({ message: 'Institute not found.' });
+
+    let newGraceDate;
+    if (customDate) {
+      newGraceDate = new Date(customDate);
+    } else {
+      const days = Number(extendDays) || 2;
+      newGraceDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    }
+
+    inst.gracePeriodEndDate = newGraceDate;
+    inst.subscriptionStatus = 'grace_period';
+    await inst.save();
+
+    invoice.notesTimeline.push({
+      event: 'Grace Period Extended',
+      details: `Grace period extended manually to ${newGraceDate.toLocaleDateString()}`,
+      timestamp: new Date()
+    });
+    await invoice.save();
+
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      instituteId: inst._id,
+      action: 'Grace Period Started',
+      details: `Grace period manually extended until ${newGraceDate.toLocaleDateString()}`,
+      timestamp: new Date()
+    });
+
+    res.json({ message: `Grace period extended successfully until ${newGraceDate.toLocaleDateString()}`, gracePeriodEndDate: newGraceDate });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/owner/billing/metrics
+export const getBillingInvoiceMetrics = async (req, res) => {
+  try {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const invoices = await SubscriptionInvoice.find({}).lean();
+    const institutes = await Institute.find({}).lean();
+
+    const totalRevenue = invoices
+      .filter(i => i.status === 'paid')
+      .reduce((sum, i) => sum + (i.totalAmountSnapshot || 0), 0);
+
+    const revenueThisMonth = invoices
+      .filter(i => i.status === 'paid' && i.paidDate && new Date(i.paidDate).getMonth() === currentMonth && new Date(i.paidDate).getFullYear() === currentYear)
+      .reduce((sum, i) => sum + (i.totalAmountSnapshot || 0), 0);
+
+    const revenueThisYear = invoices
+      .filter(i => i.status === 'paid' && i.paidDate && new Date(i.paidDate).getFullYear() === currentYear)
+      .reduce((sum, i) => sum + (i.totalAmountSnapshot || 0), 0);
+
+    const pendingCollections = invoices
+      .filter(i => i.status === 'pending' || i.status === 'overdue')
+      .reduce((sum, i) => sum + (i.totalAmountSnapshot || 0), 0);
+
+    const overdueCount = invoices
+      .filter(i => i.status === 'overdue')
+      .length;
+
+    const activeCount = institutes
+      .filter(i => i.subscriptionStatus === 'active')
+      .length;
+
+    const suspendedCount = institutes
+      .filter(i => i.subscriptionStatus === 'suspended')
+      .length;
+
+    // Upcoming renewals in next 30 days
+    const thirtyDaysLater = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const upcomingRenewals = institutes
+      .filter(i => i.subscriptionStatus !== 'suspended' && i.nextBillingDate && new Date(i.nextBillingDate) >= now && new Date(i.nextBillingDate) <= thirtyDaysLater)
+      .map(i => ({
+        instituteId: i._id,
+        name: i.name,
+        code: i.instituteCode,
+        nextBillingDate: i.nextBillingDate,
+        amount: i.monthlyRevenue || 0
+      }));
+
+    // Collection rate: (Paid amount / (Paid amount + Pending amount)) * 100
+    const totalGenerated = totalRevenue + pendingCollections;
+    const collectionRate = totalGenerated > 0 ? parseFloat(((totalRevenue / totalGenerated) * 100).toFixed(1)) : 100;
+
+    // Recent payments (last 10 paid invoices)
+    const recentPayments = invoices
+      .filter(i => i.status === 'paid')
+      .sort((a, b) => new Date(b.paidDate) - new Date(a.paidDate))
+      .slice(0, 10);
+
+    // Top paying institutes
+    const paymentMap = {};
+    invoices.filter(i => i.status === 'paid').forEach(i => {
+      const code = i.instituteCode || 'UNKNOWN';
+      paymentMap[code] = (paymentMap[code] || 0) + (i.totalAmountSnapshot || 0);
+    });
+    const topPayingInstitutes = Object.keys(paymentMap)
+      .map(code => ({ code, totalPaid: paymentMap[code] }))
+      .sort((a, b) => b.totalPaid - a.totalPaid)
+      .slice(0, 5);
+
+    res.json({
+      totalRevenue,
+      revenueThisMonth,
+      revenueThisYear,
+      pendingCollections,
+      overdueInvoices: overdueCount,
+      activeInstitutes: activeCount,
+      suspendedInstitutes: suspendedCount,
+      upcomingRenewals,
+      collectionRate,
+      recentPayments,
+      topPayingInstitutes
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/owner/billing/invoices/:id/audits
+export const getInvoiceAudits = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const audits = await InvoiceAudit.find({ invoiceId: id })
+      .sort({ timestamp: 1 })
+      .lean();
+    res.json(audits);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/billing/invoices/:id/download
+export const downloadInvoiceSecure = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const invoice = await SubscriptionInvoice.findById(id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+
+    // Multi-tenant check: Owner is allowed, Admin is allowed only for their own institute
+    if (req.user.role !== 'owner') {
+      if (String(req.user.institute) !== String(invoice.instituteId)) {
+        return res.status(403).json({ message: 'Access denied: You are not authorized to download this invoice.' });
+      }
+    }
+
+    if (!isR2Configured()) {
+      return res.status(500).json({ message: 'Cloudflare R2 is not configured.' });
+    }
+
+    const key = parseR2Key(invoice.generatedPdfUrl);
+    const signedUrl = await getSignedR2Url(key, 300); // 5 minutes
+
+    // Log viewed/downloaded actions into Audit Trail
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      instituteId: invoice.instituteId,
+      action: 'Invoice Downloaded',
+      performedBy: req.user._id,
+      details: `Invoice downloaded by ${req.user.name} (${req.user.role}).`,
+      timestamp: new Date()
+    });
+
+    res.redirect(signedUrl);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/billing/invoices/:id/view
+export const recordInvoiceViewed = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const invoice = await SubscriptionInvoice.findById(id);
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+
+    if (req.user.role !== 'owner') {
+      if (String(req.user.institute) !== String(invoice.instituteId)) {
+        return res.status(403).json({ message: 'Access denied.' });
+      }
+    }
+
+    await InvoiceAudit.create({
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      instituteId: invoice.instituteId,
+      action: 'Invoice Viewed',
+      performedBy: req.user._id,
+      details: `Invoice viewed by ${req.user.name} (${req.user.role}).`,
+      timestamp: new Date()
+    });
+
+    res.json({ message: 'Invoice view recorded.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/billing/invoices (Tenant scoped for Institute Admins)
+export const getInstituteInvoices = async (req, res) => {
+  try {
+    if (!req.user.institute) {
+      return res.status(400).json({ message: 'User does not belong to any institute.' });
+    }
+    const invoices = await SubscriptionInvoice.find({ instituteId: req.user.institute })
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(invoices);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

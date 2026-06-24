@@ -22,6 +22,7 @@ import securityRoutes from './routes/securityRoutes.js';
 import ownerRoutes from './routes/ownerRoutes.js';
 import studentRoutes from './routes/studentRoutes.js';
 import materialRoutes from './routes/materialRoutes.js';
+import billingRoutes from './routes/billingRoutes.js';
 import lessonManagementRoutes from './routes/lessonManagementRoutes.js';
 import securityCenterRoutes from './routes/securityCenterRoutes.js';
 import studentImportRoutes from './routes/studentImportRoutes.js';
@@ -78,10 +79,14 @@ app.use(express.json({ limit: '3000mb' }));
 app.use(cookieParser());
 app.use(express.urlencoded({ limit: '3000mb', extended: true }));
 
-// Ensure uploads/avatars folder exists
+// Ensure uploads/avatars and uploads/profile-pictures folders exist
 const uploadDir = path.join(path.resolve(), 'uploads', 'avatars');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
+}
+const profilePicturesDir = path.join(path.resolve(), 'uploads', 'profile-pictures');
+if (!fs.existsSync(profilePicturesDir)) {
+  fs.mkdirSync(profilePicturesDir, { recursive: true });
 }
 app.use('/uploads', express.static(path.join(path.resolve(), 'uploads')));
 
@@ -133,6 +138,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/videos', youtubeRoutes);
 app.get('/api/youtube/status', protect, adminOnly, getInstituteYouTubeStatus);
 app.use('/api/security', securityRoutes);
+app.use('/api/billing', billingRoutes);
 app.use('/api/owner', ownerRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/materials', materialRoutes);

@@ -172,6 +172,36 @@ export default function AdminDashboard() {
     enabled: activeTab === 'subscription',
   });
 
+  const handleDownloadPdf = async (invoiceId: string, invoiceNumber: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = {} as Record<string, string>;
+      if (token && token !== 'session_active') {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const response = await fetch(getApiUrl(`/billing/invoices/${invoiceId}/download`), {
+        headers,
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Download failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Invoice downloaded successfully.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download invoice PDF.');
+    }
+  };
+
   // Branding state
   const [brandingInstituteName, setBrandingInstituteName] = useState('');
   const [brandingLogo, setBrandingLogo] = useState('');
@@ -1212,6 +1242,20 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {profile?.institute?.subscriptionStatus && (profile.institute.subscriptionStatus === 'payment_due' || profile.institute.subscriptionStatus === 'grace_period') && (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm font-semibold rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                <span>Your subscription payment is pending.</span>
+              </div>
+            )}
+
+            {profile?.institute?.subscriptionStatus === 'suspended' && (
+              <div className="p-4 bg-destructive/10 border border-destructive/20 text-destructive text-sm font-semibold rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                <span>Account suspended. Contact Trineo Support.</span>
+              </div>
+            )}
+
             {/* TAB 1: OVERVIEW */}
             {activeTab === 'overview' && (
               <AnalyticsUpgrade />
@@ -2173,8 +2217,7 @@ export default function AdminDashboard() {
                     );
                   };
 
-                  const getStatusBadge = (status: string, isTrial: boolean) => {
-                    if (isTrial) return <Badge className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white border-0 shadow-sm">14-Day Free Trial</Badge>;
+                  const getStatusBadge = (status: string) => {
                     const statusColors: Record<string, string> = {
                       active: 'bg-green-500/10 text-green-500 border-green-500/20',
                       payment_due: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
@@ -2192,7 +2235,7 @@ export default function AdminDashboard() {
                   return (
                     <div className="space-y-6">
                       {/* Subscription Info Cards */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         {/* Plan Card */}
                         <Card className="border-border/50 bg-card overflow-hidden relative">
                           <div className="absolute inset-0 bg-gradient-to-r from-violet-500/5 via-transparent to-transparent pointer-events-none" />
@@ -2221,7 +2264,7 @@ export default function AdminDashboard() {
                             <div>
                               <CardDescription className="text-xs uppercase tracking-wider font-semibold">Subscription Status</CardDescription>
                               <div className="mt-2.5">
-                                {getStatusBadge(billingData.institute.subscriptionStatus, billingData.institute.isTrialActive)}
+                                {getStatusBadge(billingData.institute.subscriptionStatus)}
                               </div>
                             </div>
                             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
@@ -2230,15 +2273,7 @@ export default function AdminDashboard() {
                           </CardHeader>
                           <CardContent>
                             <div className="text-xs text-muted-foreground">
-                              {billingData.institute.isTrialActive ? (
-                                <>
-                                  Trial ends on <strong className="text-foreground">{formatDate(billingData.institute.trialEndDate)}</strong>
-                                </>
-                              ) : (
-                                <>
-                                  Renewal date: <strong className="text-foreground">{formatDate(billingData.institute.nextBillingDate)}</strong>
-                                </>
-                              )}
+                              Renewal date: <strong className="text-foreground">{formatDate(billingData.institute.nextBillingDate)}</strong>
                             </div>
                           </CardContent>
                         </Card>
@@ -2256,10 +2291,37 @@ export default function AdminDashboard() {
                               <Building2 className="w-5 h-5" />
                             </div>
                           </CardHeader>
-                          <CardContent>
+                          <CardContent className="space-y-2">
                             <div className="text-xs text-muted-foreground">
                               Billing Cycle: <strong className="text-foreground capitalize">{billingData.institute.billingCycle}</strong>
                             </div>
+                            {(billingData.institute.billingContactName || billingData.institute.billingContactEmail) && (
+                              <div className="text-xs text-muted-foreground border-t border-border/50 pt-2 space-y-1">
+                                <span className="font-semibold text-foreground block">Contact: {billingData.institute.billingContactName || 'N/A'}</span>
+                                <span className="block truncate" title={billingData.institute.billingContactEmail}>{billingData.institute.billingContactEmail || 'N/A'}</span>
+                                <span className="block">{billingData.institute.billingContactPhone || 'N/A'}</span>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+
+                        {/* Support Credentials Card */}
+                        <Card className="border-border/50 bg-card overflow-hidden relative">
+                          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                            <div>
+                              <CardDescription className="text-xs uppercase tracking-wider font-semibold">Trineo Support</CardDescription>
+                              <CardTitle className="text-base font-bold mt-1.5">
+                                Help & Billing
+                              </CardTitle>
+                            </div>
+                            <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-500">
+                              <Mail className="w-5 h-5" />
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-1 text-xs text-muted-foreground">
+                            <div>Email: <strong className="text-foreground">billing@trineo.io</strong></div>
+                            <div>Phone: <strong className="text-foreground">+1 (800) 555-0199</strong></div>
+                            <div>Hours: <strong className="text-foreground">9 AM - 6 PM EST</strong></div>
                           </CardContent>
                         </Card>
                       </div>
@@ -2357,28 +2419,40 @@ export default function AdminDashboard() {
                                     <TableHead>Paid Date</TableHead>
                                     <TableHead>Payment Method</TableHead>
                                     <TableHead>Reference</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {billingData.invoices.map((inv: any) => {
                                     const statusColors: Record<string, string> = {
                                       paid: 'text-green-400 border-green-500/20 bg-green-500/10',
-                                      unpaid: 'text-amber-400 border-amber-500/20 bg-amber-500/10',
+                                      pending: 'text-amber-400 border-amber-500/20 bg-amber-500/10',
                                       overdue: 'text-red-400 border-red-500/20 bg-red-500/10'
                                     };
                                     return (
                                       <TableRow key={inv._id}>
                                         <TableCell className="font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
-                                        <TableCell className="font-bold">${inv.amount}</TableCell>
+                                        <TableCell className="font-bold">${inv.totalAmountSnapshot ?? inv.amount}</TableCell>
                                         <TableCell>
                                           <Badge variant="outline" className={statusColors[inv.status] || 'text-muted-foreground'}>
                                             {inv.status ? inv.status.toUpperCase() : 'N/A'}
                                           </Badge>
                                         </TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{inv.paymentDueDate ? formatDate(inv.paymentDueDate) : 'N/A'}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{inv.dueDate ? formatDate(inv.dueDate) : 'N/A'}</TableCell>
                                         <TableCell className="text-xs text-muted-foreground">{inv.paidDate ? formatDate(inv.paidDate) : 'N/A'}</TableCell>
                                         <TableCell className="text-xs text-muted-foreground capitalize">{inv.paymentMethod ? inv.paymentMethod.replace('_', ' ') : 'N/A'}</TableCell>
                                         <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[120px]">{inv.paymentReference || 'N/A'}</TableCell>
+                                        <TableCell className="text-right">
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleDownloadPdf(inv._id, inv.invoiceNumber)}
+                                            className="h-8 border-border bg-card text-xs font-semibold cursor-pointer"
+                                          >
+                                            <FileText className="w-3.5 h-3.5 mr-1" />
+                                            Download PDF
+                                          </Button>
+                                        </TableCell>
                                       </TableRow>
                                     );
                                   })}

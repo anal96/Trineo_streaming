@@ -32,6 +32,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  profileImageUrl: {
+    type: String,
+    default: ''
+  },
   recoveryEmail: {
     type: String,
     default: ''
@@ -182,6 +186,12 @@ userSchema.index({ role: 1, institute: 1 });
 
 // Pre-save hook to generate user_id and hash password
 userSchema.pre('save', async function (next) {
+  if (this.avatar && !this.profileImageUrl) {
+    this.profileImageUrl = this.avatar;
+  } else if (this.profileImageUrl && !this.avatar) {
+    this.avatar = this.profileImageUrl;
+  }
+
   if (this.isModified('password')) {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);

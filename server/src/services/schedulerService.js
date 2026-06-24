@@ -8,7 +8,9 @@ import { WatchHistory } from '../models/WatchHistory.js';
 import { Lesson } from '../models/Lesson.js';
 import { Institute } from '../models/Institute.js';
 import { AuditLog } from '../models/AuditLog.js';
-import { SubscriptionPayment } from '../models/SubscriptionPayment.js';
+import { SubscriptionInvoice } from '../models/SubscriptionInvoice.js';
+import { InvoiceAudit } from '../models/InvoiceAudit.js';
+import { downloadFromR2, parseR2Key, isR2Configured } from '../utils/r2Service.js';
 import { sendGracePeriodEmail, sendSuspensionEmail, sendBillingInvoiceEmail } from './emailService.js';
 
 export const startBackgroundScheduler = () => {
@@ -19,79 +21,122 @@ export const startBackgroundScheduler = () => {
       const now = new Date();
 
       // 0. SaaS Subscription Lifecycle Jobs
-      
-      // A. Trial Expiry Checker
-      const expiredTrials = await Institute.find({
-        isTrialActive: true,
-        trialEndDate: { $lte: now }
-      });
-      for (const inst of expiredTrials) {
-        inst.isTrialActive = false;
-        inst.subscriptionStatus = 'payment_due';
-        await inst.save();
 
-        await AuditLog.create({
-          institute: inst._id,
-          eventType: 'TRIAL_EXPIRED',
-          details: `Trial for institute code ${inst.instituteCode} expired. Status set to payment_due.`,
-          ipAddress: '127.0.0.1',
-          userAgent: 'System Scheduler'
+      // A. Unpaid Invoices Due Date Checker
+      const overdueInvoices = await SubscriptionInvoice.find({
+        status: 'pending',
+        dueDate: { $lte: now }
+      });
+
+      for (const invoice of overdueInvoices) {
+        invoice.status = 'overdue';
+        invoice.notesTimeline.push({
+          event: 'Payment Due',
+          details: 'Invoice due date reached. Status changed to overdue.',
+          timestamp: now
         });
-        console.log(`[Scheduler] Trial expired for institute: ${inst.name} (Code: ${inst.instituteCode})`);
-      }
+        await invoice.save();
 
-      // B. Billing Due Checker (Active Subscriptions)
-      const dueSubscriptions = await Institute.find({
-        subscriptionStatus: 'active',
-        isTrialActive: false,
-        nextBillingDate: { $lte: now }
-      });
-      for (const inst of dueSubscriptions) {
-        inst.subscriptionStatus = 'payment_due';
-        await inst.save();
-
-        await AuditLog.create({
-          institute: inst._id,
-          eventType: 'PAYMENT_DUE',
-          details: `Billing cycle nextBillingDate passed for institute ${inst.instituteCode}. Status set to payment_due.`,
-          ipAddress: '127.0.0.1',
-          userAgent: 'System Scheduler'
+        await InvoiceAudit.create({
+          invoiceId: invoice._id,
+          invoiceNumber: invoice.invoiceNumber,
+          instituteId: invoice.instituteId,
+          action: 'Payment Due',
+          timestamp: now,
+          details: 'Invoice due date passed. Status set to overdue.'
         });
-        console.log(`[Scheduler] Billing cycle due for institute: ${inst.name} (Code: ${inst.instituteCode})`);
-      }
 
-      // C. Grace Period Checker (Transitions payment_due to grace_period)
-      const dueForGrace = await Institute.find({
-        subscriptionStatus: 'payment_due',
-        nextBillingDate: { $lte: now }
-      });
-      for (const inst of dueForGrace) {
-        if (!inst.gracePeriodEndDate) {
-          inst.gracePeriodEndDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000); // + 2 days
+        // Transition Institute status to payment_due if active
+        const inst = await Institute.findById(invoice.instituteId);
+        if (inst && inst.subscriptionStatus === 'active') {
+          inst.subscriptionStatus = 'payment_due';
+          await inst.save();
+
+          await AuditLog.create({
+            institute: inst._id,
+            eventType: 'PAYMENT_DUE',
+            details: `Invoice ${invoice.invoiceNumber} is overdue. Status set to payment_due.`,
+            ipAddress: '127.0.0.1',
+            userAgent: 'System Scheduler'
+          });
+          console.log(`[Scheduler] Invoice ${invoice.invoiceNumber} overdue. Institute ${inst.name} set to payment_due.`);
         }
+      }
+
+      // B. Transition payment_due to grace_period (2-Day Grace)
+      const dueForGrace = await Institute.find({
+        subscriptionStatus: 'payment_due'
+      });
+
+      for (const inst of dueForGrace) {
+        inst.gracePeriodEndDate = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000); // 2 days grace
         inst.subscriptionStatus = 'grace_period';
         await inst.save();
 
         await AuditLog.create({
           institute: inst._id,
           eventType: 'PAYMENT_DUE',
-          details: `Grace period initiated for institute ${inst.instituteCode}. Ends on ${inst.gracePeriodEndDate.toLocaleDateString()}.`,
+          details: `Grace period initiated. Ends on ${inst.gracePeriodEndDate.toLocaleDateString()}.`,
           ipAddress: '127.0.0.1',
           userAgent: 'System Scheduler'
         });
 
-        // Send grace period warning email via Resend
-        sendGracePeriodEmail(inst.email, inst.contactPerson, 0, inst.gracePeriodEndDate).catch(err => {
+        // Find the overdue invoice to attach
+        const invoice = await SubscriptionInvoice.findOne({
+          instituteId: inst._id,
+          status: { $in: ['pending', 'overdue'] }
+        }).sort({ dueDate: -1 });
+
+        let pdfBuffer = null;
+        if (invoice) {
+          try {
+            if (isR2Configured()) {
+              const key = parseR2Key(invoice.generatedPdfUrl);
+              pdfBuffer = await downloadFromR2(key);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] Failed to download invoice PDF for grace period email: ${err.message}`);
+          }
+        }
+
+        const emailTo = inst.billingContactEmail || inst.email;
+        sendGracePeriodEmail(
+          emailTo,
+          inst.billingContactName || inst.contactPerson,
+          invoice ? invoice.totalAmountSnapshot : 0,
+          inst.gracePeriodEndDate,
+          invoice ? invoice.invoiceNumber : '',
+          pdfBuffer
+        ).catch(err => {
           console.error('[Resend Grace Period Email Error]', err);
         });
-        console.log(`[Scheduler] Grace period started for institute: ${inst.name} (Code: ${inst.instituteCode})`);
+
+        if (invoice) {
+          invoice.notesTimeline.push({
+            event: 'Grace Period Started',
+            details: `Grace period initiated. Ends on ${inst.gracePeriodEndDate.toLocaleDateString()}.`,
+            timestamp: now
+          });
+          await invoice.save();
+
+          await InvoiceAudit.create({
+            invoiceId: invoice._id,
+            invoiceNumber: invoice.invoiceNumber,
+            instituteId: inst._id,
+            action: 'Grace Period Started',
+            timestamp: now,
+            details: `2-Day grace period started, ending on ${inst.gracePeriodEndDate.toLocaleDateString()}`
+          });
+        }
+        console.log(`[Scheduler] Grace period started for institute: ${inst.name} (Ends: ${inst.gracePeriodEndDate.toLocaleDateString()})`);
       }
 
-      // D. Suspension Processor (grace_period expired)
+      // C. Transition expired grace_period to suspended
       const dueForSuspension = await Institute.find({
         subscriptionStatus: 'grace_period',
         gracePeriodEndDate: { $lte: now }
       });
+
       for (const inst of dueForSuspension) {
         inst.subscriptionStatus = 'suspended';
         await inst.save();
@@ -99,17 +144,63 @@ export const startBackgroundScheduler = () => {
         await AuditLog.create({
           institute: inst._id,
           eventType: 'SUBSCRIPTION_SUSPENDED',
-          details: `Grace period expired without recorded payment for institute ${inst.instituteCode}. Subscription suspended.`,
+          details: `Grace period expired without payment. Institute suspended.`,
           ipAddress: '127.0.0.1',
           userAgent: 'System Scheduler'
         });
 
-        // Send suspension warning email via Resend
-        sendSuspensionEmail(inst.email, inst.contactPerson).catch(err => {
+        // Find latest unpaid invoice
+        const invoice = await SubscriptionInvoice.findOne({
+          instituteId: inst._id,
+          status: { $in: ['pending', 'overdue'] }
+        }).sort({ dueDate: -1 });
+
+        let pdfBuffer = null;
+        if (invoice) {
+          try {
+            if (isR2Configured()) {
+              const key = parseR2Key(invoice.generatedPdfUrl);
+              pdfBuffer = await downloadFromR2(key);
+            }
+          } catch (err) {
+            console.error(`[Scheduler] Failed to download invoice PDF for suspension email: ${err.message}`);
+          }
+        }
+
+        const emailTo = inst.billingContactEmail || inst.email;
+        sendSuspensionEmail(
+          emailTo,
+          inst.billingContactName || inst.contactPerson,
+          invoice ? invoice.invoiceNumber : '',
+          pdfBuffer
+        ).catch(err => {
           console.error('[Resend Suspension Email Error]', err);
         });
-        console.log(`[Scheduler] Suspended institute: ${inst.name} (Code: ${inst.instituteCode})`);
+
+        if (invoice) {
+          invoice.notesTimeline.push({
+            event: 'Suspended',
+            details: 'Subscription suspended due to non-payment after grace period expired.',
+            timestamp: now
+          });
+          await invoice.save();
+
+          await InvoiceAudit.create({
+            invoiceId: invoice._id,
+            invoiceNumber: invoice.invoiceNumber,
+            instituteId: inst._id,
+            action: 'Suspended',
+            timestamp: now,
+            details: 'Institute suspended automatically due to grace period expiration.'
+          });
+        }
+        console.log(`[Scheduler] Suspended institute: ${inst.name} due to grace period expiration.`);
       }
+
+      // D. Trial Expiry Checker — REMOVED
+      // The platform no longer uses free trials. Flow is:
+      // Register → Pending → Owner Collects Payment → Owner Approves → Active
+
 
       // 1. Process Scheduled Notifications
       const pendingScheds = await ScheduledNotification.find({

@@ -8,6 +8,8 @@ import { Enrollment } from '../models/Enrollment.js';
 import { CourseAssignment } from '../models/CourseAssignment.js';
 import { Notification } from '../models/Notification.js';
 import { verifyStudentAccess } from '../utils/accessHelper.js';
+import { isR2Configured, uploadToR2, getSignedR2Url, parseR2Key, deleteFile } from '../utils/r2Service.js';
+import { Institute } from '../models/Institute.js';
 
 const requireInstitute = (req, res) => {
   if (req.user.role === 'owner') return true;
@@ -192,6 +194,27 @@ export const createStudyMaterial = async (req, res) => {
     }
 
     const fileType = 'pdf';
+    let filePath = req.file.path;
+    const inst = await Institute.findById(req.user.institute);
+
+    if (isR2Configured()) {
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const r2Key = `study-materials/${inst?.instituteCode || 'default'}/${req.file.filename}`;
+        const r2Url = await uploadToR2(fileBuffer, r2Key, 'application/pdf');
+        filePath = r2Url;
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      } catch (r2Err) {
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(500).json({ message: `R2 Upload Failed: ${r2Err.message}` });
+      }
+    }
+
+    if (inst) {
+      inst.storageUsed = (inst.storageUsed || 0) + req.file.size;
+      await inst.save();
+    }
+
     const material = await StudyMaterial.create({
       institute: req.user.institute,
       courseId,
@@ -202,7 +225,7 @@ export const createStudyMaterial = async (req, res) => {
       fileSize: req.file.size,
       originalName: req.file.originalname,
       fileName: req.file.filename,
-      filePath: req.file.path
+      filePath
     });
 
     const populated = await StudyMaterial.findById(material._id)
@@ -285,14 +308,42 @@ export const updateStudyMaterial = async (req, res) => {
     if (description !== undefined) material.description = description;
 
     if (req.file) {
-      if (material.filePath && fs.existsSync(material.filePath)) {
+      if (material.filePath && !material.filePath.startsWith('http') && fs.existsSync(material.filePath)) {
         try { fs.unlinkSync(material.filePath); } catch (_e) {}
+      } else if (material.filePath && material.filePath.startsWith('http') && isR2Configured()) {
+        try {
+          const key = parseR2Key(material.filePath);
+          await deleteFile(key);
+        } catch (err) {
+          console.error('Failed to delete old file from R2:', err);
+        }
       }
+      
+      let filePath = req.file.path;
+      const inst = await Institute.findById(req.user.institute);
+      if (isR2Configured()) {
+        try {
+          const fileBuffer = fs.readFileSync(req.file.path);
+          const r2Key = `study-materials/${inst?.instituteCode || 'default'}/${req.file.filename}`;
+          const r2Url = await uploadToR2(fileBuffer, r2Key, 'application/pdf');
+          filePath = r2Url;
+          if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        } catch (r2Err) {
+          if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+          return res.status(500).json({ message: `R2 Upload Failed: ${r2Err.message}` });
+        }
+      }
+
+      if (inst) {
+        inst.storageUsed = Math.max(0, (inst.storageUsed || 0) - (material.fileSize || 0) + req.file.size);
+        await inst.save();
+      }
+
       material.fileType = 'pdf';
       material.fileSize = req.file.size;
       material.originalName = req.file.originalname;
       material.fileName = req.file.filename;
-      material.filePath = req.file.path;
+      material.filePath = filePath;
     }
 
     await material.save();
@@ -319,8 +370,21 @@ export const deleteStudyMaterial = async (req, res) => {
       return res.status(404).json({ message: 'Study material not found' });
     }
 
-    if (material.filePath && fs.existsSync(material.filePath)) {
+    const inst = await Institute.findById(req.user.institute);
+    if (inst) {
+      inst.storageUsed = Math.max(0, (inst.storageUsed || 0) - (material.fileSize || 0));
+      await inst.save();
+    }
+
+    if (material.filePath && !material.filePath.startsWith('http') && fs.existsSync(material.filePath)) {
       try { fs.unlinkSync(material.filePath); } catch (_e) {}
+    } else if (material.filePath && material.filePath.startsWith('http') && isR2Configured()) {
+      try {
+        const key = parseR2Key(material.filePath);
+        await deleteFile(key);
+      } catch (err) {
+        console.error('Failed to delete file from R2:', err);
+      }
     }
 
     res.json({ message: 'Study material deleted successfully' });
@@ -356,6 +420,15 @@ export const downloadStudyMaterial = async (req, res) => {
           status: access.status || 'locked'
         });
       }
+    }
+
+    if (populated.filePath && populated.filePath.startsWith('http')) {
+      if (!isR2Configured()) {
+        return res.status(500).json({ message: 'Cloudflare R2 is not configured.' });
+      }
+      const key = parseR2Key(populated.filePath);
+      const signedUrl = await getSignedR2Url(key, 300); // 5 minutes
+      return res.redirect(signedUrl);
     }
 
     if (!populated.filePath || !fs.existsSync(populated.filePath)) {

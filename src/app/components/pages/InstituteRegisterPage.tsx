@@ -859,7 +859,7 @@ export default function InstituteRegisterPage() {
                             <div className="text-right">
                               <span className="text-base sm:text-lg font-extrabold text-violet-600 dark:text-violet-400">${selectedPlan.price}</span>
                               <span className={`text-[10px] sm:text-xs font-normal ${isDark ? 'text-white/40' : 'text-slate-500'}`}>/mo</span>
-                              <div className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-bold uppercase mt-1">14-Day Free Trial</div>
+                              <div className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-bold uppercase mt-1">Instant Activation</div>
                             </div>
                           </div>
                         )}
@@ -914,7 +914,7 @@ export default function InstituteRegisterPage() {
                   }`}>
                     <Crown className="w-4.5 h-4.5 text-violet-500" />
                     Choose Your Plan
-                    <span className="text-[9px] font-normal lowercase ml-auto">All plans include 14-day free trial</span>
+                    <span className="text-[9px] font-normal lowercase ml-auto">Pay once, activate instantly</span>
                   </h3>
                   
                   {/* Subscription Plan List - upgraded, taller padding, stronger active selection glows */}
@@ -982,7 +982,7 @@ export default function InstituteRegisterPage() {
                     </h4>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       {[
-                        '14-Day Free Trial', 'Secure & Reliable', 
+                        'Instant Activation', 'Secure & Reliable', 
                         'No Setup Fees', 'Data Backup', 
                         '24/7 Support', 'Mobile App Access', 
                         'Regular Updates', 'Easy to Use'
@@ -1002,7 +1002,7 @@ export default function InstituteRegisterPage() {
                     <div className="flex gap-2.5 items-start">
                       <ShieldCheck className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" />
                       <p className={`text-[10px] leading-normal ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        <strong className={isDark ? 'text-white/85' : 'text-slate-700'}>You won't be charged automatically.</strong> Our team will contact you manually to set up invoice records upon trial expiry.
+                        <strong className={isDark ? 'text-white/85' : 'text-slate-700'}>You won't be charged automatically.</strong> Our team will contact you to collect payment and activate your subscription upon approval.
                       </p>
                     </div>
                   </div>

@@ -1,5 +1,7 @@
 import { Content } from '../models/Content.js';
 import { Lesson } from '../models/Lesson.js';
+import { isR2Configured, generateSignedUrl, parseR2Key } from '../utils/r2Service.js';
+import { verifyStudentAccess } from '../utils/accessHelper.js';
 
 const instituteFilter = (req) => {
   return req.user.role === 'owner' ? { isDeleted: false } : { institute: req.user.institute, isDeleted: false };
@@ -133,6 +135,71 @@ export const reorderContent = async (req, res) => {
       { $set: { order: Number(item.order) || 0 } }
     )));
     res.json({ message: 'Content reordered successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * GET /api/content/:id/download
+ * Secure download endpoint for lesson content attachments.
+ * Verifies user identity, tenant isolation, and enrollment before generating
+ * a 5-minute signed R2 URL and redirecting the user.
+ */
+export const downloadContentAttachment = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Find content with tenant guard
+    const content = req.user.role === 'owner'
+      ? await Content.findOne({ _id: req.params.id, isDeleted: false })
+      : await Content.findOne({ _id: req.params.id, institute: req.user.institute, isDeleted: false });
+
+    if (!content) {
+      return res.status(404).json({ message: 'Content not found' });
+    }
+
+    if (!content.attachmentUrl) {
+      return res.status(404).json({ message: 'No attachment available for this content' });
+    }
+
+    // Students must have enrollment-based access
+    if (req.user.role === 'student') {
+      const lesson = await Lesson.findById(content.lessonId);
+      if (!lesson) {
+        return res.status(404).json({ message: 'Associated lesson not found' });
+      }
+
+      const access = await verifyStudentAccess({
+        user: req.user,
+        courseId: lesson.courseId,
+        subjectTitle: lesson.subjectTitle || 'General',
+        moduleTitle: lesson.moduleTitle || 'Module 1',
+        lessonId: lesson._id
+      });
+
+      if (!access.granted) {
+        return res.status(403).json({
+          message: access.reason || 'Access denied: You must be enrolled to download this attachment.',
+          status: access.status || 'locked'
+        });
+      }
+    }
+
+    // Generate signed R2 URL and redirect
+    if (!isR2Configured()) {
+      return res.status(500).json({ message: 'Storage service is not configured.' });
+    }
+
+    const r2Key = parseR2Key(content.attachmentUrl);
+    if (!r2Key) {
+      return res.status(404).json({ message: 'Attachment file reference is invalid.' });
+    }
+
+    const signedUrl = await generateSignedUrl(r2Key, 300); // 5 minutes
+    return res.redirect(signedUrl);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

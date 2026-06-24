@@ -37,7 +37,7 @@ router.post('/youtube/integration/sync', protect, adminOnly, syncInstituteYouTub
 router.post('/youtube/integration/disconnect', protect, adminOnly, disconnectInstituteYouTubeChannel);
 
 // ── Admin: Upload & Manage ──
-router.post('/youtube/upload', protect, adminOnly, tenantGuard({ model: Program, bodyParam: 'courseId' }), upload.single('video'), uploadVideoToYouTube);
+router.post('/youtube/upload', protect, adminOnly, tenantGuard({ model: Program, bodyParam: 'courseId' }), upload.fields([{ name: 'video', maxCount: 1 }, { name: 'attachment', maxCount: 1 }]), uploadVideoToYouTube);
 router.get('/youtube/status/:lessonId', protect, adminOnly, tenantGuard({ model: Lesson, idParam: 'lessonId' }), getYouTubeUploadStatus);
 router.post('/youtube/sync/:lessonId', protect, adminOnly, tenantGuard({ model: Lesson, idParam: 'lessonId' }), syncYouTubeMetadata);
 router.post('/youtube/lessons/sync', protect, adminOnly, syncAllInstituteLessonsMetadata);

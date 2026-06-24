@@ -37,9 +37,12 @@ import {
   rejectOnboardingRequest,
   requestOnboardingInfo,
   getBillingDashboard,
-  getBillingPayments,
-  createBillingPayment,
-  recordBillingPaymentPaid
+  getBillingInvoices,
+  createBillingInvoice,
+  recordBillingInvoicePaid,
+  extendGracePeriod,
+  getBillingInvoiceMetrics,
+  getInvoiceAudits
 } from '../controllers/ownerController.js';
 
 const router = express.Router();
@@ -69,9 +72,12 @@ router.post('/onboarding/:id/approve', approveOnboardingRequest);
 router.post('/onboarding/:id/reject', rejectOnboardingRequest);
 router.post('/onboarding/:id/info', requestOnboardingInfo);
 router.get('/billing/dashboard', getBillingDashboard);
-router.get('/billing/payments', getBillingPayments);
-router.post('/billing/payments', createBillingPayment);
-router.post('/billing/payments/:id/pay', recordBillingPaymentPaid);
+router.get('/billing/invoices', getBillingInvoices);
+router.post('/billing/invoices', createBillingInvoice);
+router.post('/billing/invoices/:id/pay', recordBillingInvoicePaid);
+router.post('/billing/invoices/:id/extend-grace', extendGracePeriod);
+router.get('/billing/metrics', getBillingInvoiceMetrics);
+router.get('/billing/invoices/:id/audits', getInvoiceAudits);
 
 
 // ─── CRM Key Management ───────────────────────────────────────────────────────
