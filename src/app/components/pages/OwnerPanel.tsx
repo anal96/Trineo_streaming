@@ -1542,8 +1542,17 @@ export default function OwnerPanel() {
                                           Reject
                                         </button>
                                       </div>
+                                    ) : req.subscriptionStatus !== 'active' ? (
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => handleApproveOnboarding(req._id)}
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+                                        >
+                                          Force Activate
+                                        </button>
+                                      </div>
                                     ) : (
-                                      <span className={`text-xs ${isDark ? 'text-white/20' : 'text-slate-400'}`}>Processed</span>
+                                      <span className={`text-xs ${isDark ? 'text-emerald-400/60' : 'text-emerald-600'}`}>✓ Active</span>
                                     )}
                                   </td>
                                 </tr>

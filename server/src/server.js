@@ -34,6 +34,7 @@ import integrationRoutes from './routes/integrationRoutes.js';
 import pushSubscriptionRoutes from './routes/pushSubscriptionRoutes.js';
 import scheduledNotificationRoutes from './routes/scheduledNotificationRoutes.js';
 import onboardingRoutes from './routes/onboardingRoutes.js';
+import facultyRoutes from './routes/facultyRoutes.js';
 import { startBackgroundScheduler } from './services/schedulerService.js';
 import { checkSecurityPenalty } from './middleware/securityCheck.js';
 import { protect, adminOnly } from './middleware/auth.js';
@@ -124,7 +125,8 @@ app.use([
   '/api/student-notifications',
   '/api/live-classes',
   '/api/access',
-  '/api/scheduled-notifications'
+  '/api/scheduled-notifications',
+  '/api/faculty'
 ], protect, requireActiveSubscription);
 
 app.use('/api/courses', programRoutes);
@@ -149,6 +151,7 @@ app.use('/api/student-import', studentImportRoutes);
 app.use('/api/student-account', studentAccountRoutes);
 app.use('/api/student-notifications', studentNotificationRoutes);
 app.use('/api/live-classes', liveClassRoutes);
+app.use('/api/faculty', facultyRoutes);
 app.use('/api/access', accessRoutes);
 app.use('/api/integration', integrationRoutes);
 app.use('/api/push-subscriptions', pushSubscriptionRoutes);

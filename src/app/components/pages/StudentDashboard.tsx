@@ -1010,7 +1010,7 @@ export default function StudentDashboard() {
     const loadFaculty = async () => {
       setFacultyLoading(true);
       try {
-        const data = await apiFetch('/student/faculty');
+        const data = await apiFetch('/faculty');
         setFacultyList(data);
       } catch (err) {
         console.error('Failed to load faculty profiles', err);

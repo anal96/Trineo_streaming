@@ -72,6 +72,7 @@ import StudentImportCenter from './StudentImportCenter';
 import AnalyticsUpgrade from './AnalyticsUpgrade';
 import LiveClassesManagement from './LiveClassesManagement';
 import ContentAccessManager from './ContentAccessManager';
+import FacultyManagement from './FacultyManagement';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import trineoLogoImg from '@/images/trineoStream-1.png';
@@ -90,7 +91,8 @@ const tabLabels: Record<string, string> = {
   payments: 'Analytics',
   announcements: 'Notifications',
   branding: 'Institute Branding',
-  subscription: 'Subscription & Plan'
+  subscription: 'Subscription & Plan',
+  faculty: 'Faculty Management'
 };
 
 const navItems = [
@@ -106,7 +108,8 @@ const navItems = [
   { icon: Users, label: 'Student Management', id: 'students' },
   { icon: Bell, label: 'Notifications', id: 'announcements' },
   { icon: Crown, label: 'Subscription & Plan', id: 'subscription' },
-  { icon: Palette, label: 'Institute Branding', id: 'branding' }
+  { icon: Palette, label: 'Institute Branding', id: 'branding' },
+  { icon: GraduationCap, label: 'Faculty Management', id: 'faculty' }
 ];
 
 export default function AdminDashboard() {
@@ -2183,6 +2186,10 @@ export default function AdminDashboard() {
 
             {activeTab === 'accessManager' && (
               <ContentAccessManager />
+            )}
+
+            {activeTab === 'faculty' && (
+              <FacultyManagement />
             )}
 
             {activeTab === 'subscription' && (

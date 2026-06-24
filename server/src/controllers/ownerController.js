@@ -977,19 +977,24 @@ export const approveOnboardingRequest = async (req, res) => {
       return res.status(404).json({ message: 'Institute not found' });
     }
 
-    if (inst.onboardingStatus !== 'pending') {
-      return res.status(400).json({ message: `Institute onboarding status is already "${inst.onboardingStatus}"` });
+    // Allow re-approval if subscription is not active (handles pre-approval-flow institutes)
+    if (inst.onboardingStatus === 'approved' && inst.subscriptionStatus === 'active') {
+      return res.status(400).json({ message: 'Institute is already approved and active.' });
     }
 
-    // 1. Generate unique institute code (e.g. TRI001)
-    const prefix = (inst.name || 'INST').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3).padEnd(3, 'X');
-    let sequence = 1;
-    let code = '';
-    while (true) {
-      code = `${prefix}${String(sequence).padStart(3, '0')}`;
-      const duplicate = await Institute.findOne({ instituteCode: code });
-      if (!duplicate) break;
-      sequence++;
+    // 1. Generate unique institute code if not already assigned
+    let code = inst.instituteCode;
+    const isTempCode = !code || code.startsWith('TEMP-');
+    if (isTempCode) {
+      const prefix = (inst.name || 'INST').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3).padEnd(3, 'X');
+      let sequence = 1;
+      while (true) {
+        code = `${prefix}${String(sequence).padStart(3, '0')}`;
+        const duplicate = await Institute.findOne({ instituteCode: code });
+        if (!duplicate) break;
+        sequence++;
+      }
+      inst.instituteCode = code;
     }
 
     if (!isR2Configured()) {
@@ -997,7 +1002,7 @@ export const approveOnboardingRequest = async (req, res) => {
     }
 
     // 2. Set statuses — No free trial. Subscription is active immediately.
-    inst.instituteCode = code;
+
     inst.onboardingStatus = 'approved';
     inst.subscriptionStatus = 'active';
     inst.approvedAt = new Date();
@@ -1030,74 +1035,93 @@ export const approveOnboardingRequest = async (req, res) => {
       await adminUser.save();
     }
 
-    // Generate Sequential Invoice
-    const year = new Date().getFullYear();
-    const counter = await InvoiceCounter.findOneAndUpdate(
-      { year },
-      { $inc: { sequence: 1 } },
-      { new: true, upsert: true }
-    );
-    const invoiceNumber = `INV-${year}-${String(counter.sequence).padStart(6, '0')}`;
+    // Generate Sequential Invoice (skip if one already exists for this institute)
+    const existingInvoice = await SubscriptionInvoice.findOne({ instituteId: inst._id });
+    let invoice;
+    let invoiceNumber;
 
-    const amountSnapshot = plan.price || 0;
-    const taxAmountSnapshot = parseFloat((amountSnapshot * 0.18).toFixed(2));
-    const totalAmountSnapshot = parseFloat((amountSnapshot + taxAmountSnapshot).toFixed(2));
+    if (!existingInvoice) {
+      const year = new Date().getFullYear();
+      const counter = await InvoiceCounter.findOneAndUpdate(
+        { year },
+        { $inc: { sequence: 1 } },
+        { new: true, upsert: true }
+      );
+      invoiceNumber = `INV-${year}-${String(counter.sequence).padStart(6, '0')}`;
 
-    const invoice = new SubscriptionInvoice({
-      invoiceNumber,
-      instituteId: inst._id,
-      instituteCode: inst.instituteCode,
-      instituteName: inst.name,
-      planId: plan._id,
-      planNameSnapshot: plan.name,
-      billingCycleSnapshot: billingCycle,
-      amountSnapshot,
-      taxAmountSnapshot,
-      totalAmountSnapshot,
-      dueDate: now,
-      status: 'paid',
-      paidDate: now,
-      paymentMethod: 'bank_transfer',
-      paymentReference: 'PREPAID_ONBOARDING',
-      generatedPdfUrl: 'TBD',
-      notes: 'Initial invoice generated and marked paid on onboarding approval (pre-paid).'
-    });
+      const amountSnapshot = plan.price || 0;
+      const taxAmountSnapshot = parseFloat((amountSnapshot * 0.18).toFixed(2));
+      const totalAmountSnapshot = parseFloat((amountSnapshot + taxAmountSnapshot).toFixed(2));
 
-    const pdfBuffer = await generateInvoicePdfBuffer(invoice, inst);
-    const r2Key = `invoices/${invoiceNumber}.pdf`;
-    const r2Url = await uploadToR2(pdfBuffer, r2Key, 'application/pdf');
-    invoice.generatedPdfUrl = r2Url;
+      invoice = new SubscriptionInvoice({
+        invoiceNumber,
+        instituteId: inst._id,
+        instituteCode: inst.instituteCode,
+        instituteName: inst.name,
+        planId: plan._id,
+        planNameSnapshot: plan.name,
+        billingCycleSnapshot: billingCycle,
+        amountSnapshot,
+        taxAmountSnapshot,
+        totalAmountSnapshot,
+        dueDate: now,
+        status: 'paid',
+        paidDate: now,
+        paymentMethod: 'bank_transfer',
+        paymentReference: 'PREPAID_ONBOARDING',
+        generatedPdfUrl: 'TBD',
+        notes: 'Initial invoice generated and marked paid on onboarding approval (pre-paid).'
+      });
 
-    invoice.notesTimeline.push({
-      event: 'Invoice Created',
-      details: 'Initial invoice generated and marked paid upon onboarding approval.',
-      timestamp: new Date()
-    });
-    await invoice.save();
+      const pdfBuffer = await generateInvoicePdfBuffer(invoice, inst);
+      const r2Key = `invoices/${invoiceNumber}.pdf`;
+      const r2Url = await uploadToR2(pdfBuffer, r2Key, 'application/pdf');
+      invoice.generatedPdfUrl = r2Url;
 
-    // Log Invoice Created & Emailed Audits
-    await InvoiceAudit.create({
-      invoiceId: invoice._id,
-      invoiceNumber,
-      instituteId: inst._id,
-      action: 'Invoice Created',
-      details: 'Initial invoice generated and paid on onboarding approval.',
-      timestamp: new Date()
-    });
+      invoice.notesTimeline.push({
+        event: 'Invoice Created',
+        details: 'Initial invoice generated and marked paid upon onboarding approval.',
+        timestamp: new Date()
+      });
+      await invoice.save();
+    } else {
+      invoice = existingInvoice;
+      invoiceNumber = existingInvoice.invoiceNumber;
+    }
 
-    const emailTo = inst.billingContactEmail || inst.email;
-    const nameTo = inst.billingContactName || inst.contactPerson;
+    // Log Invoice Created & Emailed Audits (only for newly created invoices)
+    if (!existingInvoice && invoice) {
+      await InvoiceAudit.create({
+        invoiceId: invoice._id,
+        invoiceNumber,
+        instituteId: inst._id,
+        action: 'Invoice Created',
+        details: 'Initial invoice generated and paid on onboarding approval.',
+        timestamp: new Date()
+      });
 
-    await sendBillingInvoiceEmail(emailTo, nameTo, invoiceNumber, totalAmountSnapshot, inst.nextBillingDate, pdfBuffer);
+      const emailTo = inst.billingContactEmail || inst.email;
+      const nameTo = inst.billingContactName || inst.contactPerson;
+      const amountSnapshot = plan.price || 0;
+      const taxAmountSnapshot = parseFloat((amountSnapshot * 0.18).toFixed(2));
+      const totalAmountSnapshot = parseFloat((amountSnapshot + taxAmountSnapshot).toFixed(2));
 
-    await InvoiceAudit.create({
-      invoiceId: invoice._id,
-      invoiceNumber,
-      instituteId: inst._id,
-      action: 'Invoice Emailed',
-      details: `Invoice PDF emailed to billing contact: ${emailTo}`,
-      timestamp: new Date()
-    });
+      try {
+        const pdfBuffer = await generateInvoicePdfBuffer(invoice, inst);
+        await sendBillingInvoiceEmail(emailTo, nameTo, invoiceNumber, totalAmountSnapshot, inst.nextBillingDate, pdfBuffer);
+
+        await InvoiceAudit.create({
+          invoiceId: invoice._id,
+          invoiceNumber,
+          instituteId: inst._id,
+          action: 'Invoice Emailed',
+          details: `Invoice PDF emailed to billing contact: ${emailTo}`,
+          timestamp: new Date()
+        });
+      } catch (emailErr) {
+        console.error('[Approval Email Error]', emailErr);
+      }
+    }
 
     // 4. Create Audit Logs
     await AuditLog.create({

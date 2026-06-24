@@ -65,7 +65,7 @@ export default function LiveClassesManagement() {
 
   const { data: faculties = [] } = useQuery({
     queryKey: ['faculty', instituteId],
-    queryFn: () => apiFetch('/student/faculty'),
+    queryFn: () => apiFetch('/faculty'),
     enabled: !!instituteId,
   });
 
