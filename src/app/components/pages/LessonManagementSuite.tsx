@@ -54,13 +54,25 @@ export default function LessonManagementSuite({
 }: LessonManagementSuiteProps = {}) {
   const queryClient = useQueryClient();
 
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const instituteId = cachedUser?.institute?._id || cachedUser?.institute || '';
+
   // Programs State (Batches)
   const { data: programs = [], refetch: refetchPrograms } = useQuery({
-    queryKey: ['programs'],
+    queryKey: ['programs', instituteId],
     queryFn: async () => {
       const data = await apiFetch('/programs');
       return data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
-    }
+    },
+    enabled: !!instituteId,
   });
   const [selectedProgramId, setSelectedProgramId] = useState('');
   const [batchSearch, setBatchSearch] = useState('');
@@ -107,7 +119,7 @@ export default function LessonManagementSuite({
 
   // Load Programs (Batches)
   const loadPrograms = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['programs'] });
+    await queryClient.invalidateQueries({ queryKey: ['programs', instituteId] });
   };
 
   // Eager load all subjects, units, and lessons under a program (Batch)

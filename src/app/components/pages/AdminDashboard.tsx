@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import {
@@ -118,34 +118,51 @@ export default function AdminDashboard() {
   }, [activeTab]);
   const [curriculumBuilderProgramId, setCurriculumBuilderProgramId] = useState<string | undefined>(undefined);
   
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const userId = cachedUser?._id || cachedUser?.id || '';
+  const instituteId = cachedUser?.institute?._id || cachedUser?.institute || '';
+
   // Dynamic metrics & statistics from API
   const queryClient = useQueryClient();
 
   // Queries
   const { data: overviewData, isLoading: isOverviewLoading, error: overviewError } = useQuery({
-    queryKey: ['overview'],
+    queryKey: ['overview', instituteId],
     queryFn: () => apiFetch('/analytics/overview'),
+    enabled: !!instituteId,
   });
 
   const { data: coursesList = [], isLoading: isCoursesLoading } = useQuery({
-    queryKey: ['courses'],
+    queryKey: ['courses', instituteId],
     queryFn: () => apiFetch('/courses'),
+    enabled: !!instituteId,
   });
 
   const { data: programsList = [], isLoading: isProgramsLoading } = useQuery({
-    queryKey: ['programs'],
+    queryKey: ['programs', instituteId],
     queryFn: () => apiFetch('/programs'),
+    enabled: !!instituteId,
   });
 
   const { data: pendingPayments = [], isLoading: isPaymentsLoading } = useQuery({
-    queryKey: ['pending-payments'],
+    queryKey: ['pending-payments', instituteId],
     queryFn: () => apiFetch('/purchases/pending-payments'),
+    enabled: !!instituteId,
   });
 
   const { data: videoJobs = [], isLoading: isJobsLoading } = useQuery({
-    queryKey: ['jobs'],
+    queryKey: ['jobs', instituteId],
     queryFn: () => apiFetch('/videos/jobs'),
     refetchInterval: activeTab === 'upload' ? 5000 : false,
+    enabled: !!instituteId,
   });
 
   const { data: youtubeIntegration = {
@@ -156,47 +173,33 @@ export default function AdminDashboard() {
     youtubeLastSync: null,
     videosUploaded: 0
   }, refetch: refetchYoutubeStatus } = useQuery({
-    queryKey: ['status', 'youtube'],
+    queryKey: ['status', 'youtube', userId],
     queryFn: () => apiFetch('/videos/youtube/integration/status'),
     refetchOnWindowFocus: true,
+    enabled: !!userId,
   });
 
   const { data: profile } = useQuery({
-    queryKey: ['profile'],
+    queryKey: ['profile', userId],
     queryFn: () => apiFetch('/auth/profile'),
+    placeholderData: undefined,
   });
 
   const { data: billingData, isLoading: isBillingLoading } = useQuery({
-    queryKey: ['billing'],
+    queryKey: ['billing', instituteId],
     queryFn: () => apiFetch('/analytics/billing'),
-    enabled: activeTab === 'subscription',
+    enabled: activeTab === 'subscription' && !!instituteId,
   });
 
-  const handleDownloadPdf = async (invoiceId: string, invoiceNumber: string) => {
+  const handleDownloadPdf = (invoiceId: string, invoiceNumber: string) => {
     try {
       const token = localStorage.getItem('token');
-      const headers = {} as Record<string, string>;
-      if (token && token !== 'session_active') {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      const response = await fetch(getApiUrl(`/billing/invoices/${invoiceId}/download`), {
-        headers,
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Download failed (${response.status})`);
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${invoiceNumber}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success('Invoice downloaded successfully.');
+      const path = `/billing/invoices/${invoiceId}/download`;
+      const url = token
+        ? `${getApiUrl(path)}?token=${encodeURIComponent(token)}`
+        : getApiUrl(path);
+      window.open(url, '_blank');
+      toast.success('Invoice download opened.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to download invoice PDF.');
     }
@@ -242,7 +245,7 @@ export default function AdminDashboard() {
   const [uploadIsLocked, setUploadIsLocked] = useState(true);
   const [uploadOrder, setUploadOrder] = useState('1');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadAttachmentUrl, setUploadAttachmentUrl] = useState('');
+  const [selectedAttachmentFile, setSelectedAttachmentFile] = useState<File | null>(null);
   const [uploadAttachmentName, setUploadAttachmentName] = useState('');
   
   const [selectedUploadProgramId, setSelectedUploadProgramId] = useState('');
@@ -308,32 +311,36 @@ export default function AdminDashboard() {
   // Keep compatibility with inline mutations
   const loadCrmData = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['overview'] }),
-      queryClient.invalidateQueries({ queryKey: ['courses'] }),
-      queryClient.invalidateQueries({ queryKey: ['programs'] }),
-      queryClient.invalidateQueries({ queryKey: ['pending-payments'] }),
-      queryClient.invalidateQueries({ queryKey: ['jobs'] }),
-      queryClient.invalidateQueries({ queryKey: ['status', 'youtube'] }),
-      queryClient.invalidateQueries({ queryKey: ['profile'] }),
-      queryClient.invalidateQueries({ queryKey: ['billing'] })
+      queryClient.invalidateQueries({ queryKey: ['overview', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['courses', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['programs', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['pending-payments', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['jobs', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['status', 'youtube', userId] }),
+      queryClient.invalidateQueries({ queryKey: ['profile', userId] }),
+      queryClient.invalidateQueries({ queryKey: ['billing', instituteId] })
     ]);
   };
 
   // Prefetch tabs on mount
   useEffect(() => {
-    queryClient.prefetchQuery({ queryKey: ['programs'], queryFn: () => apiFetch('/programs') });
-    queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/auth/profile') });
-  }, []);
+    if (instituteId) {
+      queryClient.prefetchQuery({ queryKey: ['programs', instituteId], queryFn: () => apiFetch('/programs') });
+    }
+    if (userId) {
+      queryClient.prefetchQuery({ queryKey: ['profile', userId], queryFn: () => apiFetch('/auth/profile') });
+    }
+  }, [instituteId, userId]);
 
   const prefetchTab = (tabId: string) => {
     if (tabId === 'lessons') {
-      queryClient.prefetchQuery({ queryKey: ['programs'], queryFn: () => apiFetch('/programs') });
+      queryClient.prefetchQuery({ queryKey: ['programs', instituteId], queryFn: () => apiFetch('/programs') });
     } else if (tabId === 'overview') {
-      queryClient.prefetchQuery({ queryKey: ['overview'], queryFn: () => apiFetch('/analytics/overview') });
+      queryClient.prefetchQuery({ queryKey: ['overview', instituteId], queryFn: () => apiFetch('/analytics/overview') });
     } else if (tabId === 'branding') {
-      queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/auth/profile') });
+      queryClient.prefetchQuery({ queryKey: ['profile', userId], queryFn: () => apiFetch('/auth/profile') });
     } else if (tabId === 'subscription') {
-      queryClient.prefetchQuery({ queryKey: ['billing'], queryFn: () => apiFetch('/analytics/billing') });
+      queryClient.prefetchQuery({ queryKey: ['billing', instituteId], queryFn: () => apiFetch('/analytics/billing') });
     }
   };
 
@@ -344,20 +351,22 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    const onOAuthResult = async (event: MessageEvent) => {
-      if (!event?.data || event.data.type !== 'YOUTUBE_CONNECT_RESULT') return;
-      if (event.data.success) {
-        await queryClient.invalidateQueries({ queryKey: ['status', 'youtube'] });
-        toast.success('YouTube Channel Connected');
-      } else {
-        toast.error('Connection Failed', {
-          description: event.data.message || 'Unable to connect your YouTube channel.'
-        });
+    const onOAuthResult = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data && event.data.type === 'YOUTUBE_OAUTH_RESULT') {
+        if (event.data.status === 'success') {
+          queryClient.invalidateQueries({ queryKey: ['status', 'youtube', userId] });
+          toast.success('YouTube Channel Connected');
+        } else {
+          toast.error('Connection Failed', {
+            description: event.data.message || 'Unable to connect your YouTube channel.'
+          });
+        }
       }
     };
     window.addEventListener('message', onOAuthResult);
     return () => window.removeEventListener('message', onOAuthResult);
-  }, [queryClient]);
+  }, [queryClient, userId]);
 
   const handleLogout = async () => {
     try {
@@ -365,9 +374,10 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error('Logout error:', err);
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/');
+    queryClient.clear();
+    localStorage.clear();
+    sessionStorage.clear();
+    navigate('/login', { replace: true });
   };
 
   // Export students to CSV
@@ -898,7 +908,9 @@ export default function AdminDashboard() {
     formData.append('courseId', selectedUploadProgramId);
     formData.append('lessonId', selectedUploadLessonId);
     formData.append('duration', uploadDuration || '15:00');
-    formData.append('attachmentUrl', uploadAttachmentUrl);
+    if (selectedAttachmentFile) {
+      formData.append('attachment', selectedAttachmentFile);
+    }
     formData.append('attachmentName', uploadAttachmentName);
 
     const xhr = new XMLHttpRequest();
@@ -924,7 +936,7 @@ export default function AdminDashboard() {
         setUploadTitle('');
         setSelectedFile(null);
         setUploadDuration('');
-        setUploadAttachmentUrl('');
+        setSelectedAttachmentFile(null);
         setUploadAttachmentName('');
         setSelectedUploadProgramId('');
         setSelectedUploadSubjectId('');
@@ -1963,12 +1975,20 @@ export default function AdminDashboard() {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="video-attachment-url">PDF URL</Label>
+                          <Label htmlFor="video-attachment-file">PDF Attachment</Label>
                           <Input
-                            id="video-attachment-url"
-                            placeholder="e.g. https://drive.google.com/file/d/..."
-                            value={uploadAttachmentUrl}
-                            onChange={(e) => setUploadAttachmentUrl(e.target.value)}
+                            id="video-attachment-file"
+                            type="file"
+                            accept="application/pdf"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                setSelectedAttachmentFile(e.target.files[0]);
+                                if (!uploadAttachmentName) {
+                                  setUploadAttachmentName(e.target.files[0].name.replace(/\.[^/.]+$/, ""));
+                                }
+                              }
+                            }}
+                            value={selectedAttachmentFile ? undefined : ''}
                             disabled={!selectedUploadLessonId}
                           />
                         </div>
@@ -1983,6 +2003,7 @@ export default function AdminDashboard() {
                             id="file-input"
                             className="hidden"
                             onChange={handleFileChange}
+                            value={selectedFile ? undefined : ''}
                             disabled={!selectedUploadLessonId}
                           />
                           <label htmlFor="file-input" className={`space-y-2 block ${selectedUploadLessonId ? 'cursor-pointer' : 'cursor-not-allowed'}`}>

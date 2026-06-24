@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import {
@@ -52,33 +52,49 @@ export default function CoursesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('enrolled');
   const [error, setError] = useState('');
-  const [user, setUser] = useState<any>(null);
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const [user, setUser] = useState<any>(cachedUser);
+  const userId = user?._id || user?.id || cachedUser?._id || cachedUser?.id || '';
+  const instituteId = user?.institute?._id || user?.institute || cachedUser?.institute?._id || cachedUser?.institute || '';
 
   // React Query Hooks
   const { data: profile } = useQuery({
-    queryKey: ['profile'],
+    queryKey: ['profile', userId],
     queryFn: () => apiFetch('/auth/profile'),
+    placeholderData: undefined,
   });
 
   const { data: courses = [], isLoading: loading, error: queryError } = useQuery({
-    queryKey: ['courses'],
+    queryKey: ['courses', instituteId],
     queryFn: () => apiFetch('/courses'),
+    enabled: !!instituteId,
   });
 
   const { data: watchHistory = [] } = useQuery({
-    queryKey: ['history'],
+    queryKey: ['history', userId],
     queryFn: () => apiFetch('/progress/history'),
+    enabled: !!userId,
   });
 
   const { data: notificationsData } = useQuery({
-    queryKey: ['notifications'],
+    queryKey: ['notifications', userId],
     queryFn: () => apiFetch('/student-notifications'),
+    enabled: !!userId,
   });
   const unreadNotifications = notificationsData?.unreadCount || 0;
 
   const { data: securityStatusRes } = useQuery({
-    queryKey: ['status'],
+    queryKey: ['status', userId],
     queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
+    enabled: !!userId,
   });
   const violationCount = securityStatusRes?.violationCount || 0;
 
@@ -162,9 +178,11 @@ export default function CoursesPage() {
     } catch (err) {
       console.error('Logout error:', err);
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/');
+    queryClient.clear();
+    localStorage.clear();
+    sessionStorage.clear();
+    setUser(null);
+    navigate('/login', { replace: true });
   };
 
   return (

@@ -192,13 +192,25 @@ export default function VideoPlayer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [playAttempted, setPlayAttempted] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const [user, setUser] = useState<any>(cachedUser);
+  const userId = user?._id || user?.id || cachedUser?._id || cachedUser?.id || '';
+  const instituteId = user?.institute?._id || user?.institute || cachedUser?.institute?._id || cachedUser?.institute || '';
+
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [mobileLessonsOpen, setMobileLessonsOpen] = useState(false);
   const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('trineo_expanded_subjects');
+      const saved = localStorage.getItem(`trineo_expanded_subjects_${userId}`);
       return saved ? JSON.parse(saved) : {};
     } catch (e) {
       return {};
@@ -206,7 +218,7 @@ export default function VideoPlayer() {
   });
   const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('trineo_expanded_units');
+      const saved = localStorage.getItem(`trineo_expanded_units_${userId}`);
       return saved ? JSON.parse(saved) : {};
     } catch (e) {
       return {};
@@ -214,12 +226,16 @@ export default function VideoPlayer() {
   });
 
   useEffect(() => {
-    localStorage.setItem('trineo_expanded_subjects', JSON.stringify(expandedSubjects));
-  }, [expandedSubjects]);
+    if (userId) {
+      localStorage.setItem(`trineo_expanded_subjects_${userId}`, JSON.stringify(expandedSubjects));
+    }
+  }, [expandedSubjects, userId]);
 
   useEffect(() => {
-    localStorage.setItem('trineo_expanded_units', JSON.stringify(expandedUnits));
-  }, [expandedUnits]);
+    if (userId) {
+      localStorage.setItem(`trineo_expanded_units_${userId}`, JSON.stringify(expandedUnits));
+    }
+  }, [expandedUnits, userId]);
 
   // Auto-expand current lesson's subject and unit
   useEffect(() => {
@@ -378,15 +394,17 @@ export default function VideoPlayer() {
   const isSwipingRef = useRef<boolean>(false);
 
   // Auto-Next Lesson toggle state
-  const [autoNext, setAutoNext] = useState(() => {
-    const saved = localStorage.getItem('autoNext');
-    return saved === null ? true : saved === 'true';
+  const [autoNext, setAutoNext] = useState<boolean>(() => {
+    const saved = localStorage.getItem(`autoNext_${userId}`);
+    return saved === 'true';
   });
 
   // Save autoNext on change
   useEffect(() => {
-    localStorage.setItem('autoNext', autoNext.toString());
-  }, [autoNext]);
+    if (userId) {
+      localStorage.setItem(`autoNext_${userId}`, autoNext.toString());
+    }
+  }, [autoNext, userId]);
 
   // Course level Study Materials fetched from backend
   const [courseMaterials, setCourseMaterials] = useState<any[]>([]);
@@ -400,22 +418,23 @@ export default function VideoPlayer() {
   const [discussionText, setDiscussionText] = useState('');
 
   const { data: securityStatusRes } = useQuery({
-    queryKey: ['status'],
+    queryKey: ['status', userId],
     queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
     refetchInterval: 5000,
+    enabled: !!userId,
   });
 
   // Load notes and discussions whenever courseId changes
   useEffect(() => {
-    if (courseId) {
+    if (courseId && userId) {
       try {
-        const savedNotes = localStorage.getItem(`notes_${courseId}`);
+        const savedNotes = localStorage.getItem(`notes_${userId}_${courseId}`);
         setNotes(savedNotes ? JSON.parse(savedNotes) : []);
       } catch (e) {
         setNotes([]);
       }
       try {
-        const savedDiscs = localStorage.getItem(`discussions_${courseId}`);
+        const savedDiscs = localStorage.getItem(`discussions_${userId}_${courseId}`);
         setDiscussions(savedDiscs ? JSON.parse(savedDiscs) : []);
       } catch (e) {
         setDiscussions([]);
@@ -424,7 +443,7 @@ export default function VideoPlayer() {
       setNotes([]);
       setDiscussions([]);
     }
-  }, [courseId]);
+  }, [courseId, userId]);
 
   // Lesson issue reporting
   const [reportOpen, setReportOpen] = useState(false);
@@ -506,7 +525,7 @@ export default function VideoPlayer() {
     }
 
     const manager = new ProtectionManager({
-      userId: user.user_id || user.id || user._id || '',
+      userId: userId,
       email: user.email || '',
       ipAddress: ipAddressRef.current,
       sessionId: sessionIdRef.current,
@@ -628,9 +647,6 @@ export default function VideoPlayer() {
 
   // 2. Active Session Heartbeat (shortened to 5 seconds) and user fetch
   useEffect(() => {
-    const cachedUser = localStorage.getItem('user');
-    if (cachedUser) setUser(JSON.parse(cachedUser));
-
     initializePushNotifications().catch(err => console.error('Push init failed:', err));
 
     const runHeartbeat = async () => {
@@ -927,7 +943,7 @@ export default function VideoPlayer() {
             }
 
             // Apply auto-resume memory
-            const savedTime = localStorage.getItem(`resume_${currentLesson?._id}`);
+            const savedTime = localStorage.getItem(`resume_${userId}_${currentLesson?._id}`);
             if (savedTime) {
               event.target.seekTo(parseFloat(savedTime), true);
               setCurrentTime(parseFloat(savedTime));
@@ -953,7 +969,7 @@ export default function VideoPlayer() {
               setIsPlaying(false);
               // Mark completed!
               if (currentLesson?._id) {
-                localStorage.setItem(`completed_${currentLesson._id}`, 'true');
+                localStorage.setItem(`completed_${userId}_${currentLesson._id}`, 'true');
               }
               // Auto-Next Lesson Trigger
               if (autoNext) {
@@ -993,12 +1009,12 @@ export default function VideoPlayer() {
 
             // Mark completed if >= 90% watched
             if (current / total >= 0.9 && currentLesson?._id) {
-              localStorage.setItem(`completed_${currentLesson._id}`, 'true');
+              localStorage.setItem(`completed_${userId}_${currentLesson._id}`, 'true');
             }
 
             // Save resume state
             if (Math.floor(current) % 2 === 0) {
-              localStorage.setItem(`resume_${currentLesson?._id}`, current.toString());
+              localStorage.setItem(`resume_${userId}_${currentLesson?._id}`, current.toString());
             }
 
             // Dynamically fetch qualities if they cued after onReady
@@ -1020,7 +1036,7 @@ export default function VideoPlayer() {
       }
       playerRef.current = null;
     };
-  }, [activeVideoId, provider, currentLesson, autoNext, lessons]);
+  }, [activeVideoId, provider, currentLesson, autoNext, lessons, userId]);
 
   // Initialize HLS Player (hls.js) & handle events
   useEffect(() => {
@@ -1038,7 +1054,7 @@ export default function VideoPlayer() {
     const streamUrl = getApiUrl(`/videos/stream/${activeVideoId}/playlist.m3u8`);
 
     // Memory resume logic for HLS
-    const savedTime = localStorage.getItem(`resume_${currentLesson?._id}`);
+    const savedTime = localStorage.getItem(`resume_${userId}_${currentLesson?._id}`);
     const onLoadedMetadata = () => {
       const total = video.duration || 0;
       setDuration(total);
@@ -1091,12 +1107,12 @@ export default function VideoPlayer() {
 
       // Mark completed if >= 90% watched
       if (total > 0 && current / total >= 0.9 && currentLesson?._id) {
-        localStorage.setItem(`completed_${currentLesson._id}`, 'true');
+        localStorage.setItem(`completed_${userId}_${currentLesson._id}`, 'true');
       }
 
       // Save resume state
       if (Math.floor(current) % 2 === 0) {
-        localStorage.setItem(`resume_${currentLesson?._id}`, current.toString());
+        localStorage.setItem(`resume_${userId}_${currentLesson?._id}`, current.toString());
       }
     };
 
@@ -1127,7 +1143,7 @@ export default function VideoPlayer() {
       setIsPlaying(false);
       // Mark completed!
       if (currentLesson?._id) {
-        localStorage.setItem(`completed_${currentLesson._id}`, 'true');
+        localStorage.setItem(`completed_${userId}_${currentLesson._id}`, 'true');
       }
       // Auto-Next Lesson Trigger
       if (autoNext) {
@@ -1167,7 +1183,7 @@ export default function VideoPlayer() {
       }
       hlsRef.current = null;
     };
-  }, [activeVideoId, provider, currentLesson, autoNext, lessons]);
+  }, [activeVideoId, provider, currentLesson, autoNext, lessons, userId]);
 
   // Periodic watch progress reporter (updates DB every 5 seconds of play)
   useEffect(() => {
@@ -1546,7 +1562,7 @@ export default function VideoPlayer() {
   const currentContent = currentLesson;
   const setCurrentContent = setCurrentLesson;
 
-  const completedCount = contents.filter(c => c.completed || localStorage.getItem(`completed_${c._id}`) === 'true').length;
+  const completedCount = contents.filter(c => c.completed || localStorage.getItem(`completed_${userId}_${c._id}`) === 'true').length;
   const totalItems = contents.length;
   const overallProgress = totalItems > 0 ? Math.round((completedCount / totalItems) * 100) : 0;
 
@@ -1561,7 +1577,7 @@ export default function VideoPlayer() {
     };
     const updated = [newNote, ...notes];
     setNotes(updated);
-    localStorage.setItem(`notes_${courseId}`, JSON.stringify(updated));
+    localStorage.setItem(`notes_${userId}_${courseId}`, JSON.stringify(updated));
     setNoteText('');
     toast.success('Note saved!', { description: `Attached at ${formatTime(currentTime)}` });
   };
@@ -1569,7 +1585,7 @@ export default function VideoPlayer() {
   const handleDeleteNote = (id: number) => {
     const updated = notes.filter(n => n.id !== id);
     setNotes(updated);
-    localStorage.setItem(`notes_${courseId}`, JSON.stringify(updated));
+    localStorage.setItem(`notes_${userId}_${courseId}`, JSON.stringify(updated));
     toast.success('Note deleted.');
   };
 
@@ -1585,7 +1601,7 @@ export default function VideoPlayer() {
     };
     const updated = [newComment, ...discussions];
     setDiscussions(updated);
-    localStorage.setItem(`discussions_${courseId}`, JSON.stringify(updated));
+    localStorage.setItem(`discussions_${userId}_${courseId}`, JSON.stringify(updated));
     setDiscussionText('');
     toast.success('Comment posted successfully!');
   };
@@ -1829,7 +1845,7 @@ export default function VideoPlayer() {
                       }}
                     >
                       <span className="font-semibold">{user.name} · {user.email}</span>
-                      <span className="text-xs opacity-90">ID: {user.user_id || user._id} · IP: {ipAddress}</span>
+                      <span className="text-xs opacity-90">ID: {userId} · IP: {ipAddress}</span>
                     </div>
                   </div>
                 )}
@@ -1847,7 +1863,7 @@ export default function VideoPlayer() {
                         <Button 
                           size="sm"
                           className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1.5 rounded-xl"
-                          onClick={() => window.open(currentContent.attachmentUrl, '_blank')}
+                          onClick={() => openDownload(`/content/${currentContent._id}/download`)}
                         >
                           <Download className="w-3.5 h-3.5" /> Download PDF
                         </Button>
@@ -2436,7 +2452,7 @@ export default function VideoPlayer() {
                                         {unitContents.map((content: any, contentIdx: number) => {
                                           const isSelected = currentContent?._id === content._id;
                                           const isLocked = content.isLocked;
-                                          const isCompleted = content.completed || localStorage.getItem(`completed_${content._id}`) === 'true';
+                                          const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
                                           const displayIndex = contentIdx + 1;
                                           
                                           // Status calculation
@@ -2450,7 +2466,7 @@ export default function VideoPlayer() {
                                             statusColor = 'text-purple-600 dark:text-purple-400 font-bold';
                                           }
 
-                                          const resumeTime = parseFloat(localStorage.getItem(`resume_${content._id}`) || '0');
+                                          const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
                                           const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
                                           const itemProgressPercent = resumeTime && contentDurSec ? Math.min(100, Math.round((resumeTime / contentDurSec) * 100)) : 0;
 
@@ -2545,7 +2561,7 @@ export default function VideoPlayer() {
                         <Button
                           size="sm"
                           className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1 shrink-0 rounded-lg font-semibold shadow-sm h-8 text-[11px] px-2.5"
-                          onClick={() => openDownload(currentLesson.attachmentUrl, currentLesson.attachmentName || 'Download Attachment')}
+                          onClick={() => openDownload(`/content/${currentLesson._id}/download`)}
                         >
                           <Download className="w-3.5 h-3.5" /> Download
                         </Button>
@@ -2727,7 +2743,7 @@ export default function VideoPlayer() {
                               <Button
                                 size="sm"
                                 className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1.5 shrink-0 rounded-lg lg:rounded-xl font-semibold shadow-sm h-8 lg:h-9 text-[11px] lg:text-xs px-2.5 lg:px-4"
-                                onClick={() => openDownload(currentLesson.attachmentUrl, currentLesson.attachmentName || 'Download Topic Notes')}
+                                onClick={() => openDownload(`/content/${currentLesson._id}/download`)}
                               >
                                 <Download className="w-3.5 h-3.5" />
                                 <span className="hidden sm:inline">Download</span>
@@ -2922,7 +2938,7 @@ export default function VideoPlayer() {
                       <Button
                         size="sm"
                         className="bg-primary hover:bg-[#1f5fa7] text-white flex items-center gap-1 shrink-0 rounded-xl font-bold h-9 text-xs px-3.5 touch-btn"
-                        onClick={() => openDownload(currentLesson.attachmentUrl, currentLesson.attachmentName || 'Topic Lecture Notes')}
+                        onClick={() => openDownload(`/content/${currentLesson._id}/download`)}
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Download</span>
@@ -3024,7 +3040,7 @@ export default function VideoPlayer() {
                                       {unitContents.map((content: any, contentIdx: number) => {
                                         const isSelected = currentContent?._id === content._id;
                                         const isLocked = content.isLocked;
-                                        const isCompleted = content.completed || localStorage.getItem(`completed_${content._id}`) === 'true';
+                                        const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
                                         const displayIndex = contentIdx + 1;
                                         
                                         // Status calculation
@@ -3038,7 +3054,7 @@ export default function VideoPlayer() {
                                           statusColor = 'text-purple-600 dark:text-purple-400 font-bold';
                                         }
 
-                                        const resumeTime = parseFloat(localStorage.getItem(`resume_${content._id}`) || '0');
+                                        const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
                                         const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
                                         const itemProgressPercent = resumeTime && contentDurSec ? Math.min(100, Math.round((resumeTime / contentDurSec) * 100)) : 0;
 

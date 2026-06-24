@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from 'next-themes';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard,
   Building2,
@@ -317,6 +318,7 @@ const SectionBadge = ({ children, isDark }: { children: React.ReactNode; isDark?
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function OwnerPanel() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { theme } = useTheme();
   const [isDark, setIsDark] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
@@ -545,9 +547,10 @@ export default function OwnerPanel() {
     } catch (err) {
       console.error('Logout error:', err);
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/');
+    queryClient.clear();
+    localStorage.clear();
+    sessionStorage.clear();
+    navigate('/login', { replace: true });
   };
 
   // ── Institute Actions ────────────────────────────────────────────────────
@@ -726,30 +729,14 @@ export default function OwnerPanel() {
     }
   };
 
-  const handleDownloadPdf = async (invoiceId: string, invoiceNumber: string) => {
+  const handleDownloadPdf = (invoiceId: string, invoiceNumber: string) => {
     try {
       const token = localStorage.getItem('token');
-      const headers = {} as Record<string, string>;
-      if (token && token !== 'session_active') {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      const response = await fetch(getApiUrl(`/billing/invoices/${invoiceId}/download`), {
-        headers,
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Download failed (${response.status})`);
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${invoiceNumber}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      const path = `/billing/invoices/${invoiceId}/download`;
+      const url = token
+        ? `${getApiUrl(path)}?token=${encodeURIComponent(token)}`
+        : getApiUrl(path);
+      window.open(url, '_blank');
     } catch (err: any) {
       alert(err.message || 'Failed to download invoice PDF.');
     }

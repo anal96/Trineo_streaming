@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Calendar, Video, Plus, PencilLine, Trash2, Users, CheckCircle, X, Search } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -38,20 +38,35 @@ export default function LiveClassesManagement() {
   const [filterCourse, setFilterCourse] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
 
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const userId = cachedUser?._id || cachedUser?.id || '';
+  const instituteId = cachedUser?.institute?._id || cachedUser?.institute || '';
+
   // React Query Hooks
   const { data: liveClasses = [], isLoading: loading } = useQuery({
-    queryKey: ['live-classes'],
+    queryKey: ['live-classes', instituteId],
     queryFn: () => apiFetch('/live-classes'),
+    enabled: !!instituteId,
   });
 
   const { data: courses = [] } = useQuery({
-    queryKey: ['courses'],
+    queryKey: ['courses', instituteId],
     queryFn: () => apiFetch('/courses'),
+    enabled: !!instituteId,
   });
 
   const { data: faculties = [] } = useQuery({
-    queryKey: ['faculty'],
+    queryKey: ['faculty', instituteId],
     queryFn: () => apiFetch('/student/faculty'),
+    enabled: !!instituteId,
   });
 
   const openCreateModal = () => {
@@ -135,7 +150,7 @@ export default function LiveClassesManagement() {
         toast.success('Live class created successfully');
       }
       setShowClassModal(false);
-      queryClient.invalidateQueries({ queryKey: ['live-classes'] });
+      queryClient.invalidateQueries({ queryKey: ['live-classes', instituteId] });
     } catch (err: any) {
       toast.error('Failed to save live class', { description: err.message });
     }
@@ -146,7 +161,7 @@ export default function LiveClassesManagement() {
     try {
       await apiFetch(`/live-classes/${id}`, { method: 'DELETE' });
       toast.success('Live class deleted');
-      queryClient.invalidateQueries({ queryKey: ['live-classes'] });
+      queryClient.invalidateQueries({ queryKey: ['live-classes', instituteId] });
     } catch (err: any) {
       toast.error('Delete failed', { description: err.message });
     }

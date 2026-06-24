@@ -30,15 +30,29 @@ export default function StudyMaterialsManagement() {
     return value ? `?${value}` : '';
   }, [search, type, courseId]);
 
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const userId = cachedUser?._id || cachedUser?.id || '';
+  const instituteId = cachedUser?.institute?._id || cachedUser?.institute || '';
+
   // Queries
   const { data: courses = [] } = useQuery({
-    queryKey: ['courses'],
+    queryKey: ['courses', instituteId],
     queryFn: () => apiFetch('/courses'),
+    enabled: !!instituteId,
   });
 
   const { data: materials = [], isLoading: loading } = useQuery({
-    queryKey: ['materials', 'admin', search, type, courseId],
+    queryKey: ['materials', 'admin', search, type, courseId, userId],
     queryFn: () => apiFetch(`/materials/admin${queryString}`),
+    enabled: !!userId,
   });
 
   const resetUploadForm = () => {

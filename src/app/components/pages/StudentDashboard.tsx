@@ -280,47 +280,64 @@ export default function StudentDashboard() {
     return localStorage.getItem('trineo_student_active_tab') || 'home';
   });
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<any>(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  });
   const queryClient = useQueryClient();
+
+  const userId = user?._id || user?.id || '';
+  const instituteId = user?.institute?._id || user?.institute || '';
 
   // Queries
   const { data: purchasedCourses = [] } = useQuery({
-    queryKey: ['courses', 'purchased'],
+    queryKey: ['courses', 'purchased', userId],
     queryFn: () => apiFetch('/purchases/my-courses'),
+    enabled: !!userId,
   });
 
   const { data: watchHistory = [] } = useQuery({
-    queryKey: ['history'],
+    queryKey: ['history', userId],
     queryFn: () => apiFetch('/progress/history'),
+    enabled: !!userId,
   });
 
   const { data: allCourses = [] } = useQuery({
-    queryKey: ['courses'],
+    queryKey: ['courses', instituteId],
     queryFn: () => apiFetch('/courses'),
+    enabled: !!instituteId,
   });
 
   const { data: announcements = [] } = useQuery({
-    queryKey: ['announcements'],
+    queryKey: ['announcements', instituteId],
     queryFn: () => apiFetch('/analytics/announcements'),
+    enabled: !!instituteId,
   });
 
   const { data: notificationsData } = useQuery({
-    queryKey: ['notifications'],
+    queryKey: ['notifications', userId],
     queryFn: () => apiFetch('/student-notifications'),
+    enabled: !!userId,
   });
 
   const notifications = notificationsData?.notifications || [];
   const unreadNotifications = notificationsData?.unreadCount || 0;
 
   const { data: securityStatusRes } = useQuery({
-    queryKey: ['status'],
+    queryKey: ['status', userId],
     queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
     refetchInterval: 5000,
+    enabled: !!userId,
   });
 
   const { data: profile } = useQuery({
-    queryKey: ['profile'],
+    queryKey: ['profile', userId],
     queryFn: () => apiFetch('/auth/profile'),
+    placeholderData: undefined,
   });
 
   // Derived loading state
@@ -1107,28 +1124,29 @@ export default function StudentDashboard() {
 
   const loadDashboardData = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['courses'] }),
-      queryClient.invalidateQueries({ queryKey: ['history'] }),
-      queryClient.invalidateQueries({ queryKey: ['announcements'] }),
-      queryClient.invalidateQueries({ queryKey: ['notifications'] }),
-      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      queryClient.invalidateQueries({ queryKey: ['courses', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['courses', 'purchased', userId] }),
+      queryClient.invalidateQueries({ queryKey: ['history', userId] }),
+      queryClient.invalidateQueries({ queryKey: ['announcements', instituteId] }),
+      queryClient.invalidateQueries({ queryKey: ['notifications', userId] }),
+      queryClient.invalidateQueries({ queryKey: ['profile', userId] })
     ]);
   };
 
   const prefetchTab = (tabId: string) => {
     if (tabId === 'courses') {
-      queryClient.prefetchQuery({ queryKey: ['courses', 'purchased'], queryFn: () => apiFetch('/purchases/my-courses') });
-      queryClient.prefetchQuery({ queryKey: ['courses'], queryFn: () => apiFetch('/courses') });
+      queryClient.prefetchQuery({ queryKey: ['courses', 'purchased', userId], queryFn: () => apiFetch('/purchases/my-courses') });
+      queryClient.prefetchQuery({ queryKey: ['courses', instituteId], queryFn: () => apiFetch('/courses') });
     } else if (tabId === 'notifications') {
-      queryClient.prefetchQuery({ queryKey: ['notifications'], queryFn: () => apiFetch('/student-notifications') });
-      queryClient.prefetchQuery({ queryKey: ['announcements'], queryFn: () => apiFetch('/analytics/announcements') });
+      queryClient.prefetchQuery({ queryKey: ['notifications', userId], queryFn: () => apiFetch('/student-notifications') });
+      queryClient.prefetchQuery({ queryKey: ['announcements', instituteId], queryFn: () => apiFetch('/analytics/announcements') });
     } else if (tabId === 'settings' || tabId === 'security') {
-      queryClient.prefetchQuery({ queryKey: ['profile'], queryFn: () => apiFetch('/auth/profile') });
+      queryClient.prefetchQuery({ queryKey: ['profile', userId], queryFn: () => apiFetch('/auth/profile') });
     } else if (tabId === 'home') {
-      queryClient.prefetchQuery({ queryKey: ['courses', 'purchased'], queryFn: () => apiFetch('/purchases/my-courses') });
-      queryClient.prefetchQuery({ queryKey: ['history'], queryFn: () => apiFetch('/progress/history') });
-      queryClient.prefetchQuery({ queryKey: ['courses'], queryFn: () => apiFetch('/courses') });
-      queryClient.prefetchQuery({ queryKey: ['announcements'], queryFn: () => apiFetch('/analytics/announcements') });
+      queryClient.prefetchQuery({ queryKey: ['courses', 'purchased', userId], queryFn: () => apiFetch('/purchases/my-courses') });
+      queryClient.prefetchQuery({ queryKey: ['history', userId], queryFn: () => apiFetch('/progress/history') });
+      queryClient.prefetchQuery({ queryKey: ['courses', instituteId], queryFn: () => apiFetch('/courses') });
+      queryClient.prefetchQuery({ queryKey: ['announcements', instituteId], queryFn: () => apiFetch('/analytics/announcements') });
     }
   };
 
@@ -1138,9 +1156,11 @@ export default function StudentDashboard() {
     } catch (err) {
       console.error('Logout error:', err);
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/');
+    queryClient.clear();
+    localStorage.clear();
+    sessionStorage.clear();
+    setUser(null);
+    navigate('/login', { replace: true });
   };
 
   const handleVideoClick = async (courseId: string) => {
@@ -3483,22 +3503,32 @@ export default function StudentDashboard() {
                   <CardContent className="pt-6 space-y-6">
                     <div>
                       {/* Package details */}
-                      <div className="p-5 rounded-2xl border bg-gradient-to-br from-violet-600/5 to-indigo-600/5 border-violet-500/20 space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <Package className="w-5 h-5 text-violet-500" />
-                          <h4 className="font-bold text-sm text-foreground">Content Package</h4>
+                      <div className="p-5 rounded-2xl border bg-gradient-to-br from-violet-600/5 to-indigo-600/5 border-violet-500/20 space-y-4">
+                        <div className="flex items-center justify-between gap-4 border-b border-violet-500/10 pb-3">
+                          <div className="flex items-center gap-2.5">
+                            <Package className="w-5 h-5 text-violet-500" />
+                            <h4 className="font-bold text-sm text-foreground">Content Package</h4>
+                          </div>
+                          {user?.assignedPackage ? (
+                            <span className="text-sm font-extrabold text-violet-950 dark:text-violet-400">{user.assignedPackage.name}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic font-medium">None Assigned</span>
+                          )}
                         </div>
-                        {user?.assignedPackage ? (
-                          <div className="space-y-2">
-                            <div className="text-sm font-extrabold text-violet-950">{user.assignedPackage.name}</div>
-                            <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                              <Clock className="w-4 h-4 text-violet-500" />
-                              <span>Access Expires On: {formatAccessDate(user.packageExpiryDate)}</span>
+
+                        <div className="flex items-center gap-2.5 pt-0.5">
+                          <Clock className="w-5 h-5 text-violet-500" />
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Access Expiry Status</div>
+                            <div className="text-xs font-semibold text-foreground">
+                              {user?.packageExpiryDate ? (
+                                <>Access Expires On: <span className="font-extrabold text-violet-600 dark:text-violet-400">{formatAccessDate(user.packageExpiryDate)}</span></>
+                              ) : (
+                                <span className="text-emerald-500 font-bold">Lifetime Access (No Expiry)</span>
+                              )}
                             </div>
                           </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground italic font-medium">No custom content packages assigned by your institute.</p>
-                        )}
+                        </div>
                       </div>
                     </div>
 

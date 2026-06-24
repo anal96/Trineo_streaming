@@ -56,6 +56,7 @@ import { SubscriptionPayment } from './models/SubscriptionPayment.js';
 
 const bootStart = Date.now();
 const app = express();
+app.set('trust proxy', 1);
 
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false })); // Harden headers against XSS and clickjacking

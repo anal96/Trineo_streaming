@@ -1208,9 +1208,9 @@ export const getBillingDashboard = async (req, res) => {
       activeInstitutes
     ] = await Promise.all([
       Institute.countDocuments({ onboardingStatus: 'pending' }),
-      Institute.countDocuments({ isTrialActive: true, subscriptionStatus: 'active' }),
-      Institute.countDocuments({ isTrialActive: true, trialEndDate: { $gte: now, $lte: threeDaysLater } }),
-      Institute.countDocuments({ isTrialActive: false, subscriptionStatus: 'active' }),
+      0, // activeTrials is obsolete
+      0, // trialExpiringSoon is obsolete
+      Institute.countDocuments({ subscriptionStatus: 'active' }),
       Institute.countDocuments({ subscriptionStatus: 'payment_due' }),
       Institute.countDocuments({ subscriptionStatus: 'grace_period' }),
       Institute.countDocuments({ subscriptionStatus: 'suspended' }),
@@ -1402,7 +1402,6 @@ export const recordBillingInvoicePaid = async (req, res) => {
     if (inst) {
       const oldStatus = inst.subscriptionStatus;
       inst.subscriptionStatus = 'active';
-      inst.isTrialActive = false; // Paid disables trial mode
       inst.gracePeriodEndDate = null;
 
       // Calculate next billing date based on cycle snapshot

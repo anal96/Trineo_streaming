@@ -61,21 +61,35 @@ export default function SecurityCenter() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailedState, setDetailedState] = useState<any>(null);
 
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const instituteId = cachedUser?.institute?._id || cachedUser?.institute || '';
+
   // React Query Hooks
   const { data: overviewRes } = useQuery({
-    queryKey: ['security-center', 'overview'],
+    queryKey: ['security-center', 'overview', instituteId],
     queryFn: () => apiFetch('/security-center/overview'),
+    enabled: !!instituteId,
   });
   const overview = overviewRes?.cards || null;
 
   const { data: sessions = [] } = useQuery({
-    queryKey: ['security-center', 'sessions'],
+    queryKey: ['security-center', 'sessions', instituteId],
     queryFn: () => apiFetch('/security-center/sessions'),
+    enabled: !!instituteId,
   });
 
   const { data: events = [] } = useQuery({
-    queryKey: ['security-center', 'events'],
+    queryKey: ['security-center', 'events', instituteId],
     queryFn: () => apiFetch('/security-center/events'),
+    enabled: !!instituteId,
   });
 
   const invalidateAll = () => {

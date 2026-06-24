@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../utils/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
@@ -103,8 +103,20 @@ export default function AnalyticsUpgrade() {
   const [range, setRange] = useState('30d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+
+  const cachedUser = useMemo(() => {
+    const cached = localStorage.getItem('user');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+
+  const instituteId = cachedUser?.institute?._id || cachedUser?.institute || '';
+
   const { data: analytics = null, isLoading: isAnalyticsLoading, error: queryError, refetch } = useQuery({
-    queryKey: ['analytics', range, customStart, customEnd],
+    queryKey: ['analytics', range, customStart, customEnd, instituteId],
     queryFn: async () => {
       let url = `/analytics/overview?range=${range}`;
       if (range === 'custom' && customStart && customEnd) {
@@ -116,7 +128,7 @@ export default function AnalyticsUpgrade() {
       }
       return response.data;
     },
-    enabled: range !== 'custom' || (!!customStart && !!customEnd)
+    enabled: (range !== 'custom' || (!!customStart && !!customEnd)) && !!instituteId
   });
 
   const loading = isAnalyticsLoading && !analytics;

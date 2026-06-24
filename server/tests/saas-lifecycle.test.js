@@ -262,13 +262,10 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
       assert.ok(savedInstitute);
       assert.equal(savedInstitute.onboardingStatus, 'approved');
       assert.equal(savedInstitute.subscriptionStatus, 'active');
-      assert.equal(savedInstitute.isTrialActive, true);
-      assert.ok(savedInstitute.trialEndDate > new Date());
       assert.equal(savedUser.status, 'active');
       assert.ok(generatedCode.startsWith('GFI'));
-      assert.equal(auditLogs.length, 2);
+      assert.equal(auditLogs.length, 1);
       assert.equal(auditLogs[0].eventType, 'INSTITUTE_APPROVED');
-      assert.equal(auditLogs[1].eventType, 'TRIAL_STARTED');
     });
   });
 
@@ -437,7 +434,6 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
       assert.equal(savedInvoice.paymentMethod, 'upi');
       assert.equal(savedInvoice.paymentReference, 'UPI123456789');
       assert.equal(savedInstitute.subscriptionStatus, 'active');
-      assert.equal(savedInstitute.isTrialActive, false);
       assert.equal(auditsCreated.length, 2);
       assert.equal(auditsCreated[0].action, 'Marked Paid');
       assert.equal(auditsCreated[1].action, 'Reactivated');
