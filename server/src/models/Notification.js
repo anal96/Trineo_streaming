@@ -188,6 +188,7 @@ export const sendPushNotification = async (doc) => {
       if (!isPrefEnabled) continue;
 
       if (user.fcmToken) {
+        console.log(`[FCM SEND]\nUser: ${user._id}\nHas Token: true\nToken Length: ${user.fcmToken.length}`);
         // Build the FCM payload
         const fcmPayload = {
           token: user.fcmToken,
@@ -262,6 +263,7 @@ export const sendPushNotification = async (doc) => {
             }
           });
       } else {
+        console.log('No FCM token found for user.');
         // Find push subscriptions for this user
         const subs = await PushSubscriptionModel.find({ userId: user._id });
         if (!subs.length) continue;

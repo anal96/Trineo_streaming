@@ -13,6 +13,9 @@ export const registerFCM = async (req, res) => {
     }
 
     const userId = req.user._id;
+    const tokenPreview = token ? (token.substring(0, 20) + (token.length > 20 ? '...' : '')) : 'none';
+
+    console.log(`[FCM REGISTER]\nUser: ${userId}\nToken: ${tokenPreview}`);
 
     // Disassociate this token from any other user to prevent duplicate dispatches
     await User.updateMany(
@@ -32,6 +35,7 @@ export const registerFCM = async (req, res) => {
     // Update the current user
     const user = await User.findById(userId);
     if (!user) {
+      console.log(`[FCM REGISTER]\nUser: ${userId}\nToken: ${tokenPreview}\nSaved: false (User not found)`);
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -43,6 +47,8 @@ export const registerFCM = async (req, res) => {
     user.fcmUpdatedAt = new Date();
 
     await user.save();
+
+    console.log(`[FCM REGISTER]\nUser: ${userId}\nToken: ${tokenPreview}\nSaved: true`);
 
     res.status(200).json({
       message: 'FCM token registered successfully',
@@ -56,6 +62,8 @@ export const registerFCM = async (req, res) => {
       }
     });
   } catch (error) {
+    const tokenPreview = req.body?.token ? (req.body.token.substring(0, 20) + (req.body.token.length > 20 ? '...' : '')) : 'none';
+    console.log(`[FCM REGISTER]\nUser: ${req.user?._id}\nToken: ${tokenPreview}\nSaved: false`);
     res.status(500).json({ message: error.message });
   }
 };

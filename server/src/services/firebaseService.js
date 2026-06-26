@@ -64,7 +64,24 @@ export const sendFCMNotification = async (message) => {
     throw new Error('Firebase Messaging is not initialized. Check service account configurations.');
   }
 
-  return await messaging.send(message);
+  const maskedMessage = { ...message };
+  if (maskedMessage.token) {
+    maskedMessage.token = maskedMessage.token.substring(0, 20) + (maskedMessage.token.length > 20 ? '...' : '');
+  }
+  console.log("FCM Payload:", JSON.stringify(maskedMessage, null, 2));
+
+  console.log("Sending FCM...");
+  try {
+    const response = await messaging.send(message);
+    console.log("Firebase Message ID:", response);
+    return response;
+  } catch (error) {
+    console.error(error);
+    console.error(error.code);
+    console.error(error.message);
+    console.error(error.stack);
+    throw error;
+  }
 };
 
 export { firebaseApp, messaging };
