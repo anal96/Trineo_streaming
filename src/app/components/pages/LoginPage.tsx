@@ -230,11 +230,14 @@ export default function LoginPage() {
 
         setError('');
         setLoading(true);
+        console.log('Student login started');
         try {
           const data = await apiFetch('/auth/login', {
             method: 'POST',
             body: JSON.stringify({ email, password })
           });
+
+          console.log('Student login successful');
 
           localStorage.setItem('token', 'session_active');
           localStorage.setItem('user', JSON.stringify({
@@ -250,6 +253,16 @@ export default function LoginPage() {
           if (data.institute?.name) {
             localStorage.setItem('trineo_last_institute', data.institute.name);
             setLastInstitute(data.institute.name);
+          }
+
+          const win = window as any;
+          if (win.AndroidApp && typeof win.AndroidApp.onLoginSuccess === "function") {
+            console.log('Calling Android native bridge');
+            console.log("[Android] Calling native login bridge...");
+            win.AndroidApp.onLoginSuccess();
+            console.log('Android bridge invoked');
+          } else {
+            console.log('Android bridge not available (Web Browser)');
           }
 
           if (data.role === 'owner') {
