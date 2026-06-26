@@ -134,6 +134,7 @@ export const testPush = async (req, res) => {
 
     const notification = await Notification.create({
       userId: targetUserId,
+      targetType: 'user',
       title: title || 'Trineo Stream Test',
       message: body || 'Push notifications are working',
       type: type || 'system',

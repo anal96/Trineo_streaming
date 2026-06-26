@@ -740,6 +740,8 @@ export const updateStudentStatus = async (req, res) => {
     await Notification.create({
       userId: null,
       institute: student.institute || req.user.institute || null,
+      targetType: 'role',
+      targetRole: 'admin',
       message: `Student ${student.name} status updated to ${status}`,
       type: 'system'
     });
@@ -797,6 +799,8 @@ export const createStudent = async (req, res) => {
     await Notification.create({
       userId: null,
       institute: req.user.institute || null,
+      targetType: 'role',
+      targetRole: 'admin',
       message: `Student account created for ${student.name}`,
       type: 'system'
     });
@@ -1001,6 +1005,7 @@ export const createAnnouncement = async (req, res) => {
       await Notification.insertMany(students.map((student) => ({
         institute: req.user.institute || null,
         userId: student._id,
+        targetType: 'user',
         message: `New announcement: ${title}`,
         type: 'system',
         read: false

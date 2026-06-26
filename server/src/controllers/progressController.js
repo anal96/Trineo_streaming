@@ -76,6 +76,7 @@ export const updateProgress = async (req, res) => {
       // Log notification
       await Notification.create({
         userId: studentId,
+        targetType: 'user',
         institute: content.institute || req.user.institute || null,
         message: `Completed item: ${content.title}`,
         type: 'completion'

@@ -444,6 +444,64 @@ export default function StudentDashboard() {
     }
   };
 
+  const handleFileChange = (file: File) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setSelectedAvatarFile(reader.result as string);
+      setAvatarZoom(1);
+      setAvatarOffset({ x: 0, y: 0 });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveAvatar = async () => {
+    if (!selectedAvatarFile) return;
+    setIsSavingAvatar(true);
+    try {
+      const res = await apiFetch('/student-account/profile/avatar', {
+        method: 'PUT',
+        body: JSON.stringify({ image: selectedAvatarFile }),
+      });
+      if (res && res.avatar) {
+        const updatedUser = { ...user, avatar: res.avatar, profileImageUrl: res.profileImageUrl || res.avatar };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        toast.success('Profile photo updated successfully!');
+        setAvatarModalOpen(false);
+        setSelectedAvatarFile(null);
+      } else {
+        toast.error(res?.message || 'Failed to save profile photo.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'An error occurred while saving profile photo.');
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setIsSavingAvatar(true);
+    try {
+      const res = await apiFetch('/student-account/profile/avatar', {
+        method: 'DELETE'
+      });
+      if (res && res.avatar === '') {
+        const updatedUser = { ...user, avatar: '', profileImageUrl: '' };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        toast.success('Profile photo removed successfully!');
+        setAvatarModalOpen(false);
+        setSelectedAvatarFile(null);
+      } else {
+        toast.error(res?.message || 'Failed to remove profile photo.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'An error occurred while removing profile photo.');
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
   const handleTogglePreference = async (key: string) => {
     if (!user) return;
     const currentPrefs = user.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true, certificates: true };
@@ -1090,7 +1148,7 @@ export default function StudentDashboard() {
     if (activeTab === 'materials') loadStudyMaterials();
     if (activeTab === 'faculty') loadFaculty();
     if (activeTab === 'security' || activeTab === 'settings') loadSecurityLogs();
-    if (activeTab === 'live-classes') loadLiveClasses();
+    if (activeTab === 'live-classes' || activeTab === 'home') loadLiveClasses();
     if (activeTab === 'access') loadAccessRules();
     if (activeTab === 'settings') loadPayments();
   }, [activeTab, user, materialsSearch, selectedMaterialType, selectedMaterialCourseId, settingsSubTab]);
@@ -1872,7 +1930,7 @@ export default function StudentDashboard() {
                                             </span>
                                           )}
                                         </div>
-                                        <p className="text-[10px] text-muted-foreground truncate">{nextLiveClass.courseId?.title || 'Batch'} · {nextLiveClass.facultyId?.name || 'Faculty Instructor'}</p>
+                                        <p className="text-[10px] text-muted-foreground truncate">{nextLiveClass.courseId?.name || nextLiveClass.courseId?.title || 'Batch'} · {nextLiveClass.facultyId?.name || 'Faculty Instructor'}</p>
                                       </div>
                                     </div>
                                     <Badge variant="secondary" className="text-[9px] uppercase font-black tracking-wider py-0.5 px-2 bg-muted/65">{nextLiveClass.platform}</Badge>
@@ -3401,7 +3459,7 @@ export default function StudentDashboard() {
                                         <Badge className="bg-green-500/15 text-green-500 border border-green-500/30 text-[10px] uppercase font-semibold">Attended</Badge>
                                       )}
                                     </div>
-                                    <div className="text-xs text-muted-foreground truncate mt-0.5">{lc.courseId?.title || 'Batch'} · {lc.facultyId?.name || 'Faculty Instructor'}</div>
+                                    <div className="text-xs text-muted-foreground truncate mt-0.5">{lc.courseId?.name || lc.courseId?.title || 'Batch'} · {lc.facultyId?.name || 'Faculty Instructor'}</div>
                                     <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                                       <Clock className="w-3.5 h-3.5 text-primary/60 shrink-0" />
                                       <span>Start: {new Date(lc.startTime).toLocaleString()}</span>
@@ -3468,7 +3526,7 @@ export default function StudentDashboard() {
                                       <Badge className="bg-green-500/15 text-green-500 border-green-500/30 text-[10px] font-semibold">Attended</Badge>
                                     )}
                                   </div>
-                                  <div className="text-xs text-muted-foreground mt-0.5 truncate">{lc.courseId?.title || 'Batch'} · {lc.facultyId?.name || 'Faculty Instructor'}</div>
+                                  <div className="text-xs text-muted-foreground mt-0.5 truncate">{lc.courseId?.name || lc.courseId?.title || 'Batch'} · {lc.facultyId?.name || 'Faculty Instructor'}</div>
                                   <div className="text-xs text-muted-foreground mt-1">Held: {new Date(lc.startTime).toLocaleString()}</div>
                                 </div>
                               </div>

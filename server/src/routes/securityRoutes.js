@@ -75,6 +75,7 @@ router.post('/audit', protect, async (req, res) => {
         await Notification.create({
           institute: req.user.institute || null,
           userId: req.user._id,
+          targetType: 'user',
           message: `${label} detected. Playback suspended for 60 seconds.`,
           type: 'system',
           read: false
@@ -89,6 +90,7 @@ router.post('/audit', protect, async (req, res) => {
         await Notification.create({
           institute: req.user.institute || null,
           userId: req.user._id,
+          targetType: 'user',
           message: 'Repeated violation detected. Playback suspended for 60 seconds.',
           type: 'system',
           read: false
@@ -104,6 +106,7 @@ router.post('/audit', protect, async (req, res) => {
         await Notification.create({
           institute: req.user.institute || null,
           userId: req.user._id,
+          targetType: 'user',
           message: 'Account security violation threshold exceeded. Session terminated.',
           type: 'system',
           read: false
@@ -114,6 +117,7 @@ router.post('/audit', protect, async (req, res) => {
         const adminInserts = admins.map(admin => ({
           institute: req.user.institute || null,
           userId: admin._id,
+          targetType: 'user',
           message: `🚨 Security Violation: Student ${req.user.name} force logged out. ${label} Attempt (Attempt 3). Status: Force Logged Out.`,
           type: 'system',
           read: false
@@ -151,6 +155,7 @@ router.post('/audit', protect, async (req, res) => {
         await Notification.create({
           institute: req.user.institute || null,
           userId: req.user._id,
+          targetType: 'user',
           message: 'Account security violation threshold exceeded. Account locked permanently.',
           type: 'system',
           read: false
@@ -161,6 +166,7 @@ router.post('/audit', protect, async (req, res) => {
         const adminInserts = admins.map(admin => ({
           institute: req.user.institute || null,
           userId: admin._id,
+          targetType: 'user',
           message: `🚨 Critical Violation: Student ${req.user.name} account locked. ${label} Attempt (Attempt ${attemptIndex}). Status: Account Locked.`,
           type: 'system',
           read: false

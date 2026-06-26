@@ -690,6 +690,8 @@ export const uploadVideoToYouTube = async (req, res) => {
 
               await Notification.create({
                 userId: null,
+                targetType: 'role',
+                targetRole: 'student',
                 institute: savedAsset.institute || req.user.institute || null,
                 title: '📚 New Lesson Available',
                 message: `"${title}" has been uploaded. Tap to continue learning.`,
@@ -1056,6 +1058,8 @@ export const replaceVideoAsset = async (req, res) => {
 
               await Notification.create({
                 userId: null,
+                targetType: 'role',
+                targetRole: 'student',
                 institute: videoAsset.institute || req.user.institute || null,
                 title: '📚 New Lesson Available',
                 message: `"${videoAsset.title}" has been replaced and is now ready. Tap to continue learning.`,
@@ -1447,6 +1451,8 @@ export const replaceLessonVideo = async (req, res) => {
 
               await Notification.create({
                 userId: null,
+                targetType: 'role',
+                targetRole: 'student',
                 institute: videoAsset.institute || req.user.institute || null,
                 title: '📚 New Lesson Available',
                 message: `"${lesson.title}" is now ready. Tap to continue learning.`,

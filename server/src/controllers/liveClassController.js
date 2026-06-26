@@ -4,6 +4,7 @@ import { Enrollment } from '../models/Enrollment.js';
 import { Notification } from '../models/Notification.js';
 import { Program } from '../models/Program.js';
 import { Faculty } from '../models/Faculty.js';
+import { getAccessiblePrograms, verifyStudentAccess } from '../utils/accessHelper.js';
 
 // Create a new Live Class (Admin only)
 export const createLiveClass = async (req, res) => {
@@ -64,6 +65,7 @@ export const createLiveClass = async (req, res) => {
       const notifications = enrollments.map(e => ({
         institute: instituteId,
         userId: e.studentId,
+        targetType: 'user',
         title: '🎥 New Live Class Scheduled',
         message: `"${title}" has been scheduled for course "${course.name}". Tap to view.`,
         url: '/student?tab=live-classes',
@@ -142,6 +144,7 @@ export const updateLiveClass = async (req, res) => {
       const notifications = enrollments.map(e => ({
         institute: req.user.institute,
         userId: e.studentId,
+        targetType: 'user',
         title: '🎥 Live Class Rescheduled',
         message: `"${liveClass.title}" is now scheduled for ${new Date(liveClass.startTime).toLocaleString()}. Tap to view details.`,
         url: '/student?tab=live-classes',
@@ -221,9 +224,8 @@ export const getLiveClasses = async (req, res) => {
     }
 
     if (req.user.role === 'student') {
-      // Find all enrolled program IDs
-      const enrollments = await Enrollment.find({ studentId: req.user._id, status: 'active', institute: req.user.institute });
-      const programIds = enrollments.map(e => e.programId);
+      // Find all enrolled / allowed program IDs using central helper
+      const programIds = await getAccessiblePrograms(req.user);
 
       const liveClasses = await LiveClass.find({
         instituteId,
@@ -262,16 +264,14 @@ export const getLiveClassesByCourse = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
 
-    // Verify student is enrolled in this course or user is an admin
+    // Verify student has program/course access or user is an admin
     if (req.user.role === 'student') {
-      const enrollment = await Enrollment.findOne({
-        studentId: req.user._id,
-        programId: courseId,
-        status: 'active',
-        institute: instituteId
+      const access = await verifyStudentAccess({
+        user: req.user,
+        programId: courseId
       });
-      if (!enrollment) {
-        return res.status(403).json({ message: 'Forbidden: Not enrolled in this course' });
+      if (!access.granted) {
+        return res.status(403).json({ message: access.reason || 'Forbidden: Not enrolled in this course' });
       }
     } else if (req.user.role !== 'admin' && req.user.role !== 'owner') {
       return res.status(403).json({ message: 'Forbidden: Unauthorized access' });
@@ -320,16 +320,14 @@ export const joinLiveClass = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: cross-tenant access denied' });
     }
 
-    // Enrollment check
-    const enrollment = await Enrollment.findOne({
-      studentId: req.user._id,
-      programId: liveClass.courseId,
-      status: 'active',
-      institute: req.user.institute
+    // Access check (handles Enrollment, CourseAssignment, Purchase, courseName, etc.)
+    const access = await verifyStudentAccess({
+      user: req.user,
+      programId: liveClass.courseId
     });
 
-    if (!enrollment) {
-      return res.status(403).json({ message: 'Forbidden: Not enrolled in this course' });
+    if (!access.granted) {
+      return res.status(403).json({ message: access.reason || 'Forbidden: Not enrolled in this course' });
     }
 
     // Record attendance (UPSERT: updates if already exists)

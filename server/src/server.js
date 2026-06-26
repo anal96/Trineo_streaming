@@ -32,6 +32,7 @@ import liveClassRoutes from './routes/liveClassRoutes.js';
 import accessRoutes from './routes/accessRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
 import pushSubscriptionRoutes from './routes/pushSubscriptionRoutes.js';
+import pushRoutes from './routes/pushRoutes.js';
 import scheduledNotificationRoutes from './routes/scheduledNotificationRoutes.js';
 import onboardingRoutes from './routes/onboardingRoutes.js';
 import facultyRoutes from './routes/facultyRoutes.js';
@@ -155,6 +156,7 @@ app.use('/api/faculty', facultyRoutes);
 app.use('/api/access', accessRoutes);
 app.use('/api/integration', integrationRoutes);
 app.use('/api/push-subscriptions', pushSubscriptionRoutes);
+app.use('/api/push', pushRoutes);
 app.use('/api/scheduled-notifications', scheduledNotificationRoutes);
 
 // Error Handling Middleware
@@ -472,6 +474,7 @@ const seedData = async () => {
 
       await Notification.create({
         userId: null,
+        targetType: 'broadcast',
         message: 'Trineo Stream platform initialized and seeded successfully with YouTube Unlisted videos.',
         type: 'system'
       });

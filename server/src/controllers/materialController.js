@@ -263,6 +263,7 @@ export const createStudyMaterial = async (req, res) => {
       await Notification.insertMany(studentIdList.map((sId) => ({
         institute: req.user.institute,
         userId: sId,
+        targetType: 'user',
         title: '📖 New Study Material Available',
         message: `"${title}" is now available. Tap to view.`,
         url: '/student?tab=materials',

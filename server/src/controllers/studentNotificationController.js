@@ -15,35 +15,40 @@ const requireStudentInstitute = (req, res) => {
 export const getStudentNotifications = async (req, res) => {
   try {
     if (!requireStudentInstitute(req, res)) return;
+
+    // Only fetch notifications explicitly targeted at this student or at the student role
     const notifications = await Notification.find({
       institute: req.user.institute,
-      $or: [{ userId: req.user._id }, { userId: null }],
+      $or: [
+        { targetType: 'user', userId: req.user._id },
+        { targetType: 'role', targetRole: 'student' }
+      ],
       deletedUsers: { $ne: req.user._id }
     }).sort({ createdAt: -1 }).limit(200);
 
     const merged = [];
-    const readGlobalMessages = new Set();
+    const readRoleMessages = new Set();
     
-    // Group read status of global notifications
+    // Group read status of role-based notifications
     notifications.forEach(n => {
-      if (n.userId && n.read) {
-        readGlobalMessages.add(`${n.type}::${n.message}`);
+      if (n.targetType === 'user' && n.userId && n.read) {
+        readRoleMessages.add(`${n.type}::${n.message}`);
       }
     });
 
     notifications.forEach(n => {
-      if (n.userId === null) {
-        // Global notification
-        const isRead = readGlobalMessages.has(`${n.type}::${n.message}`);
+      if (n.targetType === 'role') {
+        // Role-based notification
+        const isRead = readRoleMessages.has(`${n.type}::${n.message}`);
         merged.push({
           ...n.toObject(),
           read: isRead
         });
       } else {
         // User-specific notification
-        // Filter out read/unread copies created from globals to prevent duplicates
-        const isGlobalCopy = notifications.some(g => g.userId === null && g.message === n.message && g.type === n.type);
-        if (!isGlobalCopy) {
+        // Filter out read/unread copies created from role-based to prevent duplicates
+        const isRoleCopy = notifications.some(g => g.targetType === 'role' && g.message === n.message && g.type === n.type);
+        if (!isRoleCopy) {
           merged.push(n.toObject());
         }
       }
@@ -62,13 +67,18 @@ export const markNotificationAsRead = async (req, res) => {
     const notification = await Notification.findOne({
       _id: req.params.id,
       institute: req.user.institute,
-      $or: [{ userId: req.user._id }, { userId: null }]
+      $or: [
+        { targetType: 'user', userId: req.user._id },
+        { targetType: 'role', targetRole: 'student' }
+      ]
     });
     if (!notification) return res.status(404).json({ message: 'Notification not found' });
-    if (notification.userId === null) {
+    if (notification.targetType === 'role') {
+      // It's a role-based notification. Create a personal read-receipt copy.
       await Notification.create({
         institute: req.user.institute,
         userId: req.user._id,
+        targetType: 'user',
         message: notification.message,
         type: notification.type,
         read: true
@@ -86,21 +96,35 @@ export const markNotificationAsRead = async (req, res) => {
 export const markAllNotificationsAsRead = async (req, res) => {
   try {
     if (!requireStudentInstitute(req, res)) return;
-    await Notification.updateMany({ institute: req.user.institute, userId: req.user._id, read: false }, { $set: { read: true } });
+
+    // Mark all personal notifications as read
+    await Notification.updateMany(
+      { institute: req.user.institute, targetType: 'user', userId: req.user._id, read: false },
+      { $set: { read: true } }
+    );
     
-    const globals = await Notification.find({ 
+    // Create read-receipt copies for role-based notifications
+    const roleNotifs = await Notification.find({ 
       institute: req.user.institute, 
-      userId: null,
+      targetType: 'role',
+      targetRole: 'student',
       deletedUsers: { $ne: req.user._id }
     }).select('message type');
     
-    const existingRead = await Notification.find({ institute: req.user.institute, userId: req.user._id, read: true }).select('message type');
+    const existingRead = await Notification.find({
+      institute: req.user.institute,
+      targetType: 'user',
+      userId: req.user._id,
+      read: true
+    }).select('message type');
     const existingSet = new Set(existingRead.map((n) => `${n.type}::${n.message}`));
-    const inserts = globals
+
+    const inserts = roleNotifs
       .filter((g) => !existingSet.has(`${g.type}::${g.message}`))
       .map((g) => ({ 
         institute: req.user.institute, 
-        userId: req.user._id, 
+        userId: req.user._id,
+        targetType: 'user',
         message: g.message, 
         type: g.type, 
         read: true 
@@ -123,8 +147,8 @@ export const deleteStudentNotification = async (req, res) => {
     
     if (!notification) return res.status(404).json({ message: 'Notification not found' });
     
-    if (notification.userId === null) {
-      // It's a global notification. Add user to deletedUsers array.
+    if (notification.targetType === 'role') {
+      // It's a role-based notification. Add user to deletedUsers array.
       if (!notification.deletedUsers) {
         notification.deletedUsers = [];
       }
@@ -133,9 +157,10 @@ export const deleteStudentNotification = async (req, res) => {
         await notification.save();
       }
       
-      // Also delete any read copies created for this user
+      // Also delete any read-receipt copies created for this user
       await Notification.deleteMany({
         institute: req.user.institute,
+        targetType: 'user',
         userId: req.user._id,
         message: notification.message,
         type: notification.type

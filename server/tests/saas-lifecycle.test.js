@@ -210,6 +210,11 @@ test('SaaS Lifecycle & Manual Payments Flow', async (t) => {
         impl: () => Promise.resolve({ year: new Date().getFullYear(), sequence: 6 })
       },
       {
+        target: SubscriptionInvoice,
+        method: 'findOne',
+        impl: () => Promise.resolve(null)
+      },
+      {
         target: SubscriptionInvoice.prototype,
         method: 'save',
         impl: function() {

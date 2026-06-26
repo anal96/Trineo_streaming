@@ -156,6 +156,30 @@ const userSchema = new mongoose.Schema({
       default: true
     }
   },
+  fcmToken: {
+    type: String,
+    default: ''
+  },
+  devicePlatform: {
+    type: String,
+    default: ''
+  },
+  deviceName: {
+    type: String,
+    default: ''
+  },
+  appVersion: {
+    type: String,
+    default: ''
+  },
+  osVersion: {
+    type: String,
+    default: ''
+  },
+  fcmUpdatedAt: {
+    type: Date,
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { PushSubscription } from './PushSubscription.js';
 import { User as UserModel } from './User.js';
 import { NotificationDelivery } from './NotificationDelivery.js';
+import { sendFCMNotification } from '../services/firebaseService.js';
 
 const notificationSchema = new mongoose.Schema({
   institute: {
@@ -13,7 +14,18 @@ const notificationSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    default: null // global notifications if null
+    default: null
+  },
+  // --- Explicit targeting fields ---
+  targetType: {
+    type: String,
+    enum: ['user', 'role', 'broadcast'],
+    default: 'user'
+  },
+  targetRole: {
+    type: String,
+    enum: ['student', 'faculty', 'admin', 'owner'],
+    required: false
   },
   title: {
     type: String,
@@ -62,6 +74,7 @@ notificationSchema.pre('save', function (next) {
 
 notificationSchema.index({ institute: 1, createdAt: -1 });
 notificationSchema.index({ userId: 1, createdAt: -1 });
+notificationSchema.index({ institute: 1, targetType: 1, targetRole: 1, createdAt: -1 });
 
 
 // Model compilation deferred to the end of file after hooks registration
@@ -80,11 +93,18 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   console.error('[Notification.js] ERROR: VAPID keys not configured on module load!');
 }
 
-const sendPushNotification = async (doc) => {
-  console.log('[sendPushNotification] Triggered for:', doc._id, 'Type:', doc.type, 'Msg:', doc.message);
+/**
+ * Resolve push notification recipients based on explicit target metadata.
+ *
+ * targetType: 'user'      -> push only to doc.userId
+ * targetType: 'role'      -> push to all users with role=doc.targetRole in doc.institute
+ * targetType: 'broadcast' -> push to owner users only (platform-level alerts)
+ */
+export const sendPushNotification = async (doc) => {
+  console.log('[sendPushNotification] Triggered for:', doc._id, 'Type:', doc.type, 'TargetType:', doc.targetType, 'TargetRole:', doc.targetRole);
   try {
     const PushSubscriptionModel = mongoose.model('PushSubscription');
-    const UserModel = mongoose.model('User');
+    const UserModelRef = mongoose.model('User');
     const NotificationDeliveryModel = mongoose.model('NotificationDelivery');
 
     // 1. Identify priority & check if we should send push
@@ -115,8 +135,6 @@ const sendPushNotification = async (doc) => {
     }
 
     // Low priority / In-App only types:
-    // - Lesson completed ("Completed item: ...")
-    // - Progress updated
     if (msg.includes('completed item') || type === 'progress' || type === 'lesson_completed') {
       isPushEnabled = false;
     }
@@ -124,26 +142,42 @@ const sendPushNotification = async (doc) => {
     console.log('[sendPushNotification] isPushEnabled:', isPushEnabled, 'category:', category);
     if (!isPushEnabled) return;
 
-    // 2. Determine target user list
+    // 2. Resolve recipients based on explicit target metadata
     let targetUsers = [];
-    if (doc.userId) {
-      targetUsers = [doc.userId];
-    } else if (doc.institute) {
-      // Global notification: get all students in the institute
-      const students = await UserModel.find({ institute: doc.institute, role: 'student' }).select('_id notificationPreferences');
-      targetUsers = students;
-    } else {
-      // Global notification across all institutes
-      const students = await UserModel.find({ role: 'student' }).select('_id notificationPreferences');
-      targetUsers = students;
+    const tType = doc.targetType || 'user';
+
+    if (tType === 'user') {
+      // Personal notification — push to the specific user only
+      if (doc.userId) {
+        targetUsers = [doc.userId];
+      } else {
+        // Legacy fallback: userId is null with no targetType — skip push entirely
+        console.log('[sendPushNotification] targetType=user but no userId, skipping push.');
+        return;
+      }
+    } else if (tType === 'role') {
+      // Role-based notification — push to all users with matching role in the institute
+      if (!doc.targetRole) {
+        console.log('[sendPushNotification] targetType=role but no targetRole set, skipping push.');
+        return;
+      }
+      const filter = { role: doc.targetRole };
+      if (doc.institute) {
+        filter.institute = doc.institute;
+      }
+      const users = await UserModelRef.find(filter).select('_id notificationPreferences');
+      targetUsers = users;
+    } else if (tType === 'broadcast') {
+      // Platform-level broadcast — only push to owners
+      const owners = await UserModelRef.find({ role: 'owner' }).select('_id notificationPreferences');
+      targetUsers = owners;
     }
+
     console.log('[sendPushNotification] targetUsers length:', targetUsers.length);
-    console.log("PUSH TARGET USERS", targetUsers.length);
-    console.log("PUSH TITLE", doc.title || 'Trineo Stream Alert');
 
     // 3. For each user, if preference is enabled, query subscriptions and send push
     for (const userObj of targetUsers) {
-      const user = userObj.notificationPreferences ? userObj : await UserModel.findById(userObj._id || userObj);
+      const user = userObj.notificationPreferences ? userObj : await UserModelRef.findById(userObj._id || userObj);
       if (!user) {
         console.log('[sendPushNotification] user not found for ID:', userObj);
         continue;
@@ -151,33 +185,32 @@ const sendPushNotification = async (doc) => {
 
       // Check preference toggle
       const isPrefEnabled = user.notificationPreferences?.[category] !== false;
-      console.log('[sendPushNotification] user preferences for category', category, 'isPrefEnabled:', isPrefEnabled, user.notificationPreferences);
       if (!isPrefEnabled) continue;
 
-      // Find push subscriptions for this user
-      console.log('[sendPushNotification] querying subs for user ID:', user._id);
-      const subs = await PushSubscriptionModel.find({ userId: user._id });
-      console.log("PUSH SUBSCRIPTIONS", subs.length);
-      if (!subs.length) continue;
-
-      // Prepare payload
-      const payload = {
-        notificationId: doc._id.toString(),
-        title: doc.title || 'Trineo Stream Alert',
-        body: doc.message,
-        icon: '/icons/icon-192.png',
-        badge: '/icons/badge-72.png',
-        url: doc.url || getRoutingUrl(doc)
-      };
-
-      for (const sub of subs) {
-        const pushConfig = {
-          endpoint: sub.endpoint,
-          keys: {
-            p256dh: sub.p256dh,
-            auth: sub.auth
+      if (user.fcmToken) {
+        // Build the FCM payload
+        const fcmPayload = {
+          token: user.fcmToken,
+          notification: {
+            title: doc.title || 'Trineo Stream Alert',
+            body: doc.message
+          },
+          data: {
+            title: doc.title || 'Trineo Stream Alert',
+            body: doc.message,
+            icon: '/icons/icon-192.png',
+            image: doc.image || '',
+            url: doc.url || getRoutingUrl(doc),
+            notificationId: doc._id.toString(),
+            courseId: doc.courseId ? doc.courseId.toString() : '',
+            type: doc.type || 'system',
+            timestamp: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString()
           }
         };
+
+        if (doc.image) {
+          fcmPayload.notification.imageUrl = doc.image;
+        }
 
         // Create delivery tracking record
         const delivery = await NotificationDeliveryModel.create({
@@ -185,23 +218,95 @@ const sendPushNotification = async (doc) => {
           notificationId: doc._id,
           delivered: false,
           clicked: false,
-          deviceName: sub.deviceName || ''
+          deviceName: user.deviceName || 'Android Device'
         });
 
-        webpush.sendNotification(pushConfig, JSON.stringify(payload))
+        sendFCMNotification(fcmPayload)
           .then(async () => {
-            console.log("PUSH SENT SUCCESS");
             delivery.delivered = true;
             delivery.deliveredAt = new Date();
             await delivery.save().catch(() => {});
           })
           .catch(async (err) => {
-            console.error("PUSH FAILED", err);
-            console.error('[WebPush Error]', err.statusCode, err.message);
-            if (err.statusCode === 410 || err.statusCode === 404) {
-              await PushSubscriptionModel.deleteOne({ _id: sub._id }).catch(() => {});
+            console.error('[FCM Error]', err);
+            const code = err.code || '';
+            const message = err.message || '';
+            const invalidCodes = [
+              'messaging/registration-token-not-registered',
+              'messaging/invalid-argument',
+              'messaging/invalid-registration-token'
+            ];
+            const lowerMessage = message.toLowerCase();
+
+            if (
+              invalidCodes.includes(code) ||
+              lowerMessage.includes('unregistered') ||
+              lowerMessage.includes('invalid registration token') ||
+              lowerMessage.includes('token not registered') ||
+              lowerMessage.includes('registration-token-not-registered')
+            ) {
+              console.log(`[FCM Cleanup] Removing invalid FCM token for user ${user._id}`);
+              await UserModelRef.updateOne(
+                { _id: user._id },
+                {
+                  $set: {
+                    fcmToken: '',
+                    devicePlatform: '',
+                    deviceName: '',
+                    appVersion: '',
+                    osVersion: '',
+                    fcmUpdatedAt: null
+                  }
+                }
+              ).catch((e) => console.error('[FCM Cleanup Error]', e));
             }
           });
+      } else {
+        // Find push subscriptions for this user
+        const subs = await PushSubscriptionModel.find({ userId: user._id });
+        if (!subs.length) continue;
+
+        // Prepare payload
+        const payload = {
+          notificationId: doc._id.toString(),
+          title: doc.title || 'Trineo Stream Alert',
+          body: doc.message,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/badge-72.png',
+          url: doc.url || getRoutingUrl(doc)
+        };
+
+        for (const sub of subs) {
+          const pushConfig = {
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: sub.p256dh,
+              auth: sub.auth
+            }
+          };
+
+          // Create delivery tracking record
+          const delivery = await NotificationDeliveryModel.create({
+            userId: user._id,
+            notificationId: doc._id,
+            delivered: false,
+            clicked: false,
+            deviceName: sub.deviceName || ''
+          });
+
+          webpush.sendNotification(pushConfig, JSON.stringify(payload))
+            .then(async () => {
+              delivery.delivered = true;
+              delivery.deliveredAt = new Date();
+              await delivery.save().catch(() => {});
+            })
+            .catch(async (err) => {
+              console.error('[WebPush Error]', err.statusCode, err.message);
+              if (err.statusCode === 410 || err.statusCode === 404) {
+                await PushSubscriptionModel.deleteOne({ _id: sub._id }).catch(() => {});
+              }
+            });
+        }
       }
     }
   } catch (err) {
@@ -239,4 +344,3 @@ notificationSchema.post('insertMany', function (docs) {
 });
 
 export const Notification = mongoose.model('Notification', notificationSchema);
-

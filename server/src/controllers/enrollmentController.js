@@ -48,6 +48,7 @@ export const enrollInProgram = async (req, res) => {
 
     await Notification.create({
       userId: studentId,
+      targetType: 'user',
       institute: req.user.institute,
       message: `Enrolled successfully in program: ${program.name}`,
       type: 'enrollment'
@@ -134,6 +135,7 @@ export const adminAssignProgram = async (req, res) => {
 
     await Notification.create({
       userId: studentId,
+      targetType: 'user',
       institute: req.user.institute,
       message: `You were enrolled in program "${program.name}" by the institute admin.`,
       type: 'enrollment'
@@ -160,6 +162,7 @@ export const adminRemoveProgram = async (req, res) => {
 
     await Notification.create({
       userId: studentId,
+      targetType: 'user',
       institute: req.user.institute,
       message: `Your enrollment for the selected program was removed by the institute admin.`,
       type: 'system'
@@ -209,6 +212,7 @@ export const adminBulkEnroll = async (req, res) => {
 
       await Notification.create({
         userId: studentId,
+        targetType: 'user',
         institute: req.user.institute,
         message: `You were enrolled in program "${program.name}" through a bulk admin enrollment.`,
         type: 'enrollment'

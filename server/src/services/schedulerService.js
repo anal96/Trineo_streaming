@@ -217,6 +217,8 @@ export const startBackgroundScheduler = () => {
         await Notification.create({
           institute: sched.institute,
           userId: null,
+          targetType: 'role',
+          targetRole: 'student',
           title: sched.title || '📢 Institute Announcement',
           message: sched.message,
           type: sched.type || 'announcement',
@@ -245,6 +247,7 @@ export const startBackgroundScheduler = () => {
         const notifications = enrollments.map(e => ({
           institute: lc.instituteId,
           userId: e.studentId,
+          targetType: 'user',
           title: '🎥 Live Class Starting Soon',
           message: `"${lc.title}" starts in 15 minutes! Tap to join.`,
           url: '/student?tab=live-classes',
@@ -278,6 +281,7 @@ export const startBackgroundScheduler = () => {
         const notifications = enrollments.map(e => ({
           institute: lc.instituteId,
           userId: e.studentId,
+          targetType: 'user',
           title: '🔴 Live Class Started',
           message: `"${lc.title}" has started! Tap to join the live session now.`,
           url: '/student?tab=live-classes',
@@ -341,6 +345,7 @@ export const startBackgroundScheduler = () => {
 
             await Notification.create({
               userId: student._id,
+              targetType: 'user',
               institute: student.institute || null,
               title: '📚 Continue Learning',
               message,

@@ -85,6 +85,7 @@ export const purchaseCourse = async (req, res) => {
     await Notification.create({
       userId: studentId,
       institute: req.user.institute,
+      targetType: 'user',
       message: `Enrolled successfully in course: ${course.title}`,
       type: 'enrollment'
     });
@@ -92,6 +93,8 @@ export const purchaseCourse = async (req, res) => {
     await Notification.create({
       userId: null,
       institute: req.user.institute,
+      targetType: 'role',
+      targetRole: 'admin',
       message: `${req.user.name} enrolled in ${course.title}`,
       type: 'payment'
     });
@@ -204,6 +207,7 @@ export const purchaseCourseManual = async (req, res) => {
     await Notification.create({
       userId: studentId,
       institute: req.user.institute,
+      targetType: 'user',
       message: `Access activation request submitted for ${course.title}. Waiting for admin approval.`,
       type: 'system'
     });
@@ -211,6 +215,8 @@ export const purchaseCourseManual = async (req, res) => {
     await Notification.create({
       userId: null,
       institute: req.user.institute,
+      targetType: 'role',
+      targetRole: 'admin',
       message: `New course access request submitted by ${req.user.name} for ${course.title}`,
       type: 'payment'
     });
@@ -303,6 +309,7 @@ export const verifyManualPayment = async (req, res) => {
       await Notification.create({
         userId: purchase.studentId,
         institute: req.user.institute,
+        targetType: 'user',
         message: `Your access request has been approved! Welcome to course "${course?.title || 'Course'}"`,
         type: 'enrollment'
       });
@@ -318,6 +325,7 @@ export const verifyManualPayment = async (req, res) => {
       await Notification.create({
         userId: purchase.studentId,
         institute: req.user.institute,
+        targetType: 'user',
         message: `Your course access request for "${course?.title || 'Course'}" was rejected. Please contact support.`,
         type: 'system'
       });
@@ -372,6 +380,7 @@ export const adminAssignCourse = async (req, res) => {
     await Notification.create({
       userId: studentId,
       institute: req.user.institute,
+      targetType: 'user',
       message: `You were enrolled in ${course.title} by the institute admin.`,
       type: 'enrollment'
     });
@@ -403,6 +412,7 @@ export const adminRemoveCourse = async (req, res) => {
     await Notification.create({
       userId: studentId,
       institute: req.user.institute,
+      targetType: 'user',
       message: `Your enrollment for the selected course was removed by the institute admin.`,
       type: 'system'
     });
@@ -456,6 +466,7 @@ export const adminBulkEnroll = async (req, res) => {
       await Notification.create({
         userId: studentId,
         institute: req.user.institute,
+        targetType: 'user',
         message: `You were enrolled in ${course.title} through a bulk admin enrollment.`,
         type: 'enrollment'
       });
