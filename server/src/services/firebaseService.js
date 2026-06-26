@@ -1,4 +1,5 @@
-import admin from "firebase-admin";
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
 
 let firebaseApp = null;
 let messaging = null;
@@ -20,15 +21,16 @@ try {
     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
   }
 
-  if (!admin.apps.length) {
-    firebaseApp = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+  const apps = getApps();
+  if (apps.length === 0) {
+    firebaseApp = initializeApp({
+      credential: cert(serviceAccount),
     });
   } else {
-    firebaseApp = admin.app();
+    firebaseApp = apps[0];
   }
 
-  messaging = admin.messaging(firebaseApp);
+  messaging = getMessaging(firebaseApp);
 
   console.log("[Firebase] Firebase Admin initialized successfully.");
 } catch (err) {
@@ -52,9 +54,9 @@ export const sendFCMNotification = async (message) => {
   }
 
   if (!messaging) {
-    // If not initialized, try to see if we can get it or if we are under tests
-    if (admin.apps.length > 0) {
-      messaging = admin.messaging(admin.apps[0]);
+    const apps = getApps();
+    if (apps.length > 0) {
+      messaging = getMessaging(apps[0]);
     }
   }
 
