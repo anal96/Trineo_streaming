@@ -1,32 +1,24 @@
-import admin from 'firebase-admin';
-import fs from 'fs';
-import path from 'path';
+import admin from "firebase-admin";
 
 let firebaseApp = null;
 let messaging = null;
 
-let serviceAccountPath = path.resolve('server/config/firebase-service-account.json');
-if (process.cwd().endsWith('server') || (fs.existsSync('package.json') && JSON.parse(fs.readFileSync('package.json', 'utf8')).name === 'eduverse-api')) {
-  serviceAccountPath = path.resolve('config/firebase-service-account.json');
-}
-
 try {
-  if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-    if (admin.apps.length === 0) {
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-    } else {
-      firebaseApp = admin.app();
-    }
-    messaging = admin.messaging(firebaseApp);
-    console.log(`[Firebase] Successfully initialized Firebase Admin SDK from file ${serviceAccountPath}`);
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+  if (!admin.apps.length) {
+    firebaseApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
   } else {
-    console.error(`[Firebase] STARTUP ERROR: Firebase Service Account file is missing at expected path: ${serviceAccountPath}. Please place the firebase-service-account.json file in the server/config/ directory.`);
+    firebaseApp = admin.app();
   }
-} catch (error) {
-  console.error(`[Firebase] STARTUP ERROR: Failed to initialize Firebase Admin SDK from ${serviceAccountPath}:`, error.message);
+
+  messaging = admin.messaging(firebaseApp);
+
+  console.log("[Firebase] Firebase Admin initialized successfully.");
+} catch (err) {
+  console.error("[Firebase] Failed to initialize Firebase Admin:", err);
 }
 
 // Test hook to allow overriding messaging.send in tests
