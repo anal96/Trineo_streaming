@@ -4,16 +4,21 @@ let firebaseApp = null;
 let messaging = null;
 
 try {
-  console.log("=== FIREBASE DEBUG START ===");
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.log(typeof process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    console.log(process.env.FIREBASE_SERVICE_ACCOUNT_JSON.substring(0, 150));
-  } else {
-    console.log("FIREBASE_SERVICE_ACCOUNT_JSON is undefined");
-  }
-  console.log("=== FIREBASE DEBUG END ===");
-
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+  console.log("=== SERVICE ACCOUNT CHECK ===");
+  console.log({
+    type: serviceAccount.type,
+    projectId: serviceAccount.project_id,
+    hasPrivateKey: !!serviceAccount.private_key,
+    privateKeyLength: serviceAccount.private_key?.length,
+    clientEmail: serviceAccount.client_email
+  });
+  console.log("=== END SERVICE ACCOUNT CHECK ===");
+
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+  }
 
   if (!admin.apps.length) {
     firebaseApp = admin.initializeApp({
