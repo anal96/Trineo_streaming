@@ -4,6 +4,15 @@ let firebaseApp = null;
 let messaging = null;
 
 try {
+  console.log("=== FIREBASE DEBUG START ===");
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    console.log(typeof process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    console.log(process.env.FIREBASE_SERVICE_ACCOUNT_JSON.substring(0, 150));
+  } else {
+    console.log("FIREBASE_SERVICE_ACCOUNT_JSON is undefined");
+  }
+  console.log("=== FIREBASE DEBUG END ===");
+
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 
   if (!admin.apps.length) {
