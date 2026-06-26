@@ -5,12 +5,14 @@ import path from 'path';
 let firebaseApp = null;
 let messaging = null;
 
-const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT;
+let serviceAccountPath = path.resolve('server/config/firebase-service-account.json');
+if (process.cwd().endsWith('server') || (fs.existsSync('package.json') && JSON.parse(fs.readFileSync('package.json', 'utf8')).name === 'eduverse-api')) {
+  serviceAccountPath = path.resolve('config/firebase-service-account.json');
+}
 
-if (serviceAccountJson) {
-  try {
-    const serviceAccount = JSON.parse(serviceAccountJson);
+try {
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
     if (admin.apps.length === 0) {
       firebaseApp = admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
@@ -19,32 +21,12 @@ if (serviceAccountJson) {
       firebaseApp = admin.app();
     }
     messaging = admin.messaging(firebaseApp);
-    console.log('[Firebase] Successfully initialized Firebase Admin SDK from environment JSON');
-  } catch (error) {
-    console.error('[Firebase] ERROR: Failed to parse or initialize Firebase Admin from JSON env:', error);
+    console.log(`[Firebase] Successfully initialized Firebase Admin SDK from file ${serviceAccountPath}`);
+  } else {
+    console.error(`[Firebase] STARTUP ERROR: Firebase Service Account file is missing at expected path: ${serviceAccountPath}. Please place the firebase-service-account.json file in the server/config/ directory.`);
   }
-} else if (serviceAccountPath) {
-  try {
-    const resolvedPath = path.resolve(serviceAccountPath);
-    if (fs.existsSync(resolvedPath)) {
-      const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
-      if (admin.apps.length === 0) {
-        firebaseApp = admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount)
-        });
-      } else {
-        firebaseApp = admin.app();
-      }
-      messaging = admin.messaging(firebaseApp);
-      console.log(`[Firebase] Successfully initialized Firebase Admin SDK from file ${resolvedPath}`);
-    } else {
-      console.warn(`[Firebase] WARNING: Service account file not found at path: ${resolvedPath}`);
-    }
-  } catch (error) {
-    console.error('[Firebase] ERROR: Failed to initialize Firebase Admin SDK from file path:', error);
-  }
-} else {
-  console.warn('[Firebase] WARNING: Neither FIREBASE_SERVICE_ACCOUNT_JSON nor FIREBASE_SERVICE_ACCOUNT environment variable is defined');
+} catch (error) {
+  console.error(`[Firebase] STARTUP ERROR: Failed to initialize Firebase Admin SDK from ${serviceAccountPath}:`, error.message);
 }
 
 // Test hook to allow overriding messaging.send in tests
