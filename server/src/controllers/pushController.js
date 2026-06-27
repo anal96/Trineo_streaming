@@ -5,10 +5,21 @@ import { User } from '../models/User.js';
  * POST /api/push/fcm/register
  */
 export const registerFCM = async (req, res) => {
+  console.log("========== FCM REGISTER ==========");
+  console.log("Time:", new Date().toISOString());
+  console.log("User:", req.user?._id);
+  console.log("Authenticated:", !!req.user);
+  console.log("Method:", req.method);
+  console.log("Original URL:", req.originalUrl);
+  console.log("Body:", req.body);
+  console.log("Cookies:", req.headers?.cookie);
+  console.log("Authorization:", req.headers?.authorization);
+  console.log("==================================");
   try {
     const { token, platform, deviceName, appVersion, osVersion } = req.body;
 
     if (!token) {
+      console.log("Returning HTTP 400");
       return res.status(400).json({ message: 'token is required' });
     }
 
@@ -36,6 +47,7 @@ export const registerFCM = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) {
       console.log(`[FCM REGISTER]\nUser: ${userId}\nToken: ${tokenPreview}\nSaved: false (User not found)`);
+      console.log("Returning HTTP 404");
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -50,6 +62,7 @@ export const registerFCM = async (req, res) => {
 
     console.log(`[FCM REGISTER]\nUser: ${userId}\nToken: ${tokenPreview}\nSaved: true`);
 
+    console.log("Returning HTTP 200");
     res.status(200).json({
       message: 'FCM token registered successfully',
       registration: {
@@ -64,6 +77,9 @@ export const registerFCM = async (req, res) => {
   } catch (error) {
     const tokenPreview = req.body?.token ? (req.body.token.substring(0, 20) + (req.body.token.length > 20 ? '...' : '')) : 'none';
     console.log(`[FCM REGISTER]\nUser: ${req.user?._id}\nToken: ${tokenPreview}\nSaved: false`);
+    console.error("FCM REGISTER ERROR:", error);
+    console.error(error.stack);
+    console.log("Returning HTTP 500");
     res.status(500).json({ message: error.message });
   }
 };
