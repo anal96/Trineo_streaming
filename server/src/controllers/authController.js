@@ -9,6 +9,7 @@ import { SecurityEvent } from '../models/SecurityEvent.js';
 import { SecurityState } from '../models/SecurityState.js';
 import { upsertSecuritySessionFromRequest } from './securityCenterController.js';
 import { syncStudentProfile } from '../services/crmSyncService.js';
+import { Course } from '../models/Course.js';
 
 const parseAgent = (ua = '') => {
   const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
@@ -279,7 +280,26 @@ export const loginUser = async (req, res) => {
 export const getUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).populate('institute').select('-password');
-    res.json(user);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const userObj = user.toObject();
+    userObj.assignedBatch = null;
+
+    if (user.role === 'student' && user.courseName) {
+      const matchedCourse = await Course.findOne({
+        title: user.courseName,
+        institute: user.institute ? user.institute._id : null
+      });
+      if (matchedCourse) {
+        userObj.assignedBatch = {
+          _id: matchedCourse._id,
+          name: matchedCourse.title
+        };
+      }
+    }
+
+    res.json(userObj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

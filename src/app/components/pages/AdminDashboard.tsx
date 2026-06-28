@@ -60,7 +60,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
-import { apiFetch, getApiUrl } from '../../utils/api';
+import { apiFetch, getApiUrl, getUploadUrl } from '../../utils/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { PanelDrawerNav } from '../responsive/PanelDrawerNav';
@@ -1487,7 +1487,7 @@ export default function AdminDashboard() {
                                   <TableCell>
                                     <div className="flex items-center gap-3">
                                       <Avatar className="w-10 h-10 border border-border">
-                                        <AvatarImage src={student.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${student.name}`} />
+                                        <AvatarImage src={student.avatar ? (student.avatar.startsWith('/') ? getUploadUrl(student.avatar) : student.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${student.name}`} />
                                         <AvatarFallback>ST</AvatarFallback>
                                       </Avatar>
                                       <div className="flex items-center gap-2">

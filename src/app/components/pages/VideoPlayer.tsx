@@ -12,7 +12,9 @@ import {
   Settings,
   ChevronLeft,
   Lock,
+  SlidersHorizontal,
   CheckCircle2,
+  Check,
   Circle,
   FileText,
   Download,
@@ -29,6 +31,7 @@ import {
   ChevronRight,
   Calendar,
   History,
+  Clock,
   Bell,
   ChevronDown,
   GraduationCap,
@@ -42,6 +45,11 @@ import {
   PenSquare,
   Trash2,
   HelpCircle,
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Folder,
+  ClipboardList,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
@@ -50,6 +58,7 @@ import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
 import { ScrollArea } from '../ui/scroll-area';
 import { Badge } from '../ui/badge';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
 import {
   Dialog,
   DialogContent,
@@ -1707,23 +1716,23 @@ export default function VideoPlayer() {
                 navigate('/student');
               }
             }}
-            className="flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-zinc-200 active:opacity-70 h-10 px-2 rounded-lg"
+            className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-200 active:opacity-70 h-10 px-2 rounded-lg"
           >
             <ChevronLeft className="w-5 h-5 text-slate-500" />
             <span>Back</span>
           </button>
           
           <div className="flex-1 text-center px-2 min-w-0">
-            <div className="text-xs font-bold text-slate-800 dark:text-zinc-100 truncate">
+            <h1 className="text-xs font-black text-slate-800 dark:text-zinc-100 truncate leading-snug">
               {currentContent?.title || 'Select a Lesson'}
-            </div>
-            <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
-              {course?.title || 'Trineo Stream'}
-            </div>
+            </h1>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+              {course?.title || 'BCA'}
+            </p>
           </div>
           
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] font-black text-purple-600 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300 px-2.5 py-1 rounded-full border border-purple-100 dark:border-purple-900/40">
+            <span className="text-[10px] font-black text-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/30 dark:text-indigo-400 px-3 py-1.5 rounded-full">
               {overallProgress}% Progress
             </span>
           </div>
@@ -1821,17 +1830,50 @@ export default function VideoPlayer() {
                 )}
 
                 {error && (course?.isLocked || currentLesson?.isLocked || playAttempted) ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 p-6 text-center z-30">
-                    <Lock className="w-16 h-16 text-purple-500 mb-4" />
-                    <h3 className="text-xl font-bold mb-2 text-white">Topic Unavailable</h3>
-                    <p className="text-muted-foreground max-w-sm mb-4">{error}</p>
-                    <Button 
-                      className="bg-purple-600 hover:bg-purple-700 text-white shadow-sm shadow-purple-600/10 rounded-xl"
-                      onClick={() => navigate('/student/courses')}
-                    >
-                      View Batch Catalog
-                    </Button>
-                  </div>
+                  <>
+                    {/* Desktop Fallback Overlay */}
+                    <div className="absolute inset-0 hidden lg:flex flex-col items-center justify-center bg-black/90 p-6 text-center z-30">
+                      <Lock className="w-16 h-16 text-purple-500 mb-4" />
+                      <h3 className="text-xl font-bold mb-2 text-white">Topic Unavailable</h3>
+                      <p className="text-muted-foreground max-w-sm mb-4">{error}</p>
+                      <Button 
+                        className="bg-purple-600 hover:bg-purple-700 text-white shadow-sm shadow-purple-600/10 rounded-xl"
+                        onClick={() => navigate('/student/courses')}
+                      >
+                        View Batch Catalog
+                      </Button>
+                    </div>
+
+                    {/* Mobile Fallback Overlay (styled per mockup) */}
+                    <div className="absolute inset-0 flex lg:hidden flex-col items-center justify-center bg-gradient-to-br from-indigo-50/70 via-slate-50 to-purple-50/70 dark:from-zinc-900 dark:to-zinc-950 p-6 text-center z-30">
+                      <svg width="150" height="100" viewBox="0 0 150 100" fill="none" className="mx-auto mb-3 drop-shadow-sm">
+                        <path d="M15 60C15 35 42 18 80 18C118 18 145 35 145 60C145 72 131 80 80 80C29 80 15 72 15 60Z" fill="#EEE5FF" className="dark:fill-purple-950/30" />
+                        <circle cx="125" cy="65" r="9" fill="#FFFFFF" className="dark:fill-zinc-800" />
+                        <polygon points="123,62 129,65 123,68" fill="#8B5CF6" />
+                        <circle cx="35" cy="67" r="7" fill="#EEE5FF" className="dark:fill-purple-950/20" />
+                        <path d="M33 67H37" stroke="#8B5CF6" strokeWidth="1.5" />
+                        <rect x="57" y="44" width="36" height="28" rx="8" fill="url(#lockGrad)" />
+                        <path d="M64 44V34C64 29.5 67.5 26 72 26C76.5 26 80 29.5 80 34V44" stroke="url(#lockGrad)" strokeWidth="4.5" strokeLinecap="round" />
+                        <circle cx="75" cy="57" r="2.5" fill="#312E81" />
+                        <path d="M75 59V64" stroke="#312E81" strokeWidth="2" strokeLinecap="round" />
+                        <defs>
+                          <linearGradient id="lockGrad" x1="57" y1="26" x2="93" y2="72" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stopColor="#8B5CF6" />
+                            <stop offset="100%" stopColor="#6366F1" />
+                          </linearGradient>
+                        </defs>
+                      </svg>
+                      <h3 className="text-base font-black text-slate-800 dark:text-zinc-100 mb-1">Topic Unavailable</h3>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 font-semibold mb-4">This video is currently unavailable.</p>
+                      <Button 
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs h-10 px-5 flex items-center gap-1.5 shadow-md shadow-indigo-500/10 border-0"
+                        onClick={() => navigate('/student/courses')}
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>View Batch Catalog</span>
+                      </Button>
+                    </div>
+                  </>
                 ) : null}
 
                 {/* Static Centered Watermark Overlay */}
@@ -2360,20 +2402,27 @@ export default function VideoPlayer() {
               </div>
 
               {/* Mobile Lesson Summary Card (<1024px) */}
-              <div className="block lg:hidden rounded-xl border border-slate-200/60 dark:border-zinc-800/80 p-3 bg-white dark:bg-zinc-900 shadow-sm space-y-2 mt-4 max-h-[120px]">
-                <div className="font-bold text-sm text-slate-800 dark:text-zinc-100 leading-tight">
-                  {currentContent?.title || 'Select a Lesson'}
-                </div>
-                <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
-                  {currentContent?.youtubeDuration || currentContent?.duration || '10:00'} • Topic {currentIndex !== -1 ? currentIndex + 1 : 1} of {lessons.length}
+              <div className="block lg:hidden bg-card border border-border/40 rounded-2xl p-4 shadow-sm space-y-3 mt-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center shrink-0">
+                    <SlidersHorizontal className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-black text-sm text-slate-800 dark:text-zinc-100 leading-tight">
+                      {currentContent?.title || 'Select a Lesson'}
+                    </h4>
+                    <p className="text-[11px] text-muted-foreground font-semibold mt-0.5">
+                      {currentContent?.youtubeDuration || currentContent?.duration || '10:00'} • Topic {currentIndex !== -1 ? currentIndex + 1 : 1} of {lessons.length}
+                    </p>
+                  </div>
                 </div>
                 
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 dark:text-zinc-400">
-                    <span>Progress</span>
-                    <span className="text-purple-600 dark:text-purple-400">{overallProgress}%</span>
+                <div className="space-y-1.5 pt-1.5 border-t border-slate-100 dark:border-zinc-850">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-muted-foreground">Progress</span>
+                    <span className="font-black text-indigo-600 dark:text-indigo-400">{overallProgress}%</span>
                   </div>
-                  <Progress value={overallProgress} className="h-1 bg-slate-100 dark:bg-zinc-800 [&>div]:bg-purple-600 rounded-full" />
+                  <Progress value={overallProgress} className="h-1.5 bg-slate-100 dark:bg-zinc-800 [&>div]:bg-indigo-600 rounded-full" />
                 </div>
               </div>
 
@@ -2381,90 +2430,115 @@ export default function VideoPlayer() {
               <div className="block lg:hidden w-full mt-3">
                 <Sheet open={mobileLessonsOpen} onOpenChange={setMobileLessonsOpen}>
                   <SheetTrigger asChild>
-                    <Button 
-                      variant="outline" 
-                      className="w-full rounded-xl border border-slate-200 dark:border-zinc-800 p-4 bg-white dark:bg-zinc-900 flex flex-col items-start gap-1 text-left hover:text-purple-600 dark:hover:text-purple-400 transition-colors h-auto shadow-sm"
-                    >
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-bold text-sm text-slate-800 dark:text-zinc-100 flex items-center gap-1.5">
-                          <span>📚</span> Course Content
-                        </span>
+                    <div className="w-full bg-card border border-border/40 rounded-2xl p-4 flex flex-col cursor-pointer hover:border-primary/20 transition-all shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 flex items-center justify-center shrink-0">
+                            <FileText className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                          </div>
+                          <div className="min-w-0 text-left">
+                            <h4 className="font-black text-sm text-slate-800 dark:text-zinc-100 leading-tight">
+                              Course Content
+                            </h4>
+                            <p className="text-[11px] text-muted-foreground font-semibold mt-0.5">
+                              {lessons.length} Lessons Available
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
                       </div>
-                      <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
-                        {lessons.length} Lessons Available
+                      <div className="text-[10px] text-indigo-650 dark:text-indigo-400 font-bold uppercase tracking-wider mt-2.5 w-full text-center border-t border-slate-150/40 dark:border-zinc-850 pt-2 flex items-center justify-center gap-1 select-none">
+                        <span>▼</span> Expand Topics
                       </div>
-                      <div className="text-[10px] text-purple-600 dark:text-purple-400 font-bold uppercase tracking-wider mt-1 w-full text-center border-t border-slate-100 dark:border-zinc-800/40 pt-1.5">
-                        ▼ Expand Topics
-                      </div>
-                    </Button>
+                    </div>
                   </SheetTrigger>
-                  <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-0 flex flex-col overflow-hidden border-slate-200 bg-white dark:bg-zinc-950">
-                    <SheetHeader className="p-4 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 flex-shrink-0">
+                  <SheetContent side="bottom" className="h-[80vh] rounded-t-[32px] p-0 flex flex-col overflow-hidden border-slate-200/50 bg-white dark:bg-zinc-950 shadow-2xl">
+                    {/* Drag Handle */}
+                    <div className="w-12 h-1 bg-slate-200 dark:bg-zinc-800 rounded-full mx-auto my-3 shrink-0" />
+
+                    <SheetHeader className="px-5 pb-4 pt-1 border-b border-slate-100 dark:border-zinc-850 flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div>
-                          <SheetTitle className="text-sm font-bold text-slate-900 dark:text-zinc-100">Course Content</SheetTitle>
-                          <p className="text-[10px] text-slate-400 font-medium">{contents.length} learning items</p>
+                          <SheetTitle className="text-base font-black text-slate-800 dark:text-zinc-100">Course Content</SheetTitle>
+                          <p className="text-[11px] text-muted-foreground font-semibold mt-0.5">{contents.length} learning items</p>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-[10px] h-7 px-2 border-slate-200 text-slate-600 hover:text-purple-600 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-950/20 transition-all font-semibold rounded-lg"
-                          onClick={handleToggleExpandAll}
-                        >
-                          {isAllExpanded ? 'Collapse All' : 'Expand All'}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-9 px-4 border-slate-200 text-indigo-650 dark:border-zinc-800 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-zinc-850 font-bold rounded-full gap-1 flex items-center shadow-none bg-white"
+                            onClick={handleToggleExpandAll}
+                          >
+                            <span>{isAllExpanded ? 'Collapse All' : 'Expand All'}</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="w-9 h-9 rounded-full border-slate-200 hover:bg-slate-50 text-slate-700 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-850 shrink-0 flex items-center justify-center bg-white dark:bg-zinc-900 shadow-none"
+                            onClick={() => setMobileLessonsOpen(false)}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     </SheetHeader>
+
                     <ScrollArea className="flex-1 overflow-y-auto">
-                      <div className="p-4 space-y-3 box-border overflow-x-hidden pb-12 bg-white dark:bg-zinc-950">
+                      <div className="p-5 space-y-4 box-border overflow-x-hidden pb-12 bg-white dark:bg-zinc-950">
                         {course?.subjects?.map((subject: any) => {
                           const isSubjectExpanded = expandedSubjects[subject._id] !== false;
+                          const subjectInitial = (subject.subjectName || 'C').charAt(0).toUpperCase();
                           return (
-                            <div key={subject._id} className="space-y-1">
+                            <div key={subject._id} className="space-y-2">
+                              {/* Subject Row */}
                               <button
                                 type="button"
-                                className="w-full text-left font-bold text-[11px] text-slate-700 dark:text-zinc-300 uppercase tracking-wider flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-zinc-800/60 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                                className="w-full text-left flex items-center justify-between py-2 hover:text-indigo-600 transition-colors"
                                 onClick={() => setExpandedSubjects(prev => ({ ...prev, [subject._id]: !prev[subject._id] }))}
                               >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <span className="text-purple-600 font-bold text-base leading-none shrink-0">•</span>
-                                  <span className="truncate">{subject.subjectName}</span>
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <span className="text-purple-650 font-black text-lg shrink-0">•</span>
+                                  <div className="w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 text-xs font-black flex items-center justify-center shrink-0">
+                                    {subjectInitial}
+                                  </div>
+                                  <span className="truncate text-xs font-black text-slate-800 dark:text-zinc-200 uppercase tracking-wide">
+                                    {subject.subjectName}
+                                  </span>
                                 </div>
-                                <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform shrink-0 ${isSubjectExpanded ? 'rotate-90' : ''}`} />
+                                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isSubjectExpanded ? 'rotate-180' : ''}`} />
                               </button>
                               
+                              {/* Units list */}
                               {isSubjectExpanded && subject.units?.map((unit: any) => {
                                 const isUnitExpanded = expandedUnits[unit._id] !== false;
                                 const unitContents = unit.lessons?.flatMap((l: any) => l.contents || []) || [];
                                 return (
-                                  <div key={unit._id} className="pl-3 mt-1.5 space-y-1">
+                                  <div key={unit._id} className="pl-3 space-y-2.5">
+                                    {/* Unit Header Card */}
                                     <button
                                       type="button"
-                                      className="w-full text-left font-semibold text-[11px] text-slate-500 dark:text-zinc-400 flex items-center justify-between py-1 hover:text-slate-900 dark:hover:text-zinc-200 transition-colors"
+                                      className="w-full text-left flex items-center justify-between p-3 bg-slate-50/50 dark:bg-zinc-900/50 rounded-2xl border border-slate-100 dark:border-zinc-800/80 hover:border-primary/20 transition-all"
                                       onClick={() => setExpandedUnits(prev => ({ ...prev, [unit._id]: !prev[unit._id] }))}
                                     >
-                                      <span className="truncate">{unit.name}</span>
-                                      <ChevronRight className={`w-3 h-3 text-slate-400 transition-transform shrink-0 ${isUnitExpanded ? 'rotate-90' : ''}`} />
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <Folder className="w-4 h-4 text-slate-400 shrink-0" />
+                                        <span className="truncate text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wide">
+                                          {unit.name}
+                                        </span>
+                                      </div>
+                                      <span className="bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 text-[10px] font-black px-2.5 py-0.5 rounded-full shrink-0">
+                                        {unit.lessons?.length || 0} {unit.lessons?.length === 1 ? 'Lesson' : 'Lessons'}
+                                      </span>
                                     </button>
                                     
+                                    {/* Lessons List inside Unit */}
                                     {isUnitExpanded && (
-                                      <div className="space-y-1.5 mt-1 pl-1">
+                                      <div className="space-y-2 pl-1">
                                         {unitContents.map((content: any, contentIdx: number) => {
                                           const isSelected = currentContent?._id === content._id;
                                           const isLocked = content.isLocked;
                                           const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
                                           const displayIndex = contentIdx + 1;
-                                          
-                                          // Status calculation
-                                          let statusText = '○ Upcoming';
-                                          let statusColor = 'text-slate-400';
-                                          if (isCompleted) {
-                                            statusText = '✓ Completed';
-                                            statusColor = 'text-green-500 font-bold';
-                                          } else if (isSelected) {
-                                            statusText = '▶ Current';
-                                            statusColor = 'text-purple-600 dark:text-purple-400 font-bold';
-                                          }
 
                                           const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
                                           const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
@@ -2479,46 +2553,57 @@ export default function VideoPlayer() {
                                                   setMobileLessonsOpen(false);
                                                 }
                                               }}
-                                              className={`w-full p-2.5 rounded-xl cursor-pointer border transition-all flex flex-col gap-1.5 text-xs ${
+                                              className={`w-full p-3.5 rounded-2xl cursor-pointer border transition-all flex items-center justify-between gap-3 shadow-sm ${
                                                 isSelected
-                                                  ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/60 shadow-sm'
+                                                  ? 'bg-purple-50/10 dark:bg-purple-950/10 border-purple-200 dark:border-purple-900/60'
                                                   : isLocked
                                                   ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
-                                                  : 'bg-transparent border-transparent text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/40 hover:border-slate-200/50 dark:hover:border-zinc-800'
+                                                  : 'bg-white dark:bg-zinc-900 border-border/40 hover:border-primary/20 text-slate-600 dark:text-zinc-400'
                                               }`}
                                             >
-                                              <div className="flex items-start justify-between gap-3">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                  <div className="flex-shrink-0">
-                                                    {isLocked ? (
-                                                      <Lock className="w-3.5 h-3.5 text-slate-400" />
-                                                    ) : isCompleted ? (
-                                                      <CheckCircle2 className="w-4 h-4 text-green-500 fill-green-500/10" />
-                                                    ) : isSelected ? (
-                                                      <PlayCircle className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />
-                                                    ) : (
-                                                      <Circle className="w-4 h-4 text-slate-400" />
-                                                    )}
-                                                  </div>
-                                                  <span className={`truncate font-medium ${isSelected ? 'text-purple-700 dark:text-purple-300 font-semibold' : 'text-slate-700 dark:text-zinc-300'}`}>
+                                              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                                {/* Icon Circle */}
+                                                <div className="flex-shrink-0">
+                                                  {isLocked ? (
+                                                    <div className="w-6 h-6 rounded-full border-2 border-slate-200 dark:border-zinc-700 flex items-center justify-center bg-slate-50 dark:bg-zinc-800">
+                                                      <Lock className="w-3 h-3 text-slate-400" />
+                                                    </div>
+                                                  ) : isCompleted ? (
+                                                    <div className="w-6 h-6 rounded-full border-2 border-green-500 bg-green-50 dark:bg-green-950/20 flex items-center justify-center">
+                                                      <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                                                    </div>
+                                                  ) : isSelected ? (
+                                                    <div className="w-6 h-6 rounded-full border-2 border-purple-600 bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center">
+                                                      <Play className="w-2.5 h-2.5 text-purple-600 dark:text-purple-400 fill-current" />
+                                                    </div>
+                                                  ) : (
+                                                    <div className="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-zinc-700 flex items-center justify-center bg-white dark:bg-zinc-900" />
+                                                  )}
+                                                </div>
+
+                                                {/* Text Info */}
+                                                <div className="min-w-0 flex-1 text-left">
+                                                  <span className={`block text-xs font-black truncate leading-tight ${isSelected ? 'text-purple-700 dark:text-purple-300' : 'text-slate-850 dark:text-zinc-200'}`}>
                                                     {displayIndex}. {content.title}
                                                   </span>
+                                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                    <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-0.5">
+                                                      <Clock className="w-3 h-3 text-slate-450" />
+                                                      {content.youtubeDuration || content.duration || '10:00'}
+                                                    </span>
+                                                    <span className={`text-[8px] font-black uppercase rounded px-1.5 py-0.5 tracking-wider leading-none ${
+                                                      isCompleted
+                                                        ? 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400'
+                                                        : isSelected
+                                                        ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300'
+                                                        : 'bg-indigo-50/70 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400'
+                                                    }`}>
+                                                      {isCompleted ? 'COMPLETED' : isSelected ? 'PLAYING' : 'UPCOMING'}
+                                                    </span>
+                                                  </div>
                                                 </div>
-                                                <span className="text-[10px] text-slate-400 font-medium shrink-0">
-                                                  {content.youtubeDuration || content.duration || '10:00'}
-                                                </span>
                                               </div>
-
-                                              <div className="flex items-center justify-between text-[9px] uppercase tracking-wider mt-0.5">
-                                                <span className={statusColor}>{statusText}</span>
-                                                {itemProgressPercent > 0 && !isCompleted && (
-                                                  <span className="text-slate-400 font-medium">Progress: {itemProgressPercent}%</span>
-                                                )}
-                                              </div>
-
-                                              {itemProgressPercent > 0 && !isCompleted && (
-                                                <Progress value={itemProgressPercent} className="h-1 bg-slate-100 dark:bg-zinc-800 rounded-full mt-1" />
-                                              )}
+                                              <ChevronRight className="w-4 h-4 text-slate-450 shrink-0" />
                                             </div>
                                           );
                                         })}
@@ -2533,76 +2618,114 @@ export default function VideoPlayer() {
                             </div>
                           );
                         })}
+
+                        {/* Stay on track card */}
+                        <div className="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/10 dark:to-purple-950/10 rounded-2xl p-4 flex items-center gap-4 border border-indigo-100/40 dark:border-indigo-900/10 mt-6 shadow-none">
+                          <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center shrink-0">
+                            <ClipboardList className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                          </div>
+                          <div className="min-w-0 text-left">
+                            <h4 className="text-xs font-black text-slate-800 dark:text-zinc-150">Stay on track!</h4>
+                            <p className="text-[10px] text-muted-foreground font-semibold mt-0.5 leading-relaxed">
+                              Complete the upcoming lessons to unlock your progress.
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </ScrollArea>
                   </SheetContent>
                 </Sheet>
               </div>
 
-              {/* Mobile-only Resources & Protected badge flat layout (<1024px) */}
-              <div className="block lg:hidden space-y-4">
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-zinc-100">
-                    <span>📂</span> Resources
-                  </h3>
-                  
-                  {currentLesson?.attachmentUrl ? (
-                    <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg shadow-sm">
-                      <CardContent className="p-3 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-9 h-9 rounded-lg bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center flex-shrink-0">
-                            <FileText className="w-5 h-5 text-purple-500" />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="font-semibold text-xs text-slate-700 dark:text-zinc-200 truncate">{currentLesson.attachmentName || 'Class Notes'}</h4>
-                            <p className="text-[10px] text-slate-400 font-medium truncate">PDF Notes</p>
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1 shrink-0 rounded-lg font-semibold shadow-sm h-8 text-[11px] px-2.5"
-                          onClick={() => openDownload(`/content/${currentLesson._id}/download`)}
-                        >
-                          <Download className="w-3.5 h-3.5" /> Download
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ) : null}
+              {/* Mobile-only Collapsible Resources (Accordion) (<1024px) */}
+              <div className="block lg:hidden space-y-4 px-4 sm:px-0">
+                <Accordion type="multiple" defaultValue={['topic-resources', 'batch-resources']} className="w-full space-y-3 border-0">
+                  {/* Topic Resources Accordion Item */}
+                  <AccordionItem value="topic-resources" className="border border-border/40 bg-card rounded-2xl px-4 overflow-hidden shadow-sm">
+                    <AccordionTrigger className="hover:no-underline py-3.5">
+                      <div className="flex items-center gap-2">
+                        <Folder className="w-4 h-4 text-indigo-500" />
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">Topic Resources</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-4 pt-1 space-y-3">
+                      {currentLesson?.attachmentUrl ? (
+                        <Card className="border border-border/40 bg-card rounded-2xl shadow-sm overflow-hidden">
+                          <CardContent className="p-3.5 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3.5 min-w-0">
+                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center shrink-0">
+                                <FileText className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="font-black text-xs text-slate-700 dark:text-zinc-200 truncate">{currentLesson.attachmentName || 'Class Notes'}</h4>
+                                <p className="text-[10px] text-muted-foreground font-semibold truncate">PDF Notes</p>
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 text-[11px] font-bold flex items-center gap-1.5 shrink-0 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 border-indigo-200 text-indigo-650 dark:border-indigo-900/60 dark:text-indigo-400 dark:hover:bg-zinc-800 px-3 shadow-none"
+                              onClick={() => openDownload(`/content/${currentLesson._id}/download`)}
+                            >
+                              <Download className="w-3.5 h-3.5" /> Download
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ) : null}
 
-                  {courseMaterials.map((material) => (
-                    <Card key={material._id} className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg shadow-sm">
-                      <CardContent className="p-3 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-9 h-9 rounded-lg bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center flex-shrink-0">
-                            <FileText className="w-5 h-5 text-purple-500" />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="font-semibold text-xs text-slate-700 dark:text-zinc-200 truncate">{material.title || material.originalName}</h4>
-                            <p className="text-[10px] text-slate-400 truncate font-medium">{material.description || 'General Resource'}</p>
-                          </div>
+                      {!currentLesson?.attachmentUrl ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground font-semibold italic">
+                          No topic resources available.
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-[11px] flex items-center gap-1 shrink-0 rounded-lg hover:bg-purple-50 border-slate-200 text-slate-600 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 px-2.5"
-                          onClick={() => openDownload(material.downloadUrl, material.title || material.originalName)}
-                        >
-                          <Download className="w-3.5 h-3.5" /> Download
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
+                      ) : null}
+                    </AccordionContent>
+                  </AccordionItem>
 
-                  {!currentLesson?.attachmentUrl && courseMaterials.length === 0 ? (
-                    <Card className="p-6 text-center border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/30 rounded-lg">
-                      <p className="text-xs text-slate-400 font-medium italic">No resources uploaded yet.</p>
-                    </Card>
-                  ) : null}
-                </div>
+                  {/* Batch Resources Accordion Item */}
+                  <AccordionItem value="batch-resources" className="border border-border/40 bg-card rounded-2xl px-4 overflow-hidden shadow-sm">
+                    <AccordionTrigger className="hover:no-underline py-3.5">
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-indigo-500" />
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">Batch Resources & Study Materials</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-4 pt-1 space-y-3">
+                      {courseMaterials.map((material) => (
+                        <Card key={material._id} className="border border-border/40 bg-card rounded-2xl shadow-sm overflow-hidden">
+                          <CardContent className="p-3.5 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3.5 min-w-0">
+                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center shrink-0">
+                                <FileText className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="font-black text-xs text-slate-700 dark:text-zinc-200 truncate">{material.title || material.originalName}</h4>
+                                <p className="text-[10px] text-muted-foreground font-semibold truncate">{material.description || 'PDF Document'}</p>
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 text-[11px] font-bold flex items-center gap-1.5 shrink-0 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 border-indigo-200 text-indigo-650 dark:border-indigo-900/60 dark:text-indigo-400 dark:hover:bg-zinc-800 px-3 shadow-none"
+                              onClick={() => openDownload(material.downloadUrl, material.title || material.originalName)}
+                            >
+                              <Download className="w-3.5 h-3.5" /> Download
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ))}
+
+                      {courseMaterials.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground font-semibold italic">
+                          No batch resources available.
+                        </div>
+                      ) : null}
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
 
                 {/* Streaming Protection Badge */}
-                <div className="flex items-center justify-center h-[36px] mt-2">
-                  <div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold border border-purple-200 dark:border-purple-900/50 h-[36px]">
+                <div className="flex items-center justify-center h-[36px] mt-2 pb-2">
+                  <div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-650 dark:text-indigo-300 font-bold border border-indigo-100 dark:border-indigo-900/50 h-[32px] shadow-none">
                     <span>🛡</span> Protected Streaming Active
                   </div>
                 </div>
@@ -2917,68 +3040,7 @@ export default function VideoPlayer() {
 
               </div>
 
-              {/* Mobile flat list of resources (hidden on desktop) */}
-              <div className="block lg:hidden mt-6 space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 px-1">
-                  <span>📂</span> Batch Resources & study materials
-                </h3>
 
-                {currentLesson?.attachmentUrl ? (
-                  <Card className="border border-border/50 bg-card rounded-2xl shadow-sm hover:shadow-md transition-all">
-                    <CardContent className="p-3.5 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center flex-shrink-0">
-                          <FileText className="w-5 h-5 text-purple-500" />
-                        </div>
-                        <div className="min-w-0">
-                          <h4 className="font-extrabold text-xs text-foreground truncate">{currentLesson.attachmentName || 'Topic Lecture Notes'}</h4>
-                          <p className="text-[10px] text-muted-foreground font-semibold">PDF Document</p>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        className="bg-primary hover:bg-[#1f5fa7] text-white flex items-center gap-1 shrink-0 rounded-xl font-bold h-9 text-xs px-3.5 touch-btn"
-                        onClick={() => openDownload(`/content/${currentLesson._id}/download`)}
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Download</span>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ) : null}
-
-                {courseMaterials.map((material) => (
-                  <Card key={material._id} className="border border-border/50 bg-card rounded-2xl shadow-sm hover:shadow-md transition-all">
-                    <CardContent className="p-3.5 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center flex-shrink-0">
-                          <FileText className="w-5 h-5 text-purple-500" />
-                        </div>
-                        <div className="min-w-0">
-                          <h4 className="font-extrabold text-xs text-foreground truncate">{material.title || material.originalName}</h4>
-                          <p className="text-[10px] text-muted-foreground font-semibold truncate">{material.description || 'PDF Document'}</p>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-9 text-xs flex items-center gap-1 shrink-0 rounded-xl hover:bg-purple-50 border-border font-bold px-3.5 touch-btn"
-                        onClick={() => openDownload(material.downloadUrl, material.title || material.originalName)}
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Download</span>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-
-                {(!currentLesson?.attachmentUrl && courseMaterials.length === 0) && (
-                  <Card className="p-8 text-center border border-dashed border-border bg-card rounded-2xl">
-                    <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
-                    <p className="text-xs font-bold text-muted-foreground">No resources available for this batch.</p>
-                  </Card>
-                )}
-              </div>
 
             </div>
 
@@ -3133,7 +3195,7 @@ export default function VideoPlayer() {
         <Button
           variant="outline"
           size="sm"
-          className="flex-1 rounded-xl border border-slate-200 dark:border-zinc-800 text-xs font-semibold h-11 flex items-center justify-center gap-1 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"
+          className="flex-1 rounded-2xl border border-slate-200 dark:border-zinc-800 text-xs font-bold h-11 flex items-center justify-center gap-1.5 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 bg-white"
           onClick={() => {
             const currentIndex = lessons.findIndex(l => l._id === currentLesson?._id);
             if (currentIndex > 0) {
@@ -3144,11 +3206,12 @@ export default function VideoPlayer() {
           }}
           disabled={lessons.findIndex(l => l._id === currentLesson?._id) <= 0}
         >
-          ← Previous Lesson
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Previous Lesson</span>
         </Button>
         <Button
           size="sm"
-          className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold h-11 flex items-center justify-center gap-1 shadow-sm"
+          className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold h-11 flex items-center justify-center gap-1.5 shadow-md shadow-indigo-500/10 border-0"
           onClick={() => {
             const currentIndex = lessons.findIndex(l => l._id === currentLesson?._id);
             if (currentIndex !== -1 && currentIndex < lessons.length - 1) {
@@ -3161,7 +3224,8 @@ export default function VideoPlayer() {
           }}
           disabled={lessons.findIndex(l => l._id === currentLesson?._id) === lessons.length - 1}
         >
-          Next Lesson →
+          <span>Next Lesson</span>
+          <ArrowRight className="w-3.5 h-3.5" />
         </Button>
       </div>
 

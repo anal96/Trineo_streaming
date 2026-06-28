@@ -12,6 +12,17 @@ export const getApiUrl = (path: string) => {
   return `${cleanBase}${normalizedPath}`;
 };
 
+export const getUploadUrl = (path: string) => {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+  const envBase = import.meta.env.VITE_API_BASE_URL;
+  const rawBase = envBase && envBase.trim() ? envBase.trim() : '';
+  const cleanBase = normalizeBase(rawBase).replace(/\/api$/, '');
+
+  return `${cleanBase}${path.startsWith('/') ? path : '/' + path}`;
+};
+
 export async function apiFetch(endpoint: string, options: RequestInit & { ignoreAuthError?: boolean } = {}) {
   const token = localStorage.getItem('token');
   const headers = {

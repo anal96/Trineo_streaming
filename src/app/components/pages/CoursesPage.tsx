@@ -24,7 +24,12 @@ import {
   ShieldCheck,
   FileText,
   Key,
-  Bookmark
+  Bookmark,
+  Sliders,
+  Trophy,
+  Folder,
+  Calendar,
+  Headphones
 } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
@@ -36,7 +41,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, getUploadUrl } from '../../utils/api';
 import { initializePushNotifications } from '../../utils/pushManager';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -271,40 +276,74 @@ export default function CoursesPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="h-14 border-b border-border bg-card/80 backdrop-blur-xl flex items-center justify-between px-4 lg:px-6">
-          <div className="flex items-center gap-3 lg:hidden">
-            {user?.institute?.logo ? (
-              <img src={user.institute.logo} alt="Institute" className="w-7 h-7 rounded-lg object-contain" />
-            ) : (
-              <div className="w-7 h-7 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                <GraduationCap className="w-4 h-4 text-white" />
-              </div>
-            )}
-            <h1 className="text-lg font-bold truncate max-w-[150px]">Trineo Stream</h1>
-          </div>
-
-          <div className="hidden lg:flex flex-1 max-w-xl">
-            {/* Search Placeholder */}
-          </div>
-
-          <div className="flex items-center gap-1 sm:gap-2 lg:gap-4 relative">
-            <ThemeToggleButton />
-            <div className="hidden lg:flex items-center gap-3 pl-4 border-l border-border">
-              <Avatar>
-                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+        <header className="h-16 lg:h-14 sticky top-0 lg:relative z-40 border-b border-border bg-card/80 backdrop-blur-xl flex items-center justify-between px-4 lg:px-6 select-none touch-btn">
+          {/* Mobile-Only Header */}
+          <div className="flex lg:hidden items-center justify-between w-full h-full">
+            {/* Left: Student Avatar */}
+            <div className="flex items-center gap-2">
+              <Avatar 
+                className="w-9 h-9 border border-border/80 shadow-sm cursor-pointer hover:opacity-85 transition-opacity"
+                onClick={() => navigate('/student?tab=settings')}
+              >
+                <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
                 <AvatarFallback>ST</AvatarFallback>
               </Avatar>
-              <div className="hidden md:block">
-                <div className="text-sm font-medium">{user?.name || 'Student'}</div>
-                <div className="text-xs text-muted-foreground">ID: {user?.user_id || 'N/A'}</div>
-              </div>
+            </div>
+            {/* Center: Greeting & Student Name */}
+            <div className="flex flex-col items-center text-center justify-center flex-1 min-w-0 px-2">
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                {(() => {
+                  const hr = new Date().getHours();
+                  if (hr < 12) return 'Good Morning 👋';
+                  if (hr < 17) return 'Good Afternoon 👋';
+                  return 'Good Evening 👋';
+                })()}
+              </span>
+              <span className="text-xs font-black text-foreground truncate max-w-[140px]">{user?.name || 'Student'}</span>
+            </div>
+            {/* Right: Theme Toggle & Notification Bell with Count */}
+            <div className="flex items-center gap-1">
+              <ThemeToggleButton />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-9 w-9 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  navigate('/student?tab=notifications');
+                }}
+              >
+                <Bell className="w-5 h-5 text-foreground" />
+                {unreadNotifications > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-destructive text-[8px] font-black text-white leading-none shadow-sm">
+                    {unreadNotifications}
+                  </span>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Desktop-Only Header (Keep original design completely unchanged) */}
+          <div className="hidden lg:flex items-center justify-between w-full h-full">
+            <div className="flex-1 max-w-xl">
+              {/* Search Placeholder */}
             </div>
 
-            <Avatar className="lg:hidden w-8 h-8">
-              <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
-              <AvatarFallback>ST</AvatarFallback>
-            </Avatar>
+            <div className="flex items-center gap-1 sm:gap-2 lg:gap-4 relative">
+              <ThemeToggleButton />
+              <div 
+                className="hidden lg:flex items-center gap-3 pl-4 border-l border-border cursor-pointer hover:opacity-85 transition-opacity"
+                onClick={() => navigate('/student?tab=settings')}
+              >
+                <Avatar>
+                  <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+                  <AvatarFallback>ST</AvatarFallback>
+                </Avatar>
+                <div className="hidden md:block">
+                  <div className="text-sm font-medium">{user?.name || 'Student'}</div>
+                  <div className="text-xs text-muted-foreground">ID: {user?.user_id || 'N/A'}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </header>
 
@@ -313,7 +352,7 @@ export default function CoursesPage() {
           <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
             
             {/* Illustration Banner */}
-            <div className="relative bg-gradient-to-r from-blue-50/60 via-indigo-50/20 to-purple-50/40 dark:from-indigo-950/10 dark:via-purple-950/5 dark:to-transparent border border-border/60 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden">
+            <div className="hidden lg:flex relative bg-gradient-to-r from-blue-50/60 via-indigo-50/20 to-purple-50/40 dark:from-indigo-950/10 dark:via-purple-950/5 dark:to-transparent border border-border/60 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden">
               <div className="max-w-xl space-y-4 relative z-10 flex-1">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">
                   <BookOpen className="w-3.5 h-3.5" />
@@ -345,6 +384,35 @@ export default function CoursesPage() {
                   alt="Student on beanbag with laptop" 
                   className="w-52 sm:w-60 md:w-64 h-auto object-contain drop-shadow-md"
                 />
+              </div>
+            </div>
+
+            {/* Mobile View Title Section */}
+            <div className="flex lg:hidden flex-col space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                  <h1 className="text-2xl font-black tracking-tight text-foreground">My Learning Batches</h1>
+                  <p className="text-xs text-muted-foreground">Access your enrolled training cohorts and continue learning</p>
+                </div>
+                <div className="w-14 h-14 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+                  <GraduationCap className="w-8 h-8 text-indigo-605 dark:text-indigo-400" />
+                </div>
+              </div>
+
+              {/* Search & Filter */}
+              <div className="relative w-full flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search your batches, instructors, topics..."
+                    className="pl-11 pr-4 h-12 bg-card border-border/50 rounded-2xl shadow-sm w-full text-xs font-semibold"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <Button variant="outline" className="h-12 w-12 rounded-2xl border-border/50 bg-card p-0 flex items-center justify-center shrink-0 shadow-sm">
+                  <Sliders className="w-4 h-4 text-foreground/80" />
+                </Button>
               </div>
             </div>
 
@@ -539,94 +607,209 @@ export default function CoursesPage() {
                   })}
                 </div>
 
-                {/* Mobile layout: horizontal stacked list */}
-                <div className="flex flex-col gap-4 lg:hidden">
-                  {filteredCourses.map((course, index) => {
-                    const lessonsForCourse = watchHistory.filter(h => {
-                      const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
-                      return progId && progId.toString() === course._id.toString();
-                    });
-                    const progressVal = lessonsForCourse.length > 0 
-                      ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
-                      : 0;
+                {/* Mobile layout: redesigned view */}
+                <div className="flex flex-col gap-5 lg:hidden">
+                  {/* Your Enrolled Batch Section */}
+                  <div className="space-y-3">
+                    <h2 className="text-sm font-bold text-foreground pl-1">Your Enrolled Batch</h2>
+                    
+                    <div className="space-y-4">
+                      {filteredCourses.map((course, index) => {
+                        const lessonsForCourse = watchHistory.filter(h => {
+                          const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
+                          return progId && progId.toString() === course._id.toString();
+                        });
+                        const progressVal = lessonsForCourse.length > 0 
+                          ? Math.round(lessonsForCourse.reduce((sum, curr) => sum + curr.progress, 0) / lessonsForCourse.length)
+                          : 0;
 
-                    // Compute completion estimate based on progress or mock completed topics
-                    const lessonsCount = course.lessonsCount || 10;
-                    const completedCount = lessonsForCourse.filter(h => h.completed).length;
-                    const completionEst = lessonsCount > 0 ? Math.min(100, Math.round((completedCount / lessonsCount) * 100)) : progressVal;
+                        const lessonsCount = course.lessonsCount || 2;
+                        const completedCount = lessonsForCourse.filter(h => h.completed).length;
+                        const completionEst = progressVal;
 
-                    return (
-                      <motion.div
-                        key={course._id}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.3) }}
-                        onClick={() => handleCourseClick(course)}
-                        className="flex gap-3 bg-card border border-border/50 rounded-2xl p-3 h-[112px] min-h-[112px] hover:shadow-md transition-all active:scale-[0.98] cursor-pointer relative overflow-hidden group select-none touch-btn animate-in fade-in-50 duration-200"
+                        // Render golden badge on the left side
+                        const isBca = course.title.toLowerCase().includes('bca');
+
+                        return (
+                          <motion.div
+                            key={course._id}
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.3) }}
+                          >
+                            <Card 
+                              className="border border-border/40 shadow-sm bg-card hover:border-primary/20 transition-all rounded-[24px] overflow-hidden border-l-4 border-l-indigo-600 cursor-pointer select-none touch-btn"
+                              onClick={() => handleCourseClick(course)}
+                            >
+                              <CardContent className="p-4 space-y-4">
+                                <div className="flex gap-4 items-start">
+                                  {/* Golden Left Badge */}
+                                  <div className={`w-20 h-20 rounded-2xl flex flex-col items-center justify-center text-center p-2 shrink-0 ${
+                                    isBca ? 'bg-amber-100 dark:bg-amber-950/20 border border-amber-500/20 text-amber-900' : 'bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-500/10 text-indigo-900'
+                                  }`}>
+                                    <span className="text-lg font-black tracking-wider leading-none text-red-600">{isBca ? 'BCA' : course.title.substring(0, 3).toUpperCase()}</span>
+                                    <span className="text-[7px] text-muted-foreground dark:text-zinc-400 font-black mt-1 uppercase leading-tight line-clamp-2">
+                                      {isBca ? 'Bachelor of Computer Applications' : course.title}
+                                    </span>
+                                  </div>
+
+                                  {/* Right Text Content */}
+                                  <div className="flex-1 min-w-0 space-y-1">
+                                    <div className="flex justify-between items-center gap-2">
+                                      <h3 className="font-extrabold text-sm text-foreground truncate">{course.title}</h3>
+                                      <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 font-bold text-[9px] uppercase py-0.5 px-2 rounded-full leading-none shrink-0">
+                                        🟢 Active
+                                      </Badge>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground font-semibold">Instructor: {course.instructor || 'GFI Faculty'}</p>
+                                    
+                                    {/* Stats row */}
+                                    <div className="grid grid-cols-2 gap-3 pt-3">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <div className="w-8 h-8 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-600 shrink-0">
+                                          <BookOpen className="w-4 h-4" />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="text-[11px] font-black text-foreground truncate">{completedCount} of {lessonsCount}</div>
+                                          <div className="text-[8px] text-muted-foreground font-bold truncate">Topics Completed</div>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0">
+                                          <TrendingUp className="w-4 h-4" />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="text-[11px] font-black text-foreground truncate">{completionEst}%</div>
+                                          <div className="text-[8px] text-muted-foreground font-bold truncate">Est. Progress</div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Continue learning button */}
+                                <Button 
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white w-full rounded-2xl py-3 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-600/10 transition-transform active:scale-[0.98]"
+                                >
+                                  Continue Learning <ChevronRight className="w-3.5 h-3.5" />
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          </motion.div>
+                        );
+                      })}
+
+                      {filteredCourses.length === 0 && (
+                        <div className="text-center py-10 border border-dashed border-border/40 rounded-[24px] bg-card">
+                          <p className="text-xs text-muted-foreground font-bold">No enrolled batches match search filters.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Info Card */}
+                  <Card className="border border-border/40 shadow-sm rounded-2xl bg-card overflow-hidden">
+                    <CardContent className="p-4 flex items-center justify-between gap-4 cursor-pointer hover:bg-muted/10 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0">
+                          <Trophy className="w-5 h-5" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="font-extrabold text-xs text-foreground">Keep learning!</h4>
+                          <p className="text-[10px] text-muted-foreground font-medium">Complete your batches and unlock new achievements.</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </CardContent>
+                  </Card>
+
+                  {/* Quick Actions */}
+                  <div className="space-y-3">
+                    <h2 className="text-sm font-bold text-foreground pl-1">Quick Actions</h2>
+                    
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* Action Card 1: Browse Courses */}
+                      <Card 
+                        className="bg-card border border-border/40 rounded-2xl p-3 text-center space-y-2 cursor-pointer hover:border-primary/20 transition-all select-none active:scale-95 flex flex-col items-center justify-center"
+                        onClick={() => {
+                          setSelectedCategory('All');
+                          setSelectedLevel('All Levels');
+                          setSearchQuery('');
+                        }}
                       >
-                        {/* Thumbnail Icon */}
-                        <div className="w-24 h-full rounded-xl overflow-hidden flex-shrink-0 relative border border-border/10 bg-muted">
-                          {course.thumbnail ? (
-                            <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-violet-600 to-indigo-650 flex flex-col items-center justify-center font-black text-white text-xs text-center p-1">
-                              {course.title.toLowerCase().includes('bca') ? (
-                                <>
-                                  <span className="text-lg font-black tracking-wider text-white">BCA</span>
-                                  <span className="text-[7px] text-indigo-200 font-bold uppercase">Cohort</span>
-                                </>
-                              ) : (
-                                <span className="text-[10px] line-clamp-3 leading-snug px-1 text-center font-extrabold">{course.title}</span>
-                              )}
-                            </div>
-                          )}
-                          
-                          {/* Play overlay */}
-                          <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                            <PlayCircle className="w-6 h-6 text-white fill-white drop-shadow" />
-                          </div>
+                        <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-950 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                          <BookOpen className="w-4 h-4" />
                         </div>
-
-                        {/* Right Content Column */}
-                        <div className="flex-1 flex flex-col justify-between min-w-0 py-0.5">
-                          <div>
-                            <div className="flex items-center justify-between gap-2">
-                              <h3 className="font-extrabold text-[13px] text-foreground truncate leading-none">
-                                {course.title}
-                              </h3>
-                              {course.isLocked ? (
-                                <span className="text-[9px] font-bold text-red-500 shrink-0">🔒 Locked</span>
-                              ) : (
-                                <span className="text-[9px] font-bold text-emerald-500 shrink-0">🟢 Active</span>
-                              )}
-                            </div>
-                            <div className="flex justify-between items-center mt-1">
-                              <p className="text-[10px] text-muted-foreground truncate font-medium">Instructor: {course.instructor || 'GFI Faculty'}</p>
-                              <span className="text-[9px] font-black text-primary flex items-center gap-0.5">
-                                Continue Learning <ChevronRight className="w-2.5 h-2.5" />
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Progress slider & estimate */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[9px] font-bold">
-                              <span className="text-muted-foreground">{completedCount} of {lessonsCount} Topics Completed</span>
-                              <span className="text-primary font-black font-extrabold">Est. progress: {completionEst}%</span>
-                            </div>
-                            <Progress value={progressVal} className="h-1 bg-muted [&>div]:bg-primary" />
-                          </div>
+                        <div className="space-y-0.5">
+                          <h4 className="font-extrabold text-[10px] text-foreground leading-tight">Browse Courses</h4>
+                          <p className="text-[8px] text-muted-foreground leading-normal font-semibold">Explore more courses to learn</p>
                         </div>
-                      </motion.div>
-                    );
-                  })}
+                      </Card>
+
+                      {/* Action Card 2: Study Materials */}
+                      <Card 
+                        className="bg-card border border-border/40 rounded-2xl p-3 text-center space-y-2 cursor-pointer hover:border-primary/20 transition-all select-none active:scale-95 flex flex-col items-center justify-center"
+                        onClick={() => {
+                          navigate('/student?tab=materials');
+                        }}
+                      >
+                        <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:emerald-400">
+                          <Folder className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-0.5">
+                          <h4 className="font-extrabold text-[10px] text-foreground leading-tight">Study Materials</h4>
+                          <p className="text-[8px] text-muted-foreground leading-normal font-semibold">Access your study resources</p>
+                        </div>
+                      </Card>
+
+                      {/* Action Card 3: Live Classes */}
+                      <Card 
+                        className="bg-card border border-border/40 rounded-2xl p-3 text-center space-y-2 cursor-pointer hover:border-primary/20 transition-all select-none active:scale-95 flex flex-col items-center justify-center"
+                        onClick={() => {
+                          navigate('/student?tab=live');
+                        }}
+                      >
+                        <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-0.5">
+                          <h4 className="font-extrabold text-[10px] text-foreground leading-tight">Live Classes</h4>
+                          <p className="text-[8px] text-muted-foreground leading-normal font-semibold">Join upcoming live sessions</p>
+                        </div>
+                      </Card>
+                    </div>
+                  </div>
+
+                  {/* Need Help support box */}
+                  <Card className="border border-purple-500/10 shadow-sm bg-gradient-to-r from-purple-500/[0.03] to-pink-500/[0.03] rounded-2xl overflow-hidden">
+                    <CardContent className="p-4 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                          <Headphones className="w-5 h-5" />
+                        </div>
+                        <div className="text-left space-y-0.5">
+                          <h4 className="font-extrabold text-xs text-foreground">Need help?</h4>
+                          <p className="text-[9px] text-muted-foreground font-semibold">We're here to help you with your learning journey.</p>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="border-purple-600/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 rounded-xl px-3.5 py-1.5 text-[10px] font-extrabold shadow-sm shrink-0 bg-background"
+                        onClick={() => navigate('/student?tab=settings')}
+                      >
+                        Contact Support
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </div>
               </>
             )}
 
             {/* Bottom info banner */}
             {!loading && courses.length > 0 && (
-              <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl p-4 flex items-center justify-center gap-2 text-center text-xs sm:text-sm font-semibold text-primary">
+              <div className="hidden lg:flex bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl p-4 items-center justify-center gap-2 text-center text-xs sm:text-sm font-semibold text-primary">
                 <Star className="w-4 h-4 fill-primary text-primary" />
                 Keep learning! Complete your batches and unlock new achievements.
               </div>

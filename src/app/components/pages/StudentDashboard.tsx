@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { motion } from 'motion/react';
 import {
@@ -52,7 +52,8 @@ import {
   ArrowUpDown,
   ChevronDown,
   Volume2,
-  Sparkles
+  Sparkles,
+  SlidersHorizontal
 } from 'lucide-react';
 import {
   Select,
@@ -73,7 +74,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { ThemeToggleButton } from '../ThemeToggle';
-import { apiFetch, getApiUrl } from '../../utils/api';
+import { apiFetch, getApiUrl, getUploadUrl } from '../../utils/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush, initializePushNotifications } from '../../utils/pushManager';
 import { toast } from 'sonner';
@@ -89,8 +90,6 @@ function formatAccessDate(date: any) {
 }
 
 const SecuritySection = lazy(() => import('./settings/SecuritySection'));
-const PaymentsSection = lazy(() => import('./settings/PaymentsSection'));
-const CertificatesSection = lazy(() => import('./settings/CertificatesSection'));
 const HelpSection = lazy(() => import('./settings/HelpSection'));
 
 const LOCAL_AUDIT_KEY = 'trineo_security_audit';
@@ -270,6 +269,7 @@ const getNotificationDetails = (n: any) => {
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -342,6 +342,36 @@ export default function StudentDashboard() {
 
   // Derived loading state
   const loading = false; // We can set this to false, as cached values render instantly.
+
+  const avgProgress = (() => {
+    if (purchasedCourses.length === 0) return 0;
+    let total = 0;
+    purchasedCourses.forEach((course: any) => {
+      const lessonHistory = watchHistory.filter((h: any) => {
+        const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
+        return progId && progId.toString() === course._id.toString();
+      });
+      const progress = lessonHistory.length > 0
+        ? Math.round(lessonHistory.reduce((sum: any, current: any) => sum + current.progress, 0) / lessonHistory.length)
+        : 0;
+      total += progress;
+    });
+    return Math.round(total / purchasedCourses.length);
+  })();
+
+  const completedCoursesCount = purchasedCourses.filter((course: any) => {
+    const lessonHistory = watchHistory.filter((h: any) => {
+      const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
+      return progId && progId.toString() === course._id.toString();
+    });
+    const progress = lessonHistory.length > 0
+      ? Math.round(lessonHistory.reduce((sum: any, current: any) => sum + current.progress, 0) / lessonHistory.length)
+      : 0;
+    return progress >= 100;
+  }).length;
+
+  const activeBatchCount = (user?.assignedBatch || user?.batchName) ? 1 : 0;
+
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
@@ -363,19 +393,13 @@ export default function StudentDashboard() {
   const [resetEmail, setResetEmail] = useState('');
   const [settingsSubTab, setSettingsSubTab] = useState('profile');
   const [mobileSettingsExpanded, setMobileSettingsExpanded] = useState<string | null>(null);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [paymentsLoading, setPaymentsLoading] = useState(false);
+
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
   const [selectedAvatarFile, setSelectedAvatarFile] = useState<string | null>(null);
   const [avatarZoom, setAvatarZoom] = useState(1);
   const [avatarOffset, setAvatarOffset] = useState({ x: 0, y: 0 });
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
-  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
-  const [activeInvoice, setActiveInvoice] = useState<any>(null);
-  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
-  const [activeReceipt, setActiveReceipt] = useState<any>(null);
-  const [certificateModalOpen, setCertificateModalOpen] = useState(false);
-  const [activeCertificate, setActiveCertificate] = useState<any>(null);
+
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -504,7 +528,7 @@ export default function StudentDashboard() {
 
   const handleTogglePreference = async (key: string) => {
     if (!user) return;
-    const currentPrefs = user.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true, certificates: true };
+    const currentPrefs = user.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true };
     const updatedPrefs = {
       ...currentPrefs,
       [key]: !currentPrefs[key]
@@ -536,7 +560,7 @@ export default function StudentDashboard() {
   };
 
   const renderNotificationPreferencesContent = () => {
-    const prefs = user?.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true, certificates: true };
+    const prefs = user?.notificationPreferences || { academic: true, liveClass: true, security: true, announcement: true };
     
     return (
       <div className="space-y-6">
@@ -609,7 +633,7 @@ export default function StudentDashboard() {
             <div className="py-4 flex items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="font-bold text-sm text-foreground">Academic Material & Uploads</div>
-                <div className="text-xs text-muted-foreground">Get notified when new videos, pdf notes, study packages, or certificates become available.</div>
+                <div className="text-xs text-muted-foreground">Get notified when new videos, pdf notes, or study packages become available.</div>
               </div>
               <button
                 type="button"
@@ -644,28 +668,6 @@ export default function StudentDashboard() {
                   aria-hidden="true"
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                     prefs.announcement ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Certificates alerts */}
-            <div className="py-4 flex items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="font-bold text-sm text-foreground">Certificates Available</div>
-                <div className="text-xs text-muted-foreground">Get notified when you complete a course track and your certificate is ready.</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleTogglePreference('certificates')}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  prefs.certificates !== false ? 'bg-violet-600' : 'bg-gray-200 dark:bg-gray-800'
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    prefs.certificates !== false ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
@@ -1133,24 +1135,11 @@ export default function StudentDashboard() {
       }
     };
 
-    const loadPayments = async () => {
-      setPaymentsLoading(true);
-      try {
-        const data = await apiFetch('/purchases/my-payments');
-        setPayments(data || []);
-      } catch (err) {
-        console.error('Failed to load payments:', err);
-      } finally {
-        setPaymentsLoading(false);
-      }
-    };
-
     if (activeTab === 'materials') loadStudyMaterials();
     if (activeTab === 'faculty') loadFaculty();
     if (activeTab === 'security' || activeTab === 'settings') loadSecurityLogs();
     if (activeTab === 'live-classes' || activeTab === 'home') loadLiveClasses();
     if (activeTab === 'access') loadAccessRules();
-    if (activeTab === 'settings') loadPayments();
   }, [activeTab, user, materialsSearch, selectedMaterialType, selectedMaterialCourseId, settingsSubTab]);
 
   const loadNotifications = async () => {
@@ -1455,8 +1444,14 @@ export default function StudentDashboard() {
           <div className="flex lg:hidden items-center justify-between w-full h-full">
             {/* Left: Student Avatar */}
             <div className="flex items-center gap-2">
-              <Avatar className="w-9 h-9 border border-border/80 shadow-sm">
-                <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getApiUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+              <Avatar 
+                className="w-9 h-9 border border-border/80 shadow-sm cursor-pointer hover:opacity-85 transition-opacity"
+                onClick={() => {
+                  setActiveTab('settings');
+                  setSettingsSubTab('profile');
+                }}
+              >
+                <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
                 <AvatarFallback>ST</AvatarFallback>
               </Avatar>
             </div>
@@ -1554,7 +1549,7 @@ export default function StudentDashboard() {
                       </button>
                     ))}
                     {notifications.length === 0 && (
-                      <p className="text-xs text-muted-foreground text-center">No notifications yet</p>
+                      <p className="text-xs text-muted-foreground text-center">You're all caught up.</p>
                     )}
                   </div>
                   <div className="flex gap-2 pt-2">
@@ -1568,9 +1563,15 @@ export default function StudentDashboard() {
                 </div>
               )}
 
-              <div className="hidden lg:flex items-center gap-3 pl-4 border-l border-border">
+              <div 
+                className="hidden lg:flex items-center gap-3 pl-4 border-l border-border cursor-pointer hover:opacity-85 transition-opacity"
+                onClick={() => {
+                  setActiveTab('settings');
+                  setSettingsSubTab('profile');
+                }}
+              >
                 <Avatar>
-                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+                  <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
                   <AvatarFallback>ST</AvatarFallback>
                 </Avatar>
                 <div className="hidden md:block">
@@ -1580,7 +1581,7 @@ export default function StudentDashboard() {
               </div>
 
               <Avatar className="lg:hidden w-8 h-8">
-                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+                <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
                 <AvatarFallback>ST</AvatarFallback>
               </Avatar>
             </div>
@@ -1739,32 +1740,7 @@ export default function StudentDashboard() {
                     return null;
                   })();
 
-                  const avgProgress = (() => {
-                    if (purchasedCourses.length === 0) return 0;
-                    let total = 0;
-                    purchasedCourses.forEach(course => {
-                      const lessonHistory = watchHistory.filter(h => {
-                        const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
-                        return progId && progId.toString() === course._id.toString();
-                      });
-                      const progress = lessonHistory.length > 0
-                        ? Math.round(lessonHistory.reduce((sum, current) => sum + current.progress, 0) / lessonHistory.length)
-                        : 0;
-                      total += progress;
-                    });
-                    return Math.round(total / purchasedCourses.length);
-                  })();
 
-                  const completedCoursesCount = purchasedCourses.filter((course) => {
-                    const lessonHistory = watchHistory.filter(h => {
-                      const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
-                      return progId && progId.toString() === course._id.toString();
-                    });
-                    const progress = lessonHistory.length > 0
-                      ? Math.round(lessonHistory.reduce((sum, current) => sum + current.progress, 0) / lessonHistory.length)
-                      : 0;
-                    return progress >= 100;
-                  }).length;
 
                   return (
                     <div className="space-y-8">
@@ -1773,108 +1749,106 @@ export default function StudentDashboard() {
                       {/* =========================================== */}
                       <div className="block lg:hidden space-y-6">
 
-
-                        {/* 3. Continue Learning Hero Card */}
+                        {/* ===== 1. CONTINUE WATCHING HERO CARD ===== */}
                         {continueLearningWidgetData ? (
-                          <div className="w-full max-w-full relative overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-indigo-900 via-slate-900 to-violet-950 p-5 shadow-xl text-white flex flex-col gap-4">
-                            <div className="absolute -top-12 -right-12 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none"></div>
+                          <div className="w-full relative overflow-hidden rounded-3xl border border-violet-500/20 bg-gradient-to-br from-indigo-950 via-slate-900 to-violet-950 p-5 shadow-2xl text-white">
+                            <div className="absolute -top-16 -right-16 w-40 h-40 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none"></div>
+                            <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-purple-500/10 rounded-full blur-2xl pointer-events-none"></div>
                             
-                            <div className="flex items-start gap-4 z-10 w-full max-w-full min-w-0">
-                              <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-black/40 flex-shrink-0 border border-white/10 shadow-lg">
+                            {/* Top row: thumbnail + info + menu */}
+                            <div className="flex items-start gap-4 z-10 relative">
+                              <div className="relative w-[72px] h-[72px] rounded-2xl overflow-hidden bg-gradient-to-br from-amber-100 to-amber-50 flex-shrink-0 border-2 border-white/15 shadow-xl flex items-center justify-center">
                                 <img 
                                   src={continueLearningWidgetData.thumbnail} 
-                                  alt="Course Thumbnail" 
+                                  alt="Course" 
                                   className="w-full h-full object-cover"
                                 />
-                                <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                                  <Play className="w-6 h-6 text-white fill-white drop-shadow-md" />
-                                </div>
                               </div>
 
                               <div className="min-w-0 flex-1 space-y-1">
-                                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block">CONTINUE WATCHING</span>
-                                <h4 className="font-extrabold text-sm text-white truncate leading-snug">{continueLearningWidgetData.courseTitle}</h4>
-                                <p className="text-[10px] text-slate-300 truncate font-semibold">
-                                  {continueLearningWidgetData.unitTitle} → {continueLearningWidgetData.lessonTitle}
+                                <span className="text-[8px] font-black text-indigo-400 uppercase tracking-[0.2em] block">Continue Watching</span>
+                                <h4 className="font-black text-base text-white truncate leading-tight">{continueLearningWidgetData.courseTitle}</h4>
+                                <p className="text-[11px] text-slate-300/80 truncate font-semibold">
+                                  {continueLearningWidgetData.unitTitle} – {continueLearningWidgetData.lessonTitle}
                                 </p>
                               </div>
                             </div>
 
-                            <div className="space-y-1.5 z-10 w-full">
-                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-300">
-                                <span>{continueLearningWidgetData.progress}% Complete</span>
-                                <span className="text-indigo-400 font-black">Remaining: {continueLearningWidgetData.remaining}m</span>
+                            {/* Progress */}
+                            <div className="space-y-2 mt-4 z-10 relative">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-slate-400 italic">{continueLearningWidgetData.progress}% Complete</span>
+                                <span className="font-bold text-slate-400 italic">Remaining: {continueLearningWidgetData.remaining}m</span>
                               </div>
-                              <Progress value={continueLearningWidgetData.progress} className="h-2 bg-white/15 [&>div]:bg-gradient-to-r [&>div]:from-purple-500 [&>div]:to-indigo-500 rounded-full" />
+                              <Progress value={continueLearningWidgetData.progress} className="h-2 bg-white/10 [&>div]:bg-gradient-to-r [&>div]:from-purple-500 [&>div]:to-indigo-400 rounded-full" />
                             </div>
 
+                            {/* Resume Button */}
                             <Button 
                               onClick={() => handleVideoClick(continueLearningWidgetData.courseId)}
-                              className="w-full h-12 bg-white text-indigo-950 hover:bg-slate-100 font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg hover:scale-[1.01] active:scale-95 transition-all duration-200 touch-btn border-0"
+                              className="w-full h-12 bg-white text-indigo-950 hover:bg-slate-100 font-black rounded-2xl text-sm flex items-center justify-center gap-2.5 shadow-xl hover:scale-[1.01] active:scale-95 transition-all duration-200 touch-btn border-0 mt-4"
                             >
-                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <Play className="w-4 h-4 fill-current" />
                               <span>Resume Course</span>
                             </Button>
                           </div>
                         ) : (
                           <div className="rounded-2xl border border-dashed border-border p-6 text-center bg-card/45 backdrop-blur-sm">
-                            <BookOpen className="w-8 h-8 text-muted-foreground/60 mx-auto mb-2" />
-                            <p className="text-xs font-bold text-foreground">No active learning batches</p>
+                            <BookOpen className="w-8 h-8 text-muted-foreground/60 mx-auto mb-2 opacity-40" />
+                            <p className="text-xs font-bold text-foreground">You are not enrolled in any courses.</p>
                             <p className="text-[10px] text-muted-foreground mt-1">Please enroll in a course to start learning.</p>
                           </div>
                         )}
 
-                        {/* 4. Dashboard Statistics Cards */}
-                        <div className="space-y-2.5">
-                          <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Dashboard Statistics</h3>
-                          <div className="grid grid-cols-2 gap-3 pb-2 select-none">
-                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
-                              <div className="w-11 h-11 rounded-xl bg-purple-50/10 border border-purple-50/20 text-purple-650 dark:text-purple-400 flex items-center justify-center shrink-0">
-                                <BookOpen className="w-5.5 h-5.5" />
+                        {/* ===== 2. DASHBOARD STATISTICS ===== */}
+                        <div className="space-y-3">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Dashboard Statistics</span>
+                          <div className="grid grid-cols-3 gap-2.5">
+                            {/* Active Batch */}
+                            <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
+                              <div className="w-10 h-10 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center">
+                                <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                               </div>
-                              <div className="min-w-0">
-                                <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Active Batches</h4>
-                                <p className="text-xs font-black text-foreground mt-0.5">{purchasedCourses.length} Enrolled</p>
-                              </div>
-                            </div>
-
-                            <div className="w-full bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
-                              <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                                <Award className="w-5.5 h-5.5" />
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Certificates</h4>
-                                <p className="text-xs font-black text-foreground mt-0.5">{completedCoursesCount} Unlocked</p>
+                              <div>
+                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Active Batch</p>
+                                <p className="text-sm font-black text-foreground mt-0.5">{activeBatchCount === 1 ? '1 Batch' : '0 Batch'}</p>
                               </div>
                             </div>
-
-                            <div className="w-full col-span-2 bg-card/85 border border-border/40 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
-                              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
-                                securityScore >= 90 
-                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
-                                  : 'bg-destructive/10 border-destructive/20 text-destructive'
-                              }`}>
-                                <Shield className="w-5.5 h-5.5" />
+                            {/* Courses Enrolled */}
+                            <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
+                              <div className="w-10 h-10 mx-auto rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+                                <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                               </div>
-                              <div className="min-w-0">
-                                <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Security Score</h4>
-                                <p className="text-xs font-black text-foreground mt-0.5">{securityScore} / 100</p>
+                              <div>
+                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Courses Enrolled</p>
+                                <p className="text-sm font-black text-foreground mt-0.5">{purchasedCourses.length} {purchasedCourses.length === 1 ? 'Course' : 'Courses'}</p>
+                              </div>
+                            </div>
+                            {/* Security Score */}
+                            <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
+                              <div className="w-10 h-10 mx-auto rounded-2xl bg-amber-500/10 flex items-center justify-center">
+                                <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                              </div>
+                              <div>
+                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Security Score</p>
+                                <p className="text-sm font-black text-foreground mt-0.5">{securityScore} <span className="text-[9px] text-muted-foreground font-bold">/ 100</span></p>
+                                <p className="text-[9px] font-bold text-emerald-500 -mt-0.5">{securityScore >= 80 ? 'Excellent' : securityScore >= 60 ? 'Good' : 'Needs Attention'}</p>
                               </div>
                             </div>
                           </div>
                         </div>
 
-                        {/* 5. Compact 2-column Quick Access Grid */}
-                        <div className="space-y-2.5">
-                          <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Quick Access</h3>
-                          <div className="grid grid-cols-2 gap-3">
+                        {/* ===== 3. QUICK ACCESS 3-COLUMN GRID ===== */}
+                        <div className="space-y-3">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Quick Access</span>
+                          <div className="grid grid-cols-3 gap-2.5">
                             {[
-                              { id: 'courses', label: 'My Batches', icon: BookOpen, color: 'text-purple-650 bg-purple-50/10 dark:text-purple-400 dark:bg-purple-950/20', path: '/student/courses' },
-                              { id: 'live-classes', label: 'Live Classes', icon: Video, color: 'text-rose-500 bg-rose-500/10', path: '/student?tab=live-classes' },
-                              { id: 'materials', label: 'Study Materials', icon: FileText, color: 'text-amber-500 bg-amber-500/10', path: '/student?tab=materials' },
-                              { id: 'security', label: 'Security Center', icon: ShieldCheck, color: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-400 dark:bg-emerald-950/20', path: '/student?tab=security' },
-                              { id: 'faculty', label: 'Faculty Contacts', icon: Users, color: 'text-blue-500 bg-blue-500/10', path: '/student?tab=faculty' },
-                              { id: 'settings', label: 'Settings', icon: Settings, color: 'text-indigo-500 bg-indigo-500/10', path: '/student?tab=settings' }
+                              { id: 'courses', label: 'My Batches', sub: 'View your batches', icon: BookOpen, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-500/10', path: '/student/courses' },
+                              { id: 'live-classes', label: 'Live Classes', sub: 'Join live sessions', icon: Video, color: 'text-rose-500', bg: 'bg-rose-500/10', path: '/student?tab=live-classes' },
+                              { id: 'materials', label: 'Study Materials', sub: 'Access resources', icon: FileText, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-500/10', path: '/student?tab=materials' },
+                              { id: 'security', label: 'Security Center', sub: 'Manage security', icon: ShieldCheck, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', path: '/student?tab=security' },
+                              { id: 'faculty', label: 'Faculty Contacts', sub: 'Connect faculty', icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10', path: '/student?tab=faculty' },
+                              { id: 'settings', label: 'Settings', sub: 'App preferences', icon: Settings, color: 'text-violet-500', bg: 'bg-violet-500/10', path: '/student?tab=settings' }
                             ].map((item) => {
                               const Icon = item.icon;
                               return (
@@ -1889,21 +1863,25 @@ export default function StudentDashboard() {
                                       navigate(item.path);
                                     }
                                   }}
-                                  className="flex items-center gap-3 p-3 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-left active:scale-[0.98] shadow-sm select-none touch-btn min-h-[48px] min-w-0"
+                                  className="flex flex-col items-center gap-2 p-3.5 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-center active:scale-[0.97] shadow-sm select-none touch-btn"
                                 >
-                                  <div className={`p-2 rounded-xl shrink-0 ${item.color} flex items-center justify-center`}>
-                                    <Icon className="w-4 h-4" />
+                                  <div className={`w-10 h-10 rounded-2xl ${item.bg} flex items-center justify-center`}>
+                                    <Icon className={`w-4.5 h-4.5 ${item.color}`} />
                                   </div>
-                                  <span className="text-xs font-bold text-foreground leading-tight min-w-0 flex-1">{item.label}</span>
+                                  <div className="space-y-0.5">
+                                    <span className="text-[10px] font-black text-foreground leading-tight block">{item.label}</span>
+                                    <span className="text-[8px] text-muted-foreground font-semibold block leading-tight">{item.sub}</span>
+                                  </div>
+                                  <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
                                 </button>
                               );
                             })}
                           </div>
                         </div>
 
-                        {/* 6. Upcoming Live Class widget with Join button */}
+                        {/* ===== 4. NEXT LECTURE ===== */}
                         <div className="space-y-3">
-                          <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Next Lecture</h3>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Next Lecture</span>
                           {(() => {
                             const nextLiveClass = (() => {
                               const activeClasses = liveClasses.filter(c => new Date(c.endTime) > new Date() && c.status !== 'cancelled');
@@ -1913,38 +1891,33 @@ export default function StudentDashboard() {
 
                             if (nextLiveClass) {
                               const isLive = nextLiveClass.status === 'live' || (new Date(nextLiveClass.startTime) <= new Date() && new Date(nextLiveClass.endTime) >= new Date());
+                              const startDate = new Date(nextLiveClass.startTime);
+                              const endDate = new Date(nextLiveClass.endTime);
+                              const isToday = startDate.toDateString() === new Date().toDateString();
+                              const timeStr = `${isToday ? 'Today' : startDate.toLocaleDateString('en-US', { weekday: 'short' })}, ${startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+                              
                               return (
-                                <div className={`relative overflow-hidden rounded-2xl border ${isLive ? 'border-red-500/20 bg-gradient-to-br from-red-500/5 to-transparent' : 'border-border/40 bg-card/65'} p-4 shadow-sm space-y-3`}>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                                      <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-500 shrink-0">
-                                        <Video className="w-5 h-5" />
-                                      </div>
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <h4 className="text-xs font-extrabold text-foreground truncate">{nextLiveClass.title}</h4>
-                                          {isLive && (
-                                            <span className="flex h-2 w-2 relative shrink-0">
-                                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                                            </span>
-                                          )}
-                                        </div>
-                                        <p className="text-[10px] text-muted-foreground truncate">{nextLiveClass.courseId?.name || nextLiveClass.courseId?.title || 'Batch'} · {nextLiveClass.facultyId?.name || 'Faculty Instructor'}</p>
-                                      </div>
+                                <div className={`relative overflow-hidden rounded-2xl border ${isLive ? 'border-red-500/20 bg-gradient-to-r from-red-500/5 to-transparent' : 'border-border/40 bg-card'} p-4 shadow-sm`}>
+                                  <div className="flex items-center gap-3.5">
+                                    <div className={`w-11 h-11 rounded-2xl ${isLive ? 'bg-red-500/10' : 'bg-indigo-500/10'} flex items-center justify-center shrink-0`}>
+                                      <Video className={`w-5 h-5 ${isLive ? 'text-red-500' : 'text-indigo-500'}`} />
                                     </div>
-                                    <Badge variant="secondary" className="text-[9px] uppercase font-black tracking-wider py-0.5 px-2 bg-muted/65">{nextLiveClass.platform}</Badge>
-                                  </div>
-
-                                  <div className="flex items-center justify-between gap-3 pt-1">
-                                    <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
-                                      <Clock className="w-3.5 h-3.5 text-muted-foreground/60" />
-                                      <span>{new Date(nextLiveClass.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} ({new Date(nextLiveClass.startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})</span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <h4 className="text-xs font-black text-foreground truncate">{nextLiveClass.title}</h4>
+                                        {isLive && (
+                                          <span className="flex h-2 w-2 relative shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground font-semibold mt-0.5">{timeStr}</p>
                                     </div>
-
                                     <Button
                                       size="sm"
-                                      className="bg-primary text-white hover:bg-primary/90 font-bold rounded-xl text-[11px] px-4 h-9 touch-btn"
+                                      variant="outline"
+                                      className="shrink-0 h-8 rounded-xl text-[10px] font-bold border-primary/30 text-primary hover:bg-primary/5 gap-1"
                                       onClick={async () => {
                                         try {
                                           const res = await apiFetch(`/live-classes/${nextLiveClass._id}/join`, { method: 'POST' });
@@ -1959,7 +1932,7 @@ export default function StudentDashboard() {
                                         }
                                       }}
                                     >
-                                      Join Class
+                                      {isLive ? 'Join Now' : 'View Schedule'}
                                     </Button>
                                   </div>
                                 </div>
@@ -1967,71 +1940,79 @@ export default function StudentDashboard() {
                             }
 
                             return (
-                              <div className="rounded-2xl border border-dashed border-border p-6 text-center bg-card/45 backdrop-blur-sm shadow-sm select-none">
-                                <Video className="w-8 h-8 text-muted-foreground/60 mx-auto mb-2" />
-                                <p className="text-xs font-bold text-foreground">No upcoming live classes scheduled</p>
-                                <p className="text-[10px] text-muted-foreground mt-1">Please check back later for updates.</p>
+                              <div className="rounded-2xl border border-border/40 bg-card p-4 shadow-sm">
+                                <div className="flex items-center gap-3.5">
+                                  <div className="w-11 h-11 rounded-2xl bg-muted flex items-center justify-center shrink-0">
+                                    <Video className="w-5 h-5 text-muted-foreground/50" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="text-xs font-bold text-foreground">No live classes scheduled</h4>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">Check back later for updates</p>
+                                  </div>
+                                </div>
                               </div>
                             );
                           })()}
                         </div>
 
-                        {/* 7. Recent Learning Activity timeline */}
-                        <div className="space-y-3">
-                          <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Recent Activity</h3>
-                          {displayActivities.length > 0 ? (
-                            <div className="relative border-l-2 border-border/40 pl-4 ml-3 space-y-4">
-                              {displayActivities.slice(0, 3).map((act, index) => (
-                                <div key={index} className="relative space-y-1">
-                                  <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full bg-background border-2 border-primary flex items-center justify-center shadow-sm">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                                  </div>
-                                  <div className="flex justify-between items-start gap-2">
-                                    <h4 className="text-xs font-extrabold text-foreground leading-snug">{act.title}</h4>
-                                    <span className="text-[9px] font-bold text-muted-foreground whitespace-nowrap">{act.relativeTime}</span>
-                                  </div>
-                                  <p className="text-[10px] text-muted-foreground font-semibold">
-                                    {act.courseTitle} · <span className="text-primary font-bold">{act.detail}</span>
-                                  </p>
-                                </div>
-                              ))}
+                        {/* ===== 5. MOTIVATIONAL CARD ===== */}
+                        <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card p-4 shadow-sm">
+                          <div className="absolute -top-6 -right-6 w-16 h-16 bg-primary/5 rounded-full blur-xl pointer-events-none"></div>
+                          <div className="flex items-center gap-3.5">
+                            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-500/10 to-indigo-500/10 flex items-center justify-center shrink-0">
+                              <Trophy className="w-5 h-5 text-purple-500" />
                             </div>
-                          ) : (
-                            <div className="text-center py-6 text-xs text-muted-foreground font-semibold bg-card/65 backdrop-blur-md rounded-2xl border border-border/45 p-4 shadow-sm">
-                              No recent activity recorded.
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-xs font-black text-foreground">Keep going, {(user?.name || 'student').split(' ')[0].toLowerCase()}!</h4>
+                              <p className="text-[10px] text-muted-foreground font-semibold mt-0.5">Consistency today, success tomorrow.</p>
                             </div>
-                          )}
+                            <TrendingUp className="w-8 h-8 text-primary/20 shrink-0" />
+                          </div>
                         </div>
 
-                        {/* 8. Modern Announcement cards with category icons */}
+                        {/* ===== 6. ANNOUNCEMENTS (collapsed accordion) ===== */}
                         <div className="space-y-3">
-                          <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">Announcements</h3>
-                          <div className="space-y-3">
-                            {displayAnnouncements.map((ann, index) => {
-                              const isQna = ann.title.toLowerCase().includes('live') || ann.title.toLowerCase().includes('q&a');
-                              return (
-                                <div key={index} className="relative overflow-hidden rounded-2xl border border-border/45 bg-card/65 backdrop-blur-md p-4 shadow-sm space-y-2.5">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isQna ? 'bg-amber-500/10 text-amber-500' : 'bg-indigo-500/10 text-indigo-500'}`}>
-                                      {isQna ? <Volume2 className="w-4.5 h-4.5" /> : <Sparkles className="w-4.5 h-4.5" />}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <h4 className="text-xs font-black text-foreground leading-tight truncate">{ann.title}</h4>
-                                      <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mt-0.5">By {ann.author} · {formatTimelineDateTime(ann.createdAt).date}</p>
-                                    </div>
-                                  </div>
-                                  <p className="text-xs font-medium text-muted-foreground leading-relaxed">
-                                    {ann.message}
-                                  </p>
+                          <Accordion type="single" collapsible className="w-full border-0">
+                            <AccordionItem value="announcements" className="border border-border/40 bg-card rounded-2xl px-4 overflow-hidden shadow-sm">
+                              <AccordionTrigger className="hover:no-underline py-3.5">
+                                <div className="flex items-center gap-2.5">
+                                  <Bell className="w-4 h-4 text-indigo-500" />
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Announcements</span>
+                                  {displayAnnouncements.length > 0 && (
+                                    <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 ml-2 text-[9px] font-bold px-2 py-0.5 border-0">
+                                      {displayAnnouncements.length}
+                                    </Badge>
+                                  )}
                                 </div>
-                              );
-                            })}
-                            {displayAnnouncements.length === 0 && (
-                              <div className="text-center py-6 text-xs text-muted-foreground font-semibold bg-card/65 backdrop-blur-md rounded-2xl border border-border/45 p-4 shadow-sm">
-                                No announcements available.
-                              </div>
-                            )}
-                          </div>
+                              </AccordionTrigger>
+                              <AccordionContent className="pt-1 pb-4 space-y-3">
+                                {displayAnnouncements.map((ann, index) => {
+                                  const isQna = ann.title.toLowerCase().includes('live') || ann.title.toLowerCase().includes('q&a');
+                                  return (
+                                    <div key={index} className="relative overflow-hidden rounded-2xl border border-border/40 bg-card p-4 shadow-sm space-y-2.5">
+                                      <div className="flex items-center gap-3">
+                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isQna ? 'bg-amber-500/10 text-amber-500' : 'bg-indigo-500/10 text-indigo-500'}`}>
+                                          {isQna ? <Volume2 className="w-4.5 h-4.5" /> : <Sparkles className="w-4.5 h-4.5" />}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <h4 className="text-xs font-black text-foreground leading-tight truncate">{ann.title}</h4>
+                                          <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mt-0.5">By {ann.author} · {formatTimelineDateTime(ann.createdAt).date}</p>
+                                        </div>
+                                      </div>
+                                      <p className="text-xs font-medium text-muted-foreground leading-relaxed">
+                                        {ann.message}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                                {displayAnnouncements.length === 0 && (
+                                  <div className="text-center py-6 text-xs text-muted-foreground font-semibold bg-card rounded-2xl border border-border/40 p-4 shadow-sm">
+                                    No announcements available.
+                                  </div>
+                                )}
+                              </AccordionContent>
+                            </AccordionItem>
+                          </Accordion>
                         </div>
                       </div>
 
@@ -2122,7 +2103,7 @@ export default function StudentDashboard() {
                               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
                                 <div className="flex flex-col border-b border-white/10 pb-1">
                                   <span className="text-[9px] text-indigo-200 uppercase font-bold tracking-wider">Batch</span>
-                                  <span className="font-extrabold text-white mt-0.5 truncate">{user?.program || user?.courseName || 'BCA'}</span>
+                                  <span className="font-extrabold text-white mt-0.5 truncate">{user?.assignedBatch?.name || user?.batchName || 'N/A'}</span>
                                 </div>
                                 <div className="flex flex-col border-b border-white/10 pb-1">
                                   <span className="text-[9px] text-indigo-200 uppercase font-bold tracking-wider">Campus</span>
@@ -2155,9 +2136,9 @@ export default function StudentDashboard() {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         {[
                           {
-                            label: 'Batches Enrolled',
-                            value: totalCourses,
-                            icon: <BookOpen className="w-5 h-5 text-purple-600 dark:text-purple-400" />,
+                            label: 'Active Batches',
+                            value: activeBatchCount,
+                            icon: <BookOpen className="w-5 h-5 text-purple-650 dark:text-purple-400" />,
                             color: 'from-purple-500/10 via-purple-500/5 to-transparent border-purple-500/20 text-purple-650 dark:text-purple-400 hover:border-purple-500/40 shadow-purple-500/5'
                           },
                           {
@@ -2201,41 +2182,60 @@ export default function StudentDashboard() {
                             My Batches
                           </h3>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {/* BCA Batch Card */}
-                            <Card
-                              className="bg-gradient-to-br from-amber-50/60 via-amber-100/10 to-yellow-50/20 dark:from-amber-950/20 dark:via-yellow-950/5 dark:to-stone-900 border border-amber-500/35 rounded-2xl p-5 hover:shadow-xl hover:border-amber-500/50 transition-all duration-300 group cursor-pointer"
-                              onClick={() => {
-                                if (purchasedCourses.length > 0) {
-                                  handleVideoClick(purchasedCourses[0]._id);
-                                } else {
-                                  navigate('/student/courses');
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-xl bg-red-500/10 dark:bg-red-500/20 flex items-center justify-center font-black text-red-600 dark:text-red-400 text-lg border border-red-500/20 shadow-sm">
-                                  BCA
-                                </div>
-                                <div>
-                                  <h4 className="font-bold text-sm text-foreground">BCA Batch</h4>
-                                  <p className="text-xs text-muted-foreground font-medium">{user?.branchName || user?.institute?.name || 'GFI Institute'}</p>
-                                </div>
-                              </div>
+                            {purchasedCourses.map((course: any) => {
+                              const lessonHistory = watchHistory.filter(h => {
+                                const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
+                                return progId && progId.toString() === course._id.toString();
+                              });
+                              const progress = lessonHistory.length > 0
+                                ? Math.round(lessonHistory.reduce((sum, current) => sum + current.progress, 0) / lessonHistory.length)
+                                : 0;
+                              const completedTopicsCount = lessonHistory.filter(h => h.progress >= 100).length;
+                              return (
+                                <Card
+                                  key={course._id}
+                                  className="bg-gradient-to-br from-indigo-50/60 via-purple-100/10 to-violet-50/20 dark:from-indigo-950/20 dark:via-purple-950/5 dark:to-stone-900 border border-primary/20 rounded-2xl p-5 hover:shadow-xl hover:border-primary/45 transition-all duration-300 group cursor-pointer"
+                                  onClick={() => handleVideoClick(course._id)}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center font-black text-primary text-sm border border-primary/20 shadow-sm overflow-hidden shrink-0">
+                                      {course.thumbnail ? (
+                                        <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover" />
+                                      ) : (
+                                        course.title.slice(0, 3).toUpperCase()
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <h4 className="font-bold text-sm text-foreground truncate">{course.title}</h4>
+                                      <p className="text-xs text-muted-foreground font-medium truncate">{course.instructor || 'Faculty Instructor'}</p>
+                                    </div>
+                                  </div>
 
-                              <div className="mt-6 space-y-3">
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className="text-muted-foreground font-medium">Completion Progress</span>
-                                  <span className="font-semibold text-amber-600 dark:text-amber-400">0% complete</span>
-                                </div>
-                                <Progress value={0} className="h-2 bg-amber-200/20 dark:bg-amber-900/10" />
-                                <div className="flex justify-between items-center text-xs text-muted-foreground pt-1">
-                                  <span className="font-medium">1 / 31 Topics Completed</span>
-                                  <span className="flex items-center gap-1 text-primary group-hover:text-primary/80 font-bold group-hover:underline transition-colors">
-                                    Resume <ChevronRight className="w-3.5 h-3.5" />
-                                  </span>
-                                </div>
-                              </div>
-                            </Card>
+                                  <div className="mt-6 space-y-3">
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-muted-foreground font-medium">Completion Progress</span>
+                                      <span className="font-semibold text-primary">{progress}% complete</span>
+                                    </div>
+                                    <Progress value={progress} className="h-2 bg-muted-foreground/10" />
+                                    <div className="flex justify-between items-center text-xs text-muted-foreground pt-1">
+                                      <span className="font-medium">{completedTopicsCount} Topics Completed</span>
+                                      <span className="flex items-center gap-1 text-primary group-hover:text-primary/80 font-bold group-hover:underline transition-colors">
+                                        Resume <ChevronRight className="w-3.5 h-3.5" />
+                                      </span>
+                                    </div>
+                                  </div>
+                                </Card>
+                              );
+                            })}
+
+                            {purchasedCourses.length === 0 && (
+                              <Card className="col-span-1 sm:col-span-2 border-dashed border-border/80 bg-card/25 rounded-2xl">
+                                <CardContent className="p-8 text-center flex flex-col items-center justify-center">
+                                  <BookOpen className="w-8 h-8 text-muted-foreground/35 mb-2.5 opacity-40" />
+                                  <p className="text-xs font-semibold text-muted-foreground">You are not enrolled in any courses.</p>
+                                </CardContent>
+                              </Card>
+                            )}
 
                             {/* Explorer Card */}
                             <Card
@@ -2331,7 +2331,7 @@ export default function StudentDashboard() {
                             ))}
                             {displayActivities.length === 0 && (
                               <div className="text-center py-10 text-xs text-muted-foreground font-semibold border border-dashed rounded-2xl bg-card shadow-sm">
-                                No recent activity recorded.
+                                No recent activity.
                               </div>
                             )}
                           </div>
@@ -2470,51 +2470,122 @@ export default function StudentDashboard() {
             {/* 4️⃣ STUDY MATERIALS TAB */}
             {/* =========================================== */}
             {activeTab === 'materials' && (
-              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold flex items-center gap-2"><FileText className="w-6 h-6 text-primary" /> Study Materials</h2>
-                    <p className="text-muted-foreground text-sm mt-1">Batch documents, notes, and resources from your faculty</p>
-                  </div>
-                </div>
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="space-y-5">
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="relative md:col-span-2">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      className="pl-10"
-                      value={materialsSearch}
-                      onChange={(e) => setMaterialsSearch(e.target.value)}
-                      placeholder="Search materials by title or description"
-                    />
+                {/* ===== MOBILE HEADER ===== */}
+                <div className="flex lg:hidden flex-col space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center shrink-0">
+                          <FileText className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <h2 className="text-xl font-black tracking-tight text-foreground">Study Materials</h2>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground font-medium pl-0.5">Access batch documents, notes, and resources shared by your faculty</p>
+                    </div>
+                    <div className="w-14 h-14 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ml-3">
+                      <GraduationCap className="w-7 h-7 text-indigo-500 dark:text-indigo-400" />
+                    </div>
                   </div>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={selectedMaterialCourseId}
-                    onChange={(e) => setSelectedMaterialCourseId(e.target.value)}
-                  >
-                    <option value="">All Assigned Batches</option>
-                    {purchasedCourses.map((course) => (
-                      <option key={course._id} value={course._id}>{course.title}</option>
-                    ))}
-                  </select>
-                </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {['All', 'pdf'].map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setSelectedMaterialType(type)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${selectedMaterialType === type
-                          ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20'
-                          : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-                        }`}
+                  {/* Mobile Search + Filter */}
+                  <div className="relative flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        className="pl-11 pr-4 h-12 bg-card border-border/50 rounded-2xl shadow-sm w-full text-xs font-semibold"
+                        value={materialsSearch}
+                        onChange={(e) => setMaterialsSearch(e.target.value)}
+                        placeholder="Search materials by title or description"
+                      />
+                    </div>
+                    <Button variant="outline" className="h-12 w-12 rounded-2xl border-border/50 bg-card p-0 flex items-center justify-center shrink-0 shadow-sm">
+                      <SlidersHorizontal className="w-4 h-4 text-foreground/80" />
+                    </Button>
+                  </div>
+
+                  {/* Mobile batch dropdown */}
+                  <div className="flex items-center gap-2 bg-card border border-border/50 rounded-2xl px-4 py-3 shadow-sm">
+                    <Settings className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <select
+                      className="flex-1 bg-transparent text-sm font-semibold text-foreground outline-none appearance-none cursor-pointer"
+                      value={selectedMaterialCourseId}
+                      onChange={(e) => setSelectedMaterialCourseId(e.target.value)}
                     >
-                      {type === 'All' ? 'All Types' : type.toUpperCase()}
-                    </button>
-                  ))}
+                      <option value="">All Assigned Batches</option>
+                      {purchasedCourses.map((course) => (
+                        <option key={course._id} value={course._id}>{course.title}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                  </div>
+
+                  {/* Mobile type filter pills */}
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                    {['All', 'pdf'].map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setSelectedMaterialType(type)}
+                        className={`px-4 py-2 rounded-full text-xs font-bold transition-all border whitespace-nowrap ${selectedMaterialType === type
+                            ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20'
+                            : 'border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                          }`}
+                      >
+                        {type === 'All' ? '📋 All Types' : `📄 ${type.toUpperCase()}`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
+                {/* ===== DESKTOP HEADER ===== */}
+                <div className="hidden lg:block space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold flex items-center gap-2"><FileText className="w-6 h-6 text-primary" /> Study Materials</h2>
+                      <p className="text-muted-foreground text-sm mt-1">Batch documents, notes, and resources from your faculty</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="relative md:col-span-2">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        className="pl-10"
+                        value={materialsSearch}
+                        onChange={(e) => setMaterialsSearch(e.target.value)}
+                        placeholder="Search materials by title or description"
+                      />
+                    </div>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={selectedMaterialCourseId}
+                      onChange={(e) => setSelectedMaterialCourseId(e.target.value)}
+                    >
+                      <option value="">All Assigned Batches</option>
+                      {purchasedCourses.map((course) => (
+                        <option key={course._id} value={course._id}>{course.title}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {['All', 'pdf'].map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setSelectedMaterialType(type)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${selectedMaterialType === type
+                            ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20'
+                            : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                          }`}
+                      >
+                        {type === 'All' ? 'All Types' : type.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ===== MATERIAL LIST ===== */}
                 {materialsLoading ? (
                   <div className="grid gap-4">
                     {[1, 2, 3].map((n) => <div key={n} className="h-20 bg-muted rounded-2xl animate-pulse" />)}
@@ -2529,75 +2600,96 @@ export default function StudentDashboard() {
                         mp4: <Video className="w-5 h-5 text-violet-500" />,
                       };
                       return (
-                        <Card key={material.id} className="border-border/60 bg-card hover:border-primary/30 transition-all group">
-                          <CardContent className="p-4 flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+                        <Card key={material.id} className="border-border/40 bg-card hover:border-primary/30 transition-all group rounded-2xl overflow-hidden">
+                          <CardContent className="p-4 flex items-start gap-3">
+                            {/* Icon */}
+                            <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                               {iconMap[material.fileType] || <FileText className="w-5 h-5 text-muted-foreground" />}
                             </div>
+
+                            {/* Content */}
                             <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-sm truncate">{material.title}</div>
-                              {material.description && (
-                                <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{material.description}</div>
-                              )}
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-red-500/10 text-red-600 border-red-500/20">
-                                  {String(material.fileType || 'pdf').toUpperCase()}
-                                </span>
-                                <span className="text-xs text-muted-foreground">{material.courseTitle || 'Unknown Batch'}</span>
-                                <span className="text-xs text-muted-foreground">· {material.uploaderName || 'Faculty'}</span>
-                                <span className="text-xs text-muted-foreground">· {((material.fileSize || 0) / (1024 * 1024)).toFixed(2)} MB</span>
-                                <span className="text-xs text-muted-foreground">· {new Date(material.createdAt).toLocaleDateString()}</span>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-bold text-sm text-foreground truncate flex items-center gap-1">
+                                    <span className="text-muted-foreground">•</span> {material.title}
+                                  </div>
+                                  {material.description && (
+                                    <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1 lg:line-clamp-2">{material.description}</div>
+                                  )}
+                                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-red-500/10 text-red-600 border-red-500/20 uppercase">
+                                      {String(material.fileType || 'pdf').toUpperCase()}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground font-semibold">{material.courseTitle || 'Unknown Batch'}</span>
+                                    <span className="text-[10px] text-muted-foreground">· {material.uploaderName || 'Admin Manager'}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
+                                    <span>{((material.fileSize || 0) / (1024 * 1024)).toFixed(2)} MB</span>
+                                    <span>· {new Date(material.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                  </div>
+                                </div>
+
+                                {/* Download Button */}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="shrink-0 text-primary border-primary/30 hover:bg-primary/5 font-bold text-[11px] rounded-xl gap-1 h-8 px-3"
+                                  onClick={async () => {
+                                    const isProtected =
+                                      (material.title || '').toLowerCase().includes('protected') ||
+                                      (material.title || '').toLowerCase().includes('restricted') ||
+                                      (material.title || '').toLowerCase().includes('notes') ||
+                                      (material.downloadUrl || '').toLowerCase().includes('protected') ||
+                                      (material.downloadUrl || '').toLowerCase().includes('restricted') ||
+                                      (material.downloadUrl || '').toLowerCase().includes('notes');
+
+                                    if (isProtected) {
+                                      try {
+                                        await apiFetch('/security/audit', {
+                                          method: 'POST',
+                                          body: JSON.stringify({
+                                            eventType: 'download_attempt',
+                                            details: `Student downloaded protected study material: ${material.title} (${material.fileType})`,
+                                            batchId: material.courseId || null,
+                                            deviceFingerprint: navigator.userAgent
+                                          })
+                                        });
+                                      } catch (e) {
+                                        console.error('Failed to log download security event', e);
+                                      }
+                                    }
+
+                                    const token = localStorage.getItem('token');
+                                    const url = token
+                                      ? `${getApiUrl(material.downloadUrl)}?token=${encodeURIComponent(token)}`
+                                      : getApiUrl(material.downloadUrl);
+                                    window.open(url, '_blank');
+                                  }}
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  Download
+                                </Button>
                               </div>
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="shrink-0 opacity-70 group-hover:opacity-100 transition-opacity gap-1.5"
-                              onClick={async () => {
-                                const isProtected =
-                                  (material.title || '').toLowerCase().includes('protected') ||
-                                  (material.title || '').toLowerCase().includes('restricted') ||
-                                  (material.title || '').toLowerCase().includes('notes') ||
-                                  (material.downloadUrl || '').toLowerCase().includes('protected') ||
-                                  (material.downloadUrl || '').toLowerCase().includes('restricted') ||
-                                  (material.downloadUrl || '').toLowerCase().includes('notes');
-
-                                if (isProtected) {
-                                  try {
-                                    await apiFetch('/security/audit', {
-                                      method: 'POST',
-                                      body: JSON.stringify({
-                                        eventType: 'download_attempt',
-                                        details: `Student downloaded protected study material: ${material.title} (${material.fileType})`,
-                                        batchId: material.courseId || null,
-                                        deviceFingerprint: navigator.userAgent
-                                      })
-                                    });
-                                  } catch (e) {
-                                    console.error('Failed to log download security event', e);
-                                  }
-                                }
-
-                                const token = localStorage.getItem('token');
-                                const url = token
-                                  ? `${getApiUrl(material.downloadUrl)}?token=${encodeURIComponent(token)}`
-                                  : getApiUrl(material.downloadUrl);
-                                window.open(url, '_blank');
-                              }}
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              Download
-                            </Button>
                           </CardContent>
                         </Card>
                       );
                     })}
+
+                    {/* Empty State */}
                     {studyMaterials.length === 0 && (
-                      <div className="p-12 text-center border border-dashed border-border rounded-2xl">
-                        <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-40" />
-                        <h4 className="font-semibold">No materials found</h4>
-                        <p className="text-muted-foreground text-sm mt-1">Try changing search or filters.</p>
-                      </div>
+                      <Card className="border-border/40 bg-gradient-to-r from-indigo-50/30 to-purple-50/30 dark:from-indigo-950/10 dark:to-purple-950/10 rounded-2xl overflow-hidden">
+                        <CardContent className="p-6 flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950/30 flex items-center justify-center shrink-0">
+                            <FileText className="w-6 h-6 text-indigo-500/60" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-sm text-foreground">No materials found</h4>
+                            <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">Study materials will appear here when they are shared by your faculty.</p>
+                          </div>
+                        </CardContent>
+                      </Card>
                     )}
                   </div>
                 )}
@@ -3397,7 +3489,7 @@ export default function StudentDashboard() {
                     <Card className="border-dashed border-border/80 bg-card/20 rounded-2xl">
                       <CardContent className="p-12 text-center flex flex-col items-center justify-center">
                         <Bell className="w-10 h-10 text-muted-foreground/35 mb-3" />
-                        <p className="text-sm font-semibold text-muted-foreground">No notifications available in this category.</p>
+                        <p className="text-sm font-semibold text-muted-foreground">You're all caught up.</p>
                       </CardContent>
                     </Card>
                   )}
@@ -3496,7 +3588,7 @@ export default function StudentDashboard() {
                         {liveClasses.filter(c => new Date(c.endTime) > new Date() && c.status !== 'cancelled').length === 0 && (
                           <div className="p-8 text-center border border-dashed border-border rounded-xl">
                             <Video className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-40" />
-                            <p className="text-sm text-muted-foreground">No upcoming live classes scheduled.</p>
+                            <p className="text-sm text-muted-foreground">No live classes scheduled.</p>
                           </div>
                         )}
                       </div>
@@ -3673,76 +3765,111 @@ export default function StudentDashboard() {
                 {/* =========================================== */}
                 <div className="block lg:hidden space-y-6">
                   
-                  {/* Premium Student Profile Card */}
-                  <div className="bg-gradient-to-br from-purple-500/10 via-indigo-500/5 to-transparent border border-purple-500/25 rounded-2xl p-5 shadow-sm space-y-4 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none"></div>
-                    <div className="flex items-center gap-4">
-                      <Avatar className="w-16 h-16 border-2 border-primary/25 shadow-md">
-                        <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getApiUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
-                        <AvatarFallback className="bg-primary/10 text-primary text-lg font-black">AJ</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap min-w-0">
-                          <h2 className="text-sm font-black text-foreground leading-none truncate max-w-full">👤 {user?.name || 'Anal Joseph'}</h2>
-                          <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase rounded-md tracking-wider py-0.5 px-1.5 leading-none shrink-0">🟢 Active Student</Badge>
+                  {/* ===== PROFILE HEADER CARD ===== */}
+                  <div className="bg-card border border-border/40 rounded-3xl p-5 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-primary/5 to-transparent rounded-full -translate-y-8 translate-x-8 pointer-events-none"></div>
+                    <div className="flex items-start gap-4">
+                      <div className="relative shrink-0">
+                        <Avatar className="w-16 h-16 border-[3px] border-primary/20 shadow-lg">
+                          <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+                          <AvatarFallback className="bg-primary/10 text-primary text-lg font-black">{(user?.name || 'S').charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-emerald-500 rounded-full border-2 border-card flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5 text-white" />
                         </div>
-                        <p className="text-[11px] text-muted-foreground font-semibold">ID: {user?.user_id || '484613'}</p>
-                        <div className="text-[11px] font-semibold text-foreground/80 flex flex-col gap-0.5 pt-1">
-                          <span className="truncate">🎓 {user?.institute?.name || 'GFI Institute'}</span>
-                          <span className="truncate text-muted-foreground">📘 {user?.program?.name || 'BCA E2E Test Program'}</span>
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-base font-black text-foreground leading-tight truncate">{user?.name || 'Student'}</h2>
+                          <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[8px] font-black uppercase rounded-md tracking-wider py-0.5 px-1.5 leading-none shrink-0">🟢 Active Student</Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground font-bold">ID: {user?.studentId || user?.user_id || 'N/A'}</p>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground/80">
+                            <Building2 className="w-3 h-3 text-muted-foreground shrink-0" />
+                            <span className="truncate">{user?.institute?.name || 'N/A'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+                            <BookOpen className="w-3 h-3 text-muted-foreground shrink-0" />
+                            <span className="truncate">{user?.assignedBatch?.name || user?.batchName || 'N/A'}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="shrink-0 h-9 rounded-xl text-[10px] font-bold gap-1.5 border-primary/30 text-primary hover:bg-primary/5 mt-1"
+                        onClick={() => {
+                          setMobileSettingsExpanded(mobileSettingsExpanded === 'profile' ? null : 'profile');
+                        }}
+                      >
+                        <Settings className="w-3 h-3" />
+                        Edit Profile
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* ===== SEARCH BAR ===== */}
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search profile, security, enrollments..."
+                      className="pl-11 pr-4 h-12 bg-card border-border/40 rounded-2xl text-xs font-semibold shadow-sm"
+                    />
+                  </div>
+
+                  {/* ===== LEARNING OVERVIEW ===== */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Learning Overview</span>
+                      <span className="text-[11px] font-black text-primary">{avgProgress}% Complete</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {/* Active Batch */}
+                      <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
+                        <div className="w-10 h-10 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center">
+                          <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Active Batch</p>
+                          <p className="text-sm font-black text-foreground mt-0.5">{activeBatchCount === 1 ? '1 Batch' : '0 Batch'}</p>
+                        </div>
+                      </div>
+                      {/* Courses Enrolled */}
+                      <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
+                        <div className="w-10 h-10 mx-auto rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+                          <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Courses Enrolled</p>
+                          <p className="text-sm font-black text-foreground mt-0.5">{purchasedCourses.length} Enrolled</p>
+                        </div>
+                      </div>
+                      {/* Security Score */}
+                      <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
+                        <div className="w-10 h-10 mx-auto rounded-2xl bg-amber-500/10 flex items-center justify-center">
+                          <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Security Score</p>
+                          <p className="text-sm font-black text-foreground mt-0.5">{securityScore} <span className="text-[9px] text-muted-foreground font-bold">/ 100</span></p>
+                          <p className="text-[9px] font-bold text-emerald-500 -mt-0.5">{securityScore >= 80 ? 'Excellent' : securityScore >= 60 ? 'Good' : 'Needs Attention'}</p>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Settings Search bar */}
-                  <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search profile, security, enrollments..."
-                      className="pl-10 bg-background/50 h-10 rounded-xl text-xs border-border/60"
-                    />
-                  </div>
-
-                  {/* Learning Progress Card */}
-                  <Card className="border border-border/40 bg-card rounded-2xl shadow-sm overflow-hidden">
-                    <CardContent className="p-4 space-y-4">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Learning Progress</span>
-                        <span className="font-black text-purple-600 dark:text-purple-400">82% Complete</span>
-                      </div>
-                      <Progress value={82} className="h-2 bg-slate-100 dark:bg-zinc-800 [&>div]:bg-gradient-to-r [&>div]:from-purple-600 [&>div]:to-indigo-600 rounded-full" />
-                      
-                      <div className="grid grid-cols-3 gap-2 pt-2 text-center border-t border-border/40">
-                        <div className="space-y-0.5">
-                          <p className="text-[9px] text-muted-foreground font-black uppercase tracking-wider">Active</p>
-                          <p className="text-xs font-black text-foreground">3 Batches</p>
-                        </div>
-                        <div className="space-y-0.5 border-x border-border/40">
-                          <p className="text-[9px] text-muted-foreground font-black uppercase tracking-wider">Certificates</p>
-                          <p className="text-xs font-black text-foreground">12 Awards</p>
-                        </div>
-                        <div className="space-y-0.5">
-                          <p className="text-[9px] text-muted-foreground font-black uppercase tracking-wider">Security</p>
-                          <p className="text-xs font-black text-emerald-500">Score 100</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Mobile Quick Access Shortcuts */}
-                  <div className="space-y-2">
-                    <h3 className="text-[10px] font-black uppercase tracking-wider text-muted-foreground pl-1">
-                      Quick Access
-                    </h3>
-                    <div className="grid grid-cols-2 gap-3">
+                  {/* ===== QUICK ACCESS ===== */}
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Quick Access</span>
+                    <div className="grid grid-cols-3 gap-2.5">
                       {[
-                        { id: 'live-classes', label: 'Live Classes', icon: Video, color: 'text-rose-500 bg-rose-500/10' },
-                        { id: 'materials', label: 'Study Materials', icon: FileText, color: 'text-purple-600 bg-purple-50/10 dark:text-purple-400 dark:bg-purple-950/20' },
-                        { id: 'access', label: 'Access Management', icon: Key, color: 'text-amber-500 bg-amber-500/10' },
-                        { id: 'security', label: 'Security & Devices', icon: ShieldCheck, color: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-400 dark:bg-emerald-950/20' },
-                        { id: 'faculty', label: 'Faculty Contacts', icon: Users, color: 'text-blue-500 bg-blue-500/10' },
-                        { id: 'notifications', label: 'Notifications', icon: Bell, color: 'text-indigo-500 bg-indigo-500/10' }
+                        { id: 'live-classes', label: 'Live Classes', sub: 'Join live sessions', icon: Video, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+                        { id: 'materials', label: 'Study Materials', sub: 'Access resources', icon: FileText, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-500/10' },
+                        { id: 'access', label: 'Access Management', sub: 'Manage access', icon: Key, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10' },
+                        { id: 'security', label: 'Security & Devices', sub: 'Manage security', icon: ShieldCheck, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10' },
+                        { id: 'faculty', label: 'Faculty Contacts', sub: 'Connect faculty', icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+                        { id: 'notifications', label: 'Notifications', sub: 'View updates', icon: Bell, color: 'text-violet-500', bg: 'bg-violet-500/10' }
                       ].map((item) => {
                         const Icon = item.icon;
                         return (
@@ -3753,370 +3880,338 @@ export default function StudentDashboard() {
                               setActiveTab(item.id);
                               navigate(`/student?tab=${item.id}`);
                             }}
-                            className="flex items-center gap-3 p-3 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-left active:scale-[0.98] shadow-sm select-none touch-btn min-h-[48px] min-w-0"
+                            className="flex flex-col items-center gap-2 p-3.5 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-center active:scale-[0.97] shadow-sm select-none touch-btn"
                           >
-                            <div className={`p-2 rounded-xl shrink-0 ${item.color} flex items-center justify-center`}>
-                              <Icon className="w-4 h-4" />
+                            <div className={`w-10 h-10 rounded-2xl ${item.bg} flex items-center justify-center`}>
+                              <Icon className={`w-4.5 h-4.5 ${item.color}`} />
                             </div>
-                            <span className="text-xs font-bold text-foreground leading-tight min-w-0 flex-1">{item.label}</span>
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] font-black text-foreground leading-tight block">{item.label}</span>
+                              <span className="text-[8px] text-muted-foreground font-semibold block leading-tight">{item.sub}</span>
+                            </div>
+                            <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  <div className="h-px bg-border/40 my-2" />
-                  
-                  {/* Row 1: Profile Settings */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'profile' ? null : 'profile')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <User className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                        <span>Profile Settings</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'profile' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'profile' && (
-                      <div className="p-4 border-t border-border/45 space-y-5 animate-in fade-in slide-in-from-top-2 duration-200">
-                        {/* Profile completion / details */}
-                        <div className="flex flex-col items-center text-center space-y-3 pb-4 border-b border-border/40">
-                          <div className="relative w-24 h-24 group">
-                            <div className="w-full h-full rounded-full overflow-hidden border-4 border-purple-500/20 bg-muted flex items-center justify-center relative shadow-inner">
-                              <img 
-                                src={user?.avatar ? (user.avatar.startsWith('/') ? getApiUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} 
-                                alt="Student Avatar" 
-                                className="w-full h-full object-cover" 
-                              />
+                  {/* ===== SETTINGS MENU ITEMS ===== */}
+                  <div className="space-y-2.5">
+                    {/* Profile Settings */}
+                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'profile' ? null : 'profile')}
+                        className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-purple-500/10 flex items-center justify-center shrink-0">
+                          <User className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <span className="text-xs font-black text-foreground block">Profile Settings</span>
+                          <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">Manage your personal information</span>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-300 ${mobileSettingsExpanded === 'profile' ? 'rotate-90' : ''}`} />
+                      </button>
+                      {mobileSettingsExpanded === 'profile' && (
+                        <div className="p-4 border-t border-border/40 space-y-5 animate-in fade-in slide-in-from-top-2 duration-200">
+                          {/* Profile completion / details */}
+                          <div className="flex flex-col items-center text-center space-y-3 pb-4 border-b border-border/40">
+                            <div className="relative w-24 h-24 group">
+                              <div className="w-full h-full rounded-full overflow-hidden border-4 border-purple-500/20 bg-muted flex items-center justify-center relative shadow-inner">
+                                <img 
+                                  src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} 
+                                  alt="Student Avatar" 
+                                  className="w-full h-full object-cover" 
+                                />
+                              </div>
+                              <button 
+                                onClick={() => setAvatarModalOpen(true)}
+                                className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                              >
+                                <Camera className="w-5 h-5 mb-0.5" />
+                                <span className="text-[9px] font-black uppercase tracking-wider">Change</span>
+                              </button>
                             </div>
-                            <button 
-                              onClick={() => setAvatarModalOpen(true)}
-                              className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                            >
-                              <Camera className="w-5 h-5 mb-0.5" />
-                              <span className="text-[9px] font-black uppercase tracking-wider">Change</span>
-                            </button>
-                          </div>
-                          <div>
-                            <h3 className="font-extrabold text-sm text-foreground truncate">{user?.name || 'Student Name'}</h3>
-                            <span className="text-[10px] font-bold text-muted-foreground">ID: {user?.user_id} · {user?.courseName || 'BCA'}</span>
-                          </div>
-                          <Button size="sm" variant="outline" className="text-[10px] font-bold h-8 rounded-xl touch-btn" onClick={() => setAvatarModalOpen(true)}>
-                            Change Profile Photo
-                          </Button>
-                        </div>
-
-                        {/* Profile form */}
-                        <div className="space-y-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Full Name</label>
-                            <Input 
-                              className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                              value={profileForm.name} 
-                              onChange={(e) => setProfileForm((f) => ({ ...f, name: e.target.value }))} 
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
-                            <Input 
-                              className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                              value={profileForm.phone} 
-                              onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))} 
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Academic Campus</label>
-                            <Input className="rounded-xl bg-muted border-border/50 text-xs text-muted-foreground" value={String(user?.branchName || '')} disabled />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Enrolled Cohort</label>
-                            <Input className="rounded-xl bg-muted border-border/50 text-xs text-muted-foreground" value={String(user?.courseName || '')} disabled />
-                          </div>
-                          <div className="flex justify-end">
-                            <Button 
-                              className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold px-5 py-2 rounded-xl text-xs shadow-md shadow-purple-500/10 touch-btn"
-                              onClick={async () => {
-                                try {
-                                  const updated = await apiFetch('/student-account/profile', { method: 'PUT', body: JSON.stringify(profileForm) });
-                                  localStorage.setItem('user', JSON.stringify(updated));
-                                  setUser(updated);
-                                  toast.success('Profile details saved!');
-                                } catch (e: any) { toast.error(e.message || 'Failed to update profile'); }
-                              }}
-                            >
-                              Save Details
+                            <div>
+                              <h3 className="font-extrabold text-sm text-foreground truncate">{user?.name || 'Student Name'}</h3>
+                              <span className="text-[10px] font-bold text-muted-foreground">ID: {user?.studentId || user?.user_id} · {user?.assignedBatch?.name || user?.batchName || 'N/A'}</span>
+                            </div>
+                            <Button size="sm" variant="outline" className="text-[10px] font-bold h-8 rounded-xl touch-btn" onClick={() => setAvatarModalOpen(true)}>
+                              Change Profile Photo
                             </Button>
                           </div>
-                        </div>
 
-                        {/* Account Recovery */}
-                        <div className="pt-4 border-t border-border/40 space-y-4">
-                          <h4 className="font-extrabold text-xs text-foreground flex items-center gap-1.5">
-                            <Mail className="w-4 h-4 text-purple-650" />
-                            <span>Account Recovery</span>
-                          </h4>
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Recovery Email</label>
-                            <Input 
-                              type="email" 
-                              className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                              value={profileForm.recoveryEmail} 
-                              onChange={(e) => setProfileForm((f) => ({ ...f, recoveryEmail: e.target.value }))} 
-                            />
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <Button 
-                              variant="outline"
-                              className="rounded-xl text-xs h-9 touch-btn"
-                              onClick={async () => {
-                                if (!profileForm.recoveryEmail) {
-                                  toast.error('Specify a recovery email first.');
-                                  return;
-                                }
-                                try {
-                                  const resp = await apiFetch('/student-account/password/request-reset', { method: 'POST', body: JSON.stringify({ email: profileForm.recoveryEmail }) });
-                                  toast.success('Reset link dispatched!', { description: `Token (dev): ${resp.resetToken}` });
-                                } catch (e: any) { toast.error(e.message || 'Failed to dispatch reset link'); }
-                              }}
-                            >
-                              Send Reset Link
-                            </Button>
-                            <Button 
-                              className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs h-9 touch-btn"
-                              onClick={async () => {
-                                try {
-                                  const updated = await apiFetch('/student-account/profile', { method: 'PUT', body: JSON.stringify({ recoveryEmail: profileForm.recoveryEmail }) });
-                                  localStorage.setItem('user', JSON.stringify(updated));
-                                  setUser(updated);
-                                  toast.success('Recovery settings saved.');
-                                } catch (e: any) { toast.error(e.message || 'Failed to update recovery email'); }
-                              }}
-                            >
-                              Save Recovery
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Change Password */}
-                        <div className="pt-4 border-t border-border/40 space-y-4">
-                          <h4 className="font-extrabold text-xs text-foreground flex items-center gap-1.5">
-                            <Lock className="w-4 h-4 text-purple-650" />
-                            <span>Change Password</span>
-                          </h4>
-                          <div className="space-y-3">
+                          {/* Profile form */}
+                          <div className="space-y-4">
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Current Password</label>
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Full Name</label>
                               <Input 
-                                type="password" 
                                 className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                                value={passwordForm.currentPassword} 
-                                onChange={(e) => setPasswordForm((f) => ({ ...f, currentPassword: e.target.value }))} 
+                                value={profileForm.name} 
+                                onChange={(e) => setProfileForm((f) => ({ ...f, name: e.target.value }))} 
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">New Password</label>
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
                               <Input 
-                                type="password" 
                                 className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                                value={passwordForm.newPassword} 
-                                onChange={(e) => setPasswordForm((f) => ({ ...f, newPassword: e.target.value }))} 
+                                value={profileForm.phone} 
+                                onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))} 
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Confirm New Password</label>
-                              <Input 
-                                type="password" 
-                                className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                                value={passwordForm.confirmPassword} 
-                                onChange={(e) => setPasswordForm((f) => ({ ...f, confirmPassword: e.target.value }))} 
-                              />
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Academic Campus</label>
+                              <Input className="rounded-xl bg-muted border-border/50 text-xs text-muted-foreground" value={String(user?.branchName || '')} disabled />
                             </div>
-                            <div className="flex justify-end pt-2">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Assigned Batch</label>
+                              <Input className="rounded-xl bg-muted border-border/50 text-xs text-muted-foreground" value={String(user?.assignedBatch?.name || user?.batchName || '')} disabled />
+                            </div>
+                            <div className="flex justify-end">
                               <Button 
-                                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs touch-btn"
+                                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold px-5 py-2 rounded-xl text-xs shadow-md shadow-purple-500/10 touch-btn"
                                 onClick={async () => {
                                   try {
-                                    const resp = await apiFetch('/student-account/password/change', { method: 'POST', body: JSON.stringify(passwordForm) });
-                                    toast.success('Password changed successfully!');
-                                    setTimeout(() => {
-                                      localStorage.removeItem('token');
-                                      localStorage.removeItem('user');
-                                      navigate('/');
-                                    }, 1500);
-                                  } catch (e: any) { toast.error(e.message || 'Failed to change password'); }
+                                    const updated = await apiFetch('/student-account/profile', { method: 'PUT', body: JSON.stringify(profileForm) });
+                                    localStorage.setItem('user', JSON.stringify(updated));
+                                    setUser(updated);
+                                    toast.success('Profile details saved!');
+                                  } catch (e: any) { toast.error(e.message || 'Failed to update profile'); }
                                 }}
                               >
-                                Change Password
+                                Save Details
                               </Button>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Row 2: Security & Devices */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'security' ? null : 'security')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Shield className="w-5 h-5 text-rose-500" />
-                        <span>Security Center</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'security' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'security' && (
-                      <Suspense fallback={<div className="p-4 text-center text-xs text-muted-foreground animate-pulse">Loading Security Center...</div>}>
-                        <SecuritySection
-                          isMobile
-                          categorizedEvents={categorizedEvents}
-                          securityScore={securityScore}
-                          violations={violations}
-                          securityLogs={securityLogs}
-                          parseUserAgentDetails={parseUserAgentDetails}
-                          formatLastActive={formatLastActive}
-                          passwordForm={passwordForm}
-                          setPasswordForm={setPasswordForm}
-                          showCurrentPassword={showCurrentPassword}
-                          setShowCurrentPassword={setShowCurrentPassword}
-                          showNewPassword={showNewPassword}
-                          setShowNewPassword={setShowNewPassword}
-                          showConfirmPassword={showConfirmPassword}
-                          setShowConfirmPassword={setShowConfirmPassword}
-                          passwordStrength={passwordStrength}
-                          apiFetch={apiFetch}
-                          setUser={setUser}
-                          user={user}
-                          setSecurityLogs={setSecurityLogs}
-                          navigate={navigate}
-                        />
-                      </Suspense>
-                    )}
-                  </div>
-
-                  {/* Row 2.5: Notification Preferences */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'notification-preferences' ? null : 'notification-preferences')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Bell className="w-5 h-5 text-violet-500" />
-                        <span>Notification Preferences</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'notification-preferences' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'notification-preferences' && (
-                      <div className="p-4 border-t border-border/45 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200 bg-card">
-                        {renderNotificationPreferencesContent()}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Row 3: Enrollments */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'enrollments' ? null : 'enrollments')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <BookOpen className="w-5 h-5 text-purple-650" />
-                        <span>My Enrollments</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'enrollments' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'enrollments' && (
-                      <div className="p-4 border-t border-border/45 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                        {purchasedCourses.map((course) => (
-                          <div key={course._id} className="p-3 bg-muted/20 rounded-xl border border-border/20 space-y-2">
-                            <div className="flex justify-between items-center text-xs font-bold">
-                              <span className="text-foreground">{course.title}</span>
-                              <span className="text-primary">{continueWatching.find(c => c._id === course._id)?.progress || 0}%</span>
+                          {/* Account Recovery */}
+                          <div className="pt-4 border-t border-border/40 space-y-4">
+                            <h4 className="font-extrabold text-xs text-foreground flex items-center gap-1.5">
+                              <Mail className="w-4 h-4 text-purple-650" />
+                              <span>Account Recovery</span>
+                            </h4>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Recovery Email</label>
+                              <Input 
+                                type="email" 
+                                className="rounded-xl bg-background/50 border-border/50 text-xs" 
+                                value={profileForm.recoveryEmail} 
+                                onChange={(e) => setProfileForm((f) => ({ ...f, recoveryEmail: e.target.value }))} 
+                              />
                             </div>
-                            <Progress value={continueWatching.find(c => c._id === course._id)?.progress || 0} className="h-1 bg-muted [&>div]:bg-primary" />
+                            <div className="flex justify-end gap-2">
+                              <Button 
+                                variant="outline"
+                                className="rounded-xl text-xs h-9 touch-btn"
+                                onClick={async () => {
+                                  if (!profileForm.recoveryEmail) {
+                                    toast.error('Specify a recovery email first.');
+                                    return;
+                                  }
+                                  try {
+                                    const resp = await apiFetch('/student-account/password/request-reset', { method: 'POST', body: JSON.stringify({ email: profileForm.recoveryEmail }) });
+                                    toast.success('Reset link dispatched!', { description: `Token (dev): ${resp.resetToken}` });
+                                  } catch (e: any) { toast.error(e.message || 'Failed to dispatch reset link'); }
+                                }}
+                              >
+                                Send Reset Link
+                              </Button>
+                              <Button 
+                                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs h-9 touch-btn"
+                                onClick={async () => {
+                                  try {
+                                    const updated = await apiFetch('/student-account/profile', { method: 'PUT', body: JSON.stringify({ recoveryEmail: profileForm.recoveryEmail }) });
+                                    localStorage.setItem('user', JSON.stringify(updated));
+                                    setUser(updated);
+                                    toast.success('Recovery settings saved.');
+                                  } catch (e: any) { toast.error(e.message || 'Failed to update recovery email'); }
+                                }}
+                              >
+                                Save Recovery
+                              </Button>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+
+                          {/* Change Password */}
+                          <div className="pt-4 border-t border-border/40 space-y-4">
+                            <h4 className="font-extrabold text-xs text-foreground flex items-center gap-1.5">
+                              <Lock className="w-4 h-4 text-purple-650" />
+                              <span>Change Password</span>
+                            </h4>
+                            <div className="space-y-3">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Current Password</label>
+                                <Input 
+                                  type="password" 
+                                  className="rounded-xl bg-background/50 border-border/50 text-xs" 
+                                  value={passwordForm.currentPassword} 
+                                  onChange={(e) => setPasswordForm((f) => ({ ...f, currentPassword: e.target.value }))} 
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">New Password</label>
+                                <Input 
+                                  type="password" 
+                                  className="rounded-xl bg-background/50 border-border/50 text-xs" 
+                                  value={passwordForm.newPassword} 
+                                  onChange={(e) => setPasswordForm((f) => ({ ...f, newPassword: e.target.value }))} 
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Confirm New Password</label>
+                                <Input 
+                                  type="password" 
+                                  className="rounded-xl bg-background/50 border-border/50 text-xs" 
+                                  value={passwordForm.confirmPassword} 
+                                  onChange={(e) => setPasswordForm((f) => ({ ...f, confirmPassword: e.target.value }))} 
+                                />
+                              </div>
+                              <div className="flex justify-end pt-2">
+                                <Button 
+                                  className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs touch-btn"
+                                  onClick={async () => {
+                                    try {
+                                      const resp = await apiFetch('/student-account/password/change', { method: 'POST', body: JSON.stringify(passwordForm) });
+                                      toast.success('Password changed successfully!');
+                                      setTimeout(() => {
+                                        localStorage.removeItem('token');
+                                        localStorage.removeItem('user');
+                                        navigate('/');
+                                      }, 1500);
+                                    } catch (e: any) { toast.error(e.message || 'Failed to change password'); }
+                                  }}
+                                >
+                                  Change Password
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Security Center */}
+                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'security' ? null : 'security')}
+                        className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-rose-500/10 flex items-center justify-center shrink-0">
+                          <Shield className="w-5 h-5 text-rose-500" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <span className="text-xs font-black text-foreground block">Security Center</span>
+                          <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">Password, 2FA & security settings</span>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-300 ${mobileSettingsExpanded === 'security' ? 'rotate-90' : ''}`} />
+                      </button>
+                      {mobileSettingsExpanded === 'security' && (
+                        <Suspense fallback={<div className="p-4 text-center text-xs text-muted-foreground animate-pulse">Loading Security Center...</div>}>
+                          <SecuritySection
+                            isMobile
+                            categorizedEvents={categorizedEvents}
+                            securityScore={securityScore}
+                            violations={violations}
+                            securityLogs={securityLogs}
+                            parseUserAgentDetails={parseUserAgentDetails}
+                            formatLastActive={formatLastActive}
+                            passwordForm={passwordForm}
+                            setPasswordForm={setPasswordForm}
+                            showCurrentPassword={showCurrentPassword}
+                            setShowCurrentPassword={setShowCurrentPassword}
+                            showNewPassword={showNewPassword}
+                            setShowNewPassword={setShowNewPassword}
+                            showConfirmPassword={showConfirmPassword}
+                            setShowConfirmPassword={setShowConfirmPassword}
+                            passwordStrength={passwordStrength}
+                            apiFetch={apiFetch}
+                            setUser={setUser}
+                            user={user}
+                            setSecurityLogs={setSecurityLogs}
+                            navigate={navigate}
+                          />
+                        </Suspense>
+                      )}
+                    </div>
+
+                    {/* Notification Preferences */}
+                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'notification-preferences' ? null : 'notification-preferences')}
+                        className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-violet-500/10 flex items-center justify-center shrink-0">
+                          <Bell className="w-5 h-5 text-violet-500" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <span className="text-xs font-black text-foreground block">Notification Preferences</span>
+                          <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">Email, push & alert preferences</span>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-300 ${mobileSettingsExpanded === 'notification-preferences' ? 'rotate-90' : ''}`} />
+                      </button>
+                      {mobileSettingsExpanded === 'notification-preferences' && (
+                        <div className="p-4 border-t border-border/40 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200 bg-card">
+                          {renderNotificationPreferencesContent()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* My Enrollments */}
+                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'enrollments' ? null : 'enrollments')}
+                        className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 flex items-center justify-center shrink-0">
+                          <BookOpen className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <span className="text-xs font-black text-foreground block">My Enrollments</span>
+                          <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">View enrolled batches & progress</span>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-300 ${mobileSettingsExpanded === 'enrollments' ? 'rotate-90' : ''}`} />
+                      </button>
+                      {mobileSettingsExpanded === 'enrollments' && (
+                        <div className="p-4 border-t border-border/40 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                          {purchasedCourses.map((course) => (
+                            <div key={course._id} className="p-3 bg-muted/20 rounded-xl border border-border/20 space-y-2">
+                              <div className="flex justify-between items-center text-xs font-bold">
+                                <span className="text-foreground">{course.title}</span>
+                                <span className="text-primary">{continueWatching.find(c => c._id === course._id)?.progress || 0}%</span>
+                              </div>
+                              <Progress value={continueWatching.find(c => c._id === course._id)?.progress || 0} className="h-1 bg-muted [&>div]:bg-primary" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Help & FAQ */}
+                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'support' ? null : 'support')}
+                        className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-sky-500/10 flex items-center justify-center shrink-0">
+                          <HelpCircle className="w-5 h-5 text-sky-500" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <span className="text-xs font-black text-foreground block">Help & FAQ</span>
+                          <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">Get help & answers to common questions</span>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-300 ${mobileSettingsExpanded === 'support' ? 'rotate-90' : ''}`} />
+                      </button>
+                      {mobileSettingsExpanded === 'support' && (
+                        <Suspense fallback={<div className="p-4 text-center text-xs text-muted-foreground animate-pulse">Loading Help Center...</div>}>
+                          <HelpSection isMobile />
+                        </Suspense>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Row 4: Payments */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'payments' ? null : 'payments')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <CreditCard className="w-5 h-5 text-blue-500" />
-                        <span>Payment History</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'payments' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'payments' && (
-                      <Suspense fallback={<div className="p-4 text-center text-xs text-muted-foreground animate-pulse">Loading Payments...</div>}>
-                        <PaymentsSection
-                          isMobile
-                          paymentsLoading={paymentsLoading}
-                          payments={payments}
-                          setActiveReceipt={setActiveReceipt}
-                          setReceiptModalOpen={setReceiptModalOpen}
-                          setActiveInvoice={setActiveInvoice}
-                          setInvoiceModalOpen={setInvoiceModalOpen}
-                        />
-                      </Suspense>
-                    )}
-                  </div>
-
-                  {/* Row 5: Certificates */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'certificates' ? null : 'certificates')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Award className="w-5 h-5 text-amber-500" />
-                        <span>Certificates</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'certificates' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'certificates' && (
-                      <Suspense fallback={<div className="p-4 text-center text-xs text-muted-foreground animate-pulse">Loading Certificates...</div>}>
-                        <CertificatesSection
-                          isMobile
-                          purchasedCourses={purchasedCourses}
-                          watchHistory={watchHistory}
-                          setActiveCertificate={setActiveCertificate}
-                          setCertificateModalOpen={setCertificateModalOpen}
-                        />
-                      </Suspense>
-                    )}
-                  </div>
-
-                  {/* Row 6: Help & Support */}
-                  <div className="border border-border/45 rounded-2xl bg-card overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'support' ? null : 'support')}
-                      className="w-full flex items-center justify-between p-4 font-black text-xs text-foreground bg-muted/20 hover:bg-muted/40 transition-all duration-200"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <HelpCircle className="w-5 h-5 text-indigo-500" />
-                        <span>Help & FAQ</span>
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${mobileSettingsExpanded === 'support' ? 'rotate-180' : ''}`} />
-                    </button>
-                    {mobileSettingsExpanded === 'support' && (
-                      <Suspense fallback={<div className="p-4 text-center text-xs text-muted-foreground animate-pulse">Loading Help Center...</div>}>
-                        <HelpSection isMobile />
-                      </Suspense>
-                    )}
-                  </div>
-
-                  {/* Premium Logout Button */}
-                  <div className="pt-4 pb-8 flex justify-center">
+                  {/* ===== LOGOUT BUTTON ===== */}
+                  <div className="pt-2 pb-8 flex justify-center">
                     <Button
                       variant="outline"
                       type="button"
@@ -4142,8 +4237,6 @@ export default function StudentDashboard() {
                     { id: 'notification-preferences', label: 'Notifications', icon: Bell },
                     { id: 'security', label: 'Security & Devices', icon: Shield },
                     { id: 'enrollments', label: 'Enrollments', icon: BookOpen },
-                    { id: 'payments', label: 'Payments', icon: CreditCard },
-                    { id: 'certificates', label: 'Certificates', icon: Award },
                     { id: 'support', label: 'Support', icon: HelpCircle }
                   ].map(tab => (
                     <button
@@ -4173,7 +4266,7 @@ export default function StudentDashboard() {
                         <div className="relative w-32 h-32 mx-auto group">
                           <div className="w-full h-full rounded-full overflow-hidden border-4 border-purple-500/20 bg-muted flex items-center justify-center relative shadow-inner">
                             <img 
-                              src={user?.avatar ? (user.avatar.startsWith('/') ? getApiUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} 
+                              src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} 
                               alt="Student Avatar" 
                               className="w-full h-full object-cover" 
                             />
@@ -4192,7 +4285,7 @@ export default function StudentDashboard() {
                         <div className="space-y-1">
                           <h3 className="font-extrabold text-lg text-foreground truncate">{user?.name || 'Student Name'}</h3>
                           <div className="flex items-center justify-center gap-2">
-                            <span className="text-xs font-bold text-muted-foreground">ID: {user?.user_id || 'N/A'}</span>
+                            <span className="text-xs font-bold text-muted-foreground">ID: {user?.studentId || user?.user_id || 'N/A'}</span>
                             <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/10 text-[10px] uppercase font-bold py-0.5 px-2">Active Student</Badge>
                           </div>
                         </div>
@@ -4200,8 +4293,8 @@ export default function StudentDashboard() {
                         {/* Course & Institute Detail List */}
                         <div className="pt-2 border-t border-border/40 space-y-2 text-left text-xs text-muted-foreground font-semibold">
                           <div className="flex justify-between items-center">
-                            <span>Course/Batch</span>
-                            <span className="text-foreground truncate max-w-[150px] font-extrabold">{user?.courseName || user?.batchName || 'BCA Student'}</span>
+                            <span>Batch</span>
+                            <span className="text-foreground truncate max-w-[150px] font-extrabold">{user?.assignedBatch?.name || user?.batchName || 'N/A'}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span>Institute</span>
@@ -4251,23 +4344,12 @@ export default function StudentDashboard() {
                           </div>
                         </div>
                         <div className="p-3 bg-muted/20 border border-border/20 rounded-2xl">
-                          <div className="text-[10px] font-bold text-muted-foreground uppercase">Courses</div>
-                          <div className="text-xs font-extrabold text-foreground mt-1">{purchasedCourses.length}</div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase">Active Batch</div>
+                          <div className="text-xs font-extrabold text-foreground mt-1">{activeBatchCount}</div>
                         </div>
                         <div className="p-3 bg-muted/20 border border-border/20 rounded-2xl">
-                          <div className="text-[10px] font-bold text-muted-foreground uppercase">Certificates</div>
-                          <div className="text-xs font-extrabold text-foreground mt-1">
-                            {purchasedCourses.filter(c => {
-                              const hist = watchHistory.filter(h => {
-                                const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
-                                return progId && progId.toString() === c._id.toString();
-                              });
-                              const prog = hist.length > 0
-                                ? Math.round(hist.reduce((sum, current) => sum + current.progress, 0) / hist.length)
-                                : 0;
-                              return prog >= 100;
-                            }).length}
-                          </div>
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase">Courses Enrolled</div>
+                          <div className="text-xs font-extrabold text-foreground mt-1">{purchasedCourses.length}</div>
                         </div>
                         <div className="p-3 bg-muted/20 border border-border/20 rounded-2xl">
                           <div className="text-[10px] font-bold text-muted-foreground uppercase">Watch Hours</div>
@@ -4284,8 +4366,6 @@ export default function StudentDashboard() {
                           { id: 'notification-preferences', label: 'Notification Preferences', icon: Bell },
                           { id: 'security', label: 'Security & Devices', icon: Shield },
                           { id: 'enrollments', label: 'My Enrollments', icon: BookOpen },
-                          { id: 'payments', label: 'Payment History', icon: CreditCard },
-                          { id: 'certificates', label: 'Certificates', icon: Award },
                           { id: 'support', label: 'Help & Support', icon: HelpCircle }
                         ].map(item => (
                           <button
@@ -4363,12 +4443,12 @@ export default function StudentDashboard() {
                               </div>
 
                               <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Student ID (Internal)</label>
+                                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Student ID</label>
                                 <div className="relative">
                                   <Key className="w-4 h-4 text-muted-foreground/60 absolute left-3.5 top-1/2 -translate-y-1/2" />
                                   <Input 
                                     className="pl-10 rounded-xl bg-muted/30 border-border/40 text-muted-foreground text-xs" 
-                                    value={String(user?.user_id || '')} 
+                                    value={String(user?.studentId || user?.user_id || '')} 
                                     disabled 
                                   />
                                 </div>
@@ -4822,193 +4902,6 @@ export default function StudentDashboard() {
                       </motion.div>
                     )}
 
-                    {/* 💳 PAYMENT HISTORY SUB-TAB */}
-                    {settingsSubTab === 'payments' && (
-                      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                        <Card className="border-border/40 shadow-sm rounded-[24px] bg-card overflow-hidden">
-                          <CardHeader className="border-b border-border/40 pb-4">
-                            <CardTitle className="text-base font-bold flex items-center gap-2">
-                              <CreditCard className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                              <span>Your Payment History & Receipts</span>
-                            </CardTitle>
-                            <CardDescription>Review manual checkouts, online transactions, and download official invoices.</CardDescription>
-                          </CardHeader>
-                          <CardContent className="pt-6 space-y-4">
-                            
-                            {paymentsLoading ? (
-                              <div className="text-center py-12 text-xs font-semibold text-muted-foreground">Loading payment logs...</div>
-                            ) : (
-                              <div className="border border-border/40 rounded-2xl overflow-hidden shadow-sm">
-                                <Table className="w-full">
-                                  <TableHeader>
-                                    <TableRow className="bg-muted/40 text-xs">
-                                      <TableHead className="font-bold py-2.5 px-4 text-foreground">Purchased Item</TableHead>
-                                      <TableHead className="font-bold py-2.5 px-4 text-foreground">Transaction ID</TableHead>
-                                      <TableHead className="font-bold py-2.5 px-4 text-foreground text-center">Status</TableHead>
-                                      <TableHead className="font-bold py-2.5 px-4 text-foreground text-right">Amount</TableHead>
-                                      <TableHead className="font-bold py-2.5 px-4 text-foreground text-right">Actions</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody className="text-xs font-semibold">
-                                    {payments.map((pm) => (
-                                      <TableRow key={pm._id} className="hover:bg-muted/10 border-b border-border/40 last:border-b-0">
-                                        <TableCell className="py-3 px-4 font-bold text-foreground">
-                                          {pm.purchaseId?.courseId?.title || 'Program Access Enrollment'}
-                                          <div className="text-[9px] text-muted-foreground/80 font-medium mt-0.5">{new Date(pm.createdAt).toLocaleString()}</div>
-                                        </TableCell>
-                                        <TableCell className="py-3 px-4 text-muted-foreground font-mono text-[10px]">{pm.transactionId}</TableCell>
-                                        <TableCell className="py-3 px-4 text-center">
-                                          <Badge 
-                                            className={`text-[9px] uppercase font-bold tracking-wide px-2 py-0.5 border ${
-                                              pm.status === 'success' 
-                                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/25' 
-                                                : pm.status === 'pending'
-                                                  ? 'bg-amber-500/10 text-amber-600 border-amber-500/25'
-                                                  : 'bg-rose-500/10 text-rose-600 border-rose-500/25'
-                                            }`}
-                                            variant="outline"
-                                          >
-                                            {pm.status}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="py-3 px-4 text-right font-extrabold text-foreground">${pm.amount}</TableCell>
-                                        <TableCell className="py-3 px-4 text-right">
-                                          <div className="flex justify-end gap-1.5">
-                                            <Button 
-                                              variant="ghost" 
-                                              className="h-8 text-[10px] text-purple-600 hover:text-purple-700 hover:bg-purple-500/10 font-bold px-2 rounded-lg"
-                                              onClick={() => {
-                                                setActiveReceipt(pm);
-                                                setReceiptModalOpen(true);
-                                              }}
-                                            >
-                                              Receipt
-                                            </Button>
-                                            <Button 
-                                              variant="ghost" 
-                                              className="h-8 text-[10px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-500/10 font-bold px-2 rounded-lg"
-                                              onClick={() => {
-                                                setActiveInvoice(pm);
-                                                setInvoiceModalOpen(true);
-                                              }}
-                                            >
-                                              Invoice
-                                            </Button>
-                                          </div>
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
-                                    {payments.length === 0 && (
-                                      <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-12 text-muted-foreground font-semibold">
-                                          <CreditCard className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-                                          <div>No payment records found.</div>
-                                        </TableCell>
-                                      </TableRow>
-                                    )}
-                                  </TableBody>
-                                </Table>
-                              </div>
-                            )}
-
-                          </CardContent>
-                        </Card>
-                      </motion.div>
-                    )}
-
-                    {/* 🏆 CERTIFICATES SUB-TAB */}
-                    {settingsSubTab === 'certificates' && (
-                      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                        <Card className="border-border/40 shadow-sm rounded-[24px] bg-card overflow-hidden">
-                          <CardHeader className="border-b border-border/40 pb-4">
-                            <CardTitle className="text-base font-bold flex items-center gap-2">
-                              <Award className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                              <span>Official Course Certificates</span>
-                            </CardTitle>
-                            <CardDescription>Earn certificates of completion by completing 100% of the lessons in a batch.</CardDescription>
-                          </CardHeader>
-                          <CardContent className="pt-6 space-y-4">
-                            
-                            <div className="grid gap-4">
-                              {purchasedCourses.map((course) => {
-                                // Calculate course progress
-                                const lessonHistory = watchHistory.filter(h => {
-                                  const progId = h.contentId?.lessonId?.unitId?.subjectId?.programId?._id || h.courseId?._id;
-                                  return progId && progId.toString() === course._id.toString();
-                                });
-                                const progress = lessonHistory.length > 0
-                                  ? Math.round(lessonHistory.reduce((sum, current) => sum + current.progress, 0) / lessonHistory.length)
-                                  : 0;
-                                const isCompleted = progress >= 100;
-
-                                return (
-                                  <Card key={course._id} className={`border rounded-2xl overflow-hidden hover:shadow-sm transition-all duration-200 ${
-                                    isCompleted ? 'border-amber-500/25 bg-amber-500/[0.02]' : 'border-border/45 bg-muted/10'
-                                  }`}>
-                                    <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                      <div className="flex items-center gap-4 min-w-0">
-                                        <div className={`w-12 h-12 rounded-xl border flex items-center justify-center shrink-0 shadow-inner ${
-                                          isCompleted ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-muted border-border text-muted-foreground/60'
-                                        }`}>
-                                          <Award className="w-6 h-6" />
-                                        </div>
-                                        <div className="min-w-0 space-y-1">
-                                          <span className="font-extrabold text-sm text-foreground truncate block">{course.title}</span>
-                                          <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1.5 flex-wrap">
-                                            {isCompleted ? (
-                                              <>
-                                                <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                                <span className="text-emerald-600 font-extrabold">Certificate Unlocked!</span>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                                                <span>In Progress · {progress}% Complete</span>
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      <div className="shrink-0 self-stretch sm:self-auto flex items-center justify-end">
-                                        {isCompleted ? (
-                                          <Button 
-                                            className="bg-gradient-to-r from-amber-500 to-amber-600 hover:opacity-95 text-white font-bold text-xs rounded-xl px-4 py-2 shadow-md shadow-amber-500/10"
-                                            onClick={() => {
-                                              setActiveCertificate(course);
-                                              setCertificateModalOpen(true);
-                                            }}
-                                          >
-                                            View Certificate
-                                          </Button>
-                                        ) : (
-                                          <Button 
-                                            variant="ghost" 
-                                            disabled 
-                                            className="text-[10px] font-extrabold text-muted-foreground bg-muted/30 rounded-xl"
-                                          >
-                                            Complete Course to Unlock
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </CardContent>
-                                  </Card>
-                                );
-                              })}
-                              
-                              {purchasedCourses.length === 0 && (
-                                <div className="text-center py-12 border border-dashed border-border/50 rounded-2xl bg-card">
-                                  <Award className="w-10 h-10 text-muted-foreground/60 mx-auto mb-2" />
-                                  <p className="text-xs text-muted-foreground font-bold">No courses available to generate certificates.</p>
-                                </div>
-                              )}
-                            </div>
-
-                          </CardContent>
-                        </Card>
-                      </motion.div>
-                    )}
-
                     {/* ❓ HELP & SUPPORT SUB-TAB */}
                     {settingsSubTab === 'support' && (
                       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -5034,12 +4927,6 @@ export default function StudentDashboard() {
                                 <AccordionTrigger className="text-xs font-bold hover:no-underline">Why did I receive a compliance security warning?</AccordionTrigger>
                                 <AccordionContent className="text-xs text-muted-foreground leading-relaxed">
                                   Our LMS anti-piracy algorithms monitor screenshots, screen recordings, and tab switches during video playback. Accumulating violations lowers your Security Compliance Score and may automatically lock access. Keep third-party recording software closed when learning.
-                                </AccordionContent>
-                              </AccordionItem>
-                              <AccordionItem value="faq-3" className="border-b border-border/30">
-                                <AccordionTrigger className="text-xs font-bold hover:no-underline">How do I unlock my course completion certificate?</AccordionTrigger>
-                                <AccordionContent className="text-xs text-muted-foreground leading-relaxed">
-                                  Certificates are generated automatically the moment a course progress bar reaches 100% completion (meaning all video lessons have been watched in full). Click "View Certificate" under the <strong>Certificates</strong> panel to print or save a verified PDF copy.
                                 </AccordionContent>
                               </AccordionItem>
                             </Accordion>
@@ -5102,27 +4989,32 @@ export default function StudentDashboard() {
                       <CardContent className="p-6 space-y-6">
                         {!selectedAvatarFile ? (
                           /* Drag and Drop Zone */
-                          <div 
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              if (e.dataTransfer.files?.[0]) handleFileChange(e.dataTransfer.files[0]);
-                            }}
-                            className="border-2 border-dashed border-border/60 hover:border-purple-500/50 rounded-2xl p-8 text-center cursor-pointer transition-colors bg-muted/20"
-                            onClick={() => {
-                              const input = document.createElement('input');
-                              input.type = 'file';
-                              input.accept = 'image/*';
-                              input.onchange = (e: any) => {
+                          <>
+                            <div 
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (e.dataTransfer.files?.[0]) handleFileChange(e.dataTransfer.files[0]);
+                              }}
+                              className="border-2 border-dashed border-border/60 hover:border-purple-500/50 rounded-2xl p-8 text-center cursor-pointer transition-colors bg-muted/20"
+                              onClick={() => {
+                                fileInputRef.current?.click();
+                              }}
+                            >
+                              <Camera className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
+                              <p className="text-xs font-bold text-foreground">Click to upload or drag & drop</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">Supports PNG, JPG, or WEBP formats</p>
+                            </div>
+                            <input 
+                              type="file" 
+                              ref={fileInputRef} 
+                              className="hidden" 
+                              accept="image/*" 
+                              onChange={(e) => {
                                 if (e.target.files?.[0]) handleFileChange(e.target.files[0]);
-                              };
-                              input.click();
-                            }}
-                          >
-                            <Camera className="w-10 h-10 text-muted-foreground/60 mx-auto mb-3" />
-                            <p className="text-xs font-bold text-foreground">Click to upload or drag & drop</p>
-                            <p className="text-[10px] text-muted-foreground mt-1">Supports PNG, JPG, or WEBP formats</p>
-                          </div>
+                              }} 
+                            />
+                          </>
                         ) : (
                           /* Crop Preview Area */
                           <div className="space-y-4">
@@ -5227,267 +5119,6 @@ export default function StudentDashboard() {
                   </div>
                 )}
 
-                {/* Invoice PDF Print Modal */}
-                {invoiceModalOpen && activeInvoice && (
-                  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-                    <Card className="w-full max-w-2xl border-border/40 shadow-2xl rounded-3xl bg-card overflow-hidden my-8 print-allowed-area">
-                      <CardContent className="p-6 sm:p-8 space-y-6 bg-white text-slate-900 dark:bg-white dark:text-slate-900">
-                        
-                        {/* Header / Brand */}
-                        <div className="flex justify-between items-start border-b border-slate-200 pb-6">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-lg flex items-center justify-center text-white font-extrabold text-sm">T</div>
-                              <span className="font-extrabold text-base tracking-tight text-slate-900">Trineo Stream LMS</span>
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-semibold">{user?.institute?.name || 'GFI Institute'}</p>
-                            <p className="text-[10px] text-slate-500 font-semibold">{user?.institute?.email || 'billing@gfi.edu'}</p>
-                          </div>
-                          <div className="text-right space-y-1">
-                            <h2 className="text-2xl font-black tracking-tight text-purple-600">INVOICE</h2>
-                            <p className="text-xs font-bold text-slate-800">#{activeInvoice.transactionId?.replace('TXN-', 'INV-') || 'INV-00000'}</p>
-                            <div className="text-[10px] text-slate-500 font-semibold">
-                              <div>Date: {new Date(activeInvoice.createdAt).toLocaleDateString()}</div>
-                              <div>Due: Paid upon purchase</div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Billed To / From */}
-                        <div className="grid grid-cols-2 gap-6 text-xs font-semibold">
-                          <div>
-                            <div className="text-slate-400 uppercase text-[10px] tracking-wider mb-1">Billed To</div>
-                            <div className="text-slate-900 font-extrabold">{user?.name}</div>
-                            <div className="text-slate-500">ID: {user?.user_id}</div>
-                            <div className="text-slate-500">{user?.email}</div>
-                            {user?.phone && <div className="text-slate-500">{user.phone}</div>}
-                          </div>
-                          <div>
-                            <div className="text-slate-400 uppercase text-[10px] tracking-wider mb-1">Payment Method</div>
-                            <div className="text-slate-900 font-extrabold">{activeInvoice.paymentMethod || 'Online Payment'}</div>
-                            <div className="text-slate-500">Txn ID: {activeInvoice.transactionId}</div>
-                            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/25 text-[9px] uppercase font-bold tracking-wider">
-                              Paid
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Item Ledger */}
-                        <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                          <Table className="w-full">
-                            <TableHeader>
-                              <TableRow className="bg-slate-50 text-xs border-b border-slate-200">
-                                <TableHead className="font-bold py-2.5 px-4 text-slate-800">Course Description</TableHead>
-                                <TableHead className="font-bold py-2.5 px-4 text-center text-slate-800">Qty</TableHead>
-                                <TableHead className="font-bold py-2.5 px-4 text-right text-slate-800">Rate</TableHead>
-                                <TableHead className="font-bold py-2.5 px-4 text-right text-slate-800">Total</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody className="text-xs">
-                              <TableRow className="hover:bg-transparent border-slate-200">
-                                <TableCell className="py-4 px-4 font-bold text-slate-900">
-                                  {activeInvoice.purchaseId?.courseId?.title || 'LMS Program Access Enrollment'}
-                                  <p className="text-[10px] text-slate-500 font-medium mt-0.5">Full access to lectures, study materials, and certifications.</p>
-                                </TableCell>
-                                <TableCell className="py-4 px-4 text-center font-bold text-slate-900">1</TableCell>
-                                <TableCell className="py-4 px-4 text-right font-bold text-slate-900">${activeInvoice.amount || 0}</TableCell>
-                                <TableCell className="py-4 px-4 text-right font-bold text-slate-900">${activeInvoice.amount || 0}</TableCell>
-                              </TableRow>
-                            </TableBody>
-                          </Table>
-                        </div>
-
-                        {/* Summary Totals */}
-                        <div className="flex justify-end text-xs font-semibold">
-                          <div className="w-64 space-y-2 border-t border-slate-200 pt-4">
-                            <div className="flex justify-between text-slate-500">
-                              <span>Subtotal</span>
-                              <span className="text-slate-900 font-extrabold">${activeInvoice.amount || 0}</span>
-                            </div>
-                            <div className="flex justify-between text-slate-500">
-                              <span>Tax (0%)</span>
-                              <span className="text-slate-900 font-extrabold">$0.00</span>
-                            </div>
-                            <div className="flex justify-between border-t border-slate-300 pt-2 text-sm font-black">
-                              <span>Total Paid</span>
-                              <span className="text-purple-600 font-black">${activeInvoice.amount || 0}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Footer notes */}
-                        <div className="text-center pt-6 border-t border-slate-200 space-y-1">
-                          <p className="text-[10px] text-slate-500 font-semibold">Thank you for studying with Trineo Stream!</p>
-                          <p className="text-[9px] text-slate-400 font-medium">This invoice is generated automatically and serves as proof of purchase.</p>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex justify-end gap-3 print:hidden border-t border-slate-200 pt-4">
-                          <Button variant="outline" size="sm" className="text-slate-700 border-slate-300 bg-white" onClick={() => setInvoiceModalOpen(false)}>Close</Button>
-                          <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold" size="sm" onClick={triggerPrint}>
-                            <Printer className="w-4 h-4 mr-1.5" /> Print Invoice
-                          </Button>
-                        </div>
-
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-
-                {/* Receipt Print Modal */}
-                {receiptModalOpen && activeReceipt && (
-                  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <Card className="w-full max-w-sm border-border/40 shadow-2xl rounded-3xl bg-card overflow-hidden print-allowed-area">
-                      <CardContent className="p-6 space-y-6 text-center bg-white text-slate-900 dark:bg-white dark:text-slate-900">
-                        
-                        {/* Brand / Success Icon */}
-                        <div className="space-y-2">
-                          <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto shadow-inner">
-                            <CheckCircle className="w-6 h-6" />
-                          </div>
-                          <h3 className="text-lg font-black tracking-tight text-slate-900">Payment Receipt</h3>
-                          <p className="text-[10px] text-slate-500 font-semibold">Transaction Successful</p>
-                        </div>
-
-                        {/* Amount Paid */}
-                        <div className="py-4 border-y border-slate-200 space-y-1">
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Amount Paid</span>
-                          <div className="text-3xl font-black text-slate-900">${activeReceipt.amount}</div>
-                        </div>
-
-                        {/* Detail list */}
-                        <div className="space-y-2.5 text-left text-xs font-semibold text-slate-500 pb-4 border-b border-slate-200">
-                          <div className="flex justify-between">
-                            <span>Payment Date</span>
-                            <span className="text-slate-900 font-extrabold">{new Date(activeReceipt.createdAt).toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Enrolled Course</span>
-                            <span className="text-slate-900 font-extrabold truncate max-w-[180px]">
-                              {activeReceipt.purchaseId?.courseId?.title || 'Program Access'}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Transaction ID</span>
-                            <span className="text-slate-900 font-extrabold truncate max-w-[180px]">{activeReceipt.transactionId}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Payment Method</span>
-                            <span className="text-slate-900 font-extrabold">{activeReceipt.paymentMethod}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Student ID</span>
-                            <span className="text-slate-900 font-extrabold">{user?.user_id}</span>
-                          </div>
-                        </div>
-
-                        <p className="text-[9px] text-slate-400 font-semibold">GFI Institute · Verified Payment Receipt</p>
-
-                        {/* Actions */}
-                        <div className="flex justify-end gap-3 print:hidden pt-2">
-                          <Button variant="outline" size="sm" className="text-slate-700 border-slate-300 bg-white" onClick={() => setReceiptModalOpen(false)}>Close</Button>
-                          <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold" size="sm" onClick={triggerPrint}>
-                            <Printer className="w-4 h-4 mr-1.5" /> Print Receipt
-                          </Button>
-                        </div>
-
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-
-                {/* Certificate Modal */}
-                {certificateModalOpen && activeCertificate && (
-                  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-                    <Card className="w-full max-w-4xl border-border/40 shadow-2xl rounded-3xl bg-card overflow-hidden my-8 print-allowed-area">
-                      <CardContent className="p-0 space-y-6">
-                        
-                        {/* landscape certificate layout wrapper */}
-                        <div className="p-8 sm:p-12 bg-white text-slate-900 border-8 border-double border-amber-500/30 rounded-2xl relative shadow-inner text-center space-y-8 flex flex-col items-center justify-between min-h-[500px] dark:bg-white dark:text-slate-900">
-                          
-                          {/* Decorative corner patterns */}
-                          <div className="absolute top-4 left-4 w-12 h-12 border-t-4 border-l-4 border-amber-500/40 pointer-events-none" />
-                          <div className="absolute top-4 right-4 w-12 h-12 border-t-4 border-r-4 border-amber-500/40 pointer-events-none" />
-                          <div className="absolute bottom-4 left-4 w-12 h-12 border-b-4 border-l-4 border-amber-500/40 pointer-events-none" />
-                          <div className="absolute bottom-4 right-4 w-12 h-12 border-b-4 border-r-4 border-amber-500/40 pointer-events-none" />
-
-                          {/* Top Seal / Logo */}
-                          <div className="space-y-2">
-                            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center mx-auto shadow-md border-2 border-white/20">
-                              <GraduationCap className="w-7 h-7" />
-                            </div>
-                            <span className="text-[10px] font-black tracking-widest text-amber-600 uppercase block">GFI Institute of Technology</span>
-                          </div>
-
-                          {/* Header text */}
-                          <div className="space-y-2">
-                            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight font-serif text-slate-800">CERTIFICATE OF COMPLETION</h2>
-                            <p className="text-xs italic text-slate-500 font-medium">This certificate is proudly presented to</p>
-                          </div>
-
-                          {/* Student Name */}
-                          <div className="py-2 border-b-2 border-amber-500/30 w-3/4 max-w-md mx-auto">
-                            <h1 className="text-3xl sm:text-4xl font-serif font-black text-amber-600 tracking-wide truncate">{user?.name}</h1>
-                          </div>
-
-                          {/* Completion subtext */}
-                          <p className="text-xs sm:text-sm text-slate-600 font-medium max-w-xl mx-auto leading-relaxed">
-                            has successfully fulfilled all requirements and completed the certification course of instruction in
-                            <br />
-                            <span className="font-extrabold text-slate-900 text-base">{activeCertificate.title}</span>
-                            <br />
-                            with comprehensive evaluation and online practical projects.
-                          </p>
-
-                          {/* Details Block (QR Code, Signatures, Seal) */}
-                          <div className="grid grid-cols-3 gap-6 items-center w-full max-w-2xl pt-6 border-t border-slate-200 text-left">
-                            {/* QR Code Verification */}
-                            <div className="flex items-center gap-3">
-                              <img 
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(`https://stream.trineo.in/verify/cert/${user?.user_id}-${activeCertificate._id}`)}`} 
-                                alt="Verification QR" 
-                                className="w-16 h-16 object-contain border border-slate-200 p-1 bg-white rounded"
-                              />
-                              <div className="text-[9px] text-slate-500 font-semibold leading-tight">
-                                <div className="font-bold text-slate-700">QR VERIFICATION</div>
-                                <div>ID: CERT-{user?.user_id || '00000'}-{activeCertificate._id?.substring(0, 6)?.toUpperCase() || '0000'}</div>
-                                <div className="mt-0.5">Scan to verify credentials</div>
-                              </div>
-                            </div>
-
-                            {/* Golden Seal Badge */}
-                            <div className="text-center">
-                              <div className="w-16 h-16 mx-auto bg-amber-500/10 border-2 border-dashed border-amber-500/40 rounded-full flex items-center justify-center relative shadow-inner">
-                                <Award className="w-8 h-8 text-amber-500" />
-                                <div className="absolute inset-0.5 rounded-full border border-amber-500/20" />
-                              </div>
-                              <span className="text-[8px] font-bold text-amber-600 block mt-1 tracking-wider">OFFICIAL SEAL</span>
-                            </div>
-
-                            {/* Signature Block */}
-                            <div className="text-right flex flex-col justify-end items-end space-y-1 pr-4">
-                              <span className="font-serif italic font-semibold text-lg text-slate-700 select-none tracking-wider">Noel Babu</span>
-                              <div className="w-32 border-t border-slate-300" />
-                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Course Director</span>
-                              <span className="text-[8px] text-slate-400 font-semibold block">Date: {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</span>
-                            </div>
-                          </div>
-
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex justify-end gap-3 print:hidden p-4 border-t border-slate-200">
-                          <Button variant="outline" size="sm" className="text-slate-700 border-slate-300 bg-white" onClick={() => setCertificateModalOpen(false)}>Close</Button>
-                          <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold" size="sm" onClick={triggerPrint}>
-                            <Printer className="w-4 h-4 mr-1.5" /> Download / Print PDF
-                          </Button>
-                        </div>
-
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-
               </motion.div>
             )}
 
@@ -5499,7 +5130,7 @@ export default function StudentDashboard() {
       <MobileNav 
         items={studentNavItems} 
         onItemClick={setActiveTab} 
-        unreadCount={0} 
+        unreadCount={unreadNotifications} 
         violationCount={violations.length} 
       />
     </div>

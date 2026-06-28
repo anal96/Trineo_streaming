@@ -6,6 +6,7 @@ import { AuditLog } from '../models/AuditLog.js';
 import { SecuritySession } from '../models/SecuritySession.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
 import { Institute } from '../models/Institute.js';
+import { Course } from '../models/Course.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -24,7 +25,24 @@ export const getStudentProfileSettings = async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
     const user = await User.findById(req.user._id).populate('institute').select('-password -passwordResetTokenHash');
-    res.json(user);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const userObj = user.toObject();
+    userObj.assignedBatch = null;
+
+    if (user.courseName) {
+      const matchedCourse = await Course.findOne({
+        title: user.courseName,
+        institute: user.institute ? user.institute._id : null
+      });
+      if (matchedCourse) {
+        userObj.assignedBatch = {
+          _id: matchedCourse._id,
+          name: matchedCourse.title
+        };
+      }
+    }
+
+    res.json(userObj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -47,7 +65,24 @@ export const updateStudentProfileSettings = async (req, res) => {
     }
     await user.save();
     const updated = await User.findById(user._id).populate('institute').select('-password -passwordResetTokenHash');
-    res.json(updated);
+    if (!updated) return res.status(404).json({ message: 'User not found' });
+    const updatedObj = updated.toObject();
+    updatedObj.assignedBatch = null;
+
+    if (updated.courseName) {
+      const matchedCourse = await Course.findOne({
+        title: updated.courseName,
+        institute: updated.institute ? updated.institute._id : null
+      });
+      if (matchedCourse) {
+        updatedObj.assignedBatch = {
+          _id: matchedCourse._id,
+          name: matchedCourse.title
+        };
+      }
+    }
+
+    res.json(updatedObj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

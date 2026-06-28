@@ -80,12 +80,6 @@ export default function HelpSection({ isMobile = false }: HelpSectionProps) {
                 Our LMS anti-piracy algorithms monitor screenshots, screen recordings, and tab switches during video playback. Accumulating violations lowers your Security Compliance Score and may automatically lock access. Keep third-party recording software closed when learning.
               </AccordionContent>
             </AccordionItem>
-            <AccordionItem value="faq-3" className="border-b border-border/30">
-              <AccordionTrigger className="text-xs font-bold hover:no-underline">How do I unlock my course completion certificate?</AccordionTrigger>
-              <AccordionContent className="text-xs text-muted-foreground leading-relaxed">
-                Certificates are generated automatically the moment a course progress bar reaches 100% completion (meaning all video lessons have been watched in full). Click "View Certificate" under the <strong>Certificates</strong> panel to print or save a verified PDF copy.
-              </AccordionContent>
-            </AccordionItem>
           </Accordion>
         </CardContent>
       </Card>
