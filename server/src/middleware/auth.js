@@ -58,9 +58,22 @@ export const protect = async (req, res, next) => {
         }
       }
 
+      // Playback token check: if it is a playback token, validate it and allow immediate access if sessionToken matches activeSessionToken
+      if (decoded.isPlaybackToken) {
+        if (!user.activeSessionToken || user.activeSessionToken !== decoded.sessionToken) {
+          return res.status(401).json({
+            message: 'Session expired. Logged in from another device.',
+            oneDeviceViolation: true
+          });
+        }
+
+        req.user = user;
+        req.token = token;
+        return next();
+      }
+
       // One-device login check: check if token matches the active session token in DB (applies to student, admin, owner)
-      const expectedSessionToken = decoded.isPlaybackToken ? decoded.sessionToken : token;
-      if (!user.activeSessionToken || user.activeSessionToken !== expectedSessionToken) {
+      if (!user.activeSessionToken || user.activeSessionToken !== token) {
         // Check if the request is originating from the same device (same User-Agent as the active session)
         const userAgent = req.headers['user-agent'] || 'Unknown Browser';
         let isSameDevice = false;
