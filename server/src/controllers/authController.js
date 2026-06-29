@@ -12,6 +12,7 @@ import { syncStudentProfile } from '../services/crmSyncService.js';
 import { Course } from '../models/Course.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Program } from '../models/Program.js';
+import { isR2Configured, getSignedR2Url, parseR2Key } from '../utils/r2Service.js';
 
 const parseAgent = (ua = '') => {
   const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
@@ -279,6 +280,22 @@ export const loginUser = async (req, res) => {
   }
 };
 
+const signUserAvatar = async (userObj) => {
+  if (userObj && isR2Configured()) {
+    if (userObj.avatar && userObj.avatar.startsWith('http')) {
+      try {
+        const key = parseR2Key(userObj.avatar);
+        const signedUrl = await getSignedR2Url(key, 86400); // 24 hours
+        userObj.avatar = signedUrl;
+        userObj.profileImageUrl = signedUrl;
+      } catch (err) {
+        console.error('Failed to sign avatar URL:', err);
+      }
+    }
+  }
+  return userObj;
+};
+
 export const getUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).populate('institute').select('-password');
@@ -323,6 +340,8 @@ export const getUserProfile = async (req, res) => {
 
     }
 
+    await signUserAvatar(userObj);
+    console.log("Profile endpoint response JSON:", JSON.stringify(userObj, null, 2));
     res.json(userObj);
   } catch (error) {
     res.status(500).json({ message: error.message });

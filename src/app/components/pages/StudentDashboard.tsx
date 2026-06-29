@@ -336,7 +336,11 @@ export default function StudentDashboard() {
 
   const { data: profile } = useQuery({
     queryKey: ['profile', userId],
-    queryFn: () => apiFetch('/auth/profile'),
+    queryFn: async () => {
+      const data = await apiFetch('/auth/profile');
+      console.log("PROFILE API:", data);
+      return data;
+    },
     placeholderData: undefined,
   });
 
@@ -371,6 +375,11 @@ export default function StudentDashboard() {
   }).length;
 
   const activeBatchCount = (user?.assignedBatch || user?.batchName) ? 1 : 0;
+  
+  const imageSrc = user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : '';
+  console.log("API avatar:", user?.avatar);
+  console.log("API profileImageUrl:", user?.profileImageUrl);
+  console.log("Rendered avatar src:", imageSrc);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
@@ -486,10 +495,16 @@ export default function StudentDashboard() {
         method: 'PUT',
         body: JSON.stringify({ image: selectedAvatarFile }),
       });
+      console.log("UPLOAD RESPONSE:", res);
       if (res && res.avatar) {
         const updatedUser = { ...user, avatar: res.avatar, profileImageUrl: res.profileImageUrl || res.avatar };
         setUser(updatedUser);
         localStorage.setItem('user', JSON.stringify(updatedUser));
+        await queryClient.invalidateQueries({ queryKey: ['profile'] });
+        console.log(
+          "QUERY CACHE:",
+          queryClient.getQueryData(['profile', userId])
+        );
         toast.success('Profile photo updated successfully!');
         setAvatarModalOpen(false);
         setSelectedAvatarFile(null);
@@ -513,6 +528,7 @@ export default function StudentDashboard() {
         const updatedUser = { ...user, avatar: '', profileImageUrl: '' };
         setUser(updatedUser);
         localStorage.setItem('user', JSON.stringify(updatedUser));
+        await queryClient.invalidateQueries({ queryKey: ['profile'] });
         toast.success('Profile photo removed successfully!');
         setAvatarModalOpen(false);
         setSelectedAvatarFile(null);
@@ -1149,6 +1165,9 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (profile) {
       setUser(profile);
+      console.log("Profile image:", profile?.profileImage);
+      console.log("Profile avatar:", profile?.avatar);
+      console.log("Profile profileImageUrl:", profile?.profileImageUrl);
       setProfileForm({ 
         name: profile?.name || '', 
         phone: profile?.phone || '', 

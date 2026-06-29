@@ -9,7 +9,7 @@ import { Institute } from '../models/Institute.js';
 import { Course } from '../models/Course.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Program } from '../models/Program.js';
-import { isR2Configured, uploadToR2 } from '../utils/r2Service.js';
+import { isR2Configured, uploadToR2, getSignedR2Url, parseR2Key } from '../utils/r2Service.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -60,6 +60,22 @@ const resolveAssignedBatch = async (user) => {
   return null;
 };
 
+const signUserAvatar = async (userObj) => {
+  if (userObj && isR2Configured()) {
+    if (userObj.avatar && userObj.avatar.startsWith('http')) {
+      try {
+        const key = parseR2Key(userObj.avatar);
+        const signedUrl = await getSignedR2Url(key, 86400); // 24 hours
+        userObj.avatar = signedUrl;
+        userObj.profileImageUrl = signedUrl;
+      } catch (err) {
+        console.error('Failed to sign avatar URL:', err);
+      }
+    }
+  }
+  return userObj;
+};
+
 export const getStudentProfileSettings = async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
@@ -68,6 +84,7 @@ export const getStudentProfileSettings = async (req, res) => {
     const userObj = user.toObject();
     
     userObj.assignedBatch = await resolveAssignedBatch(user);
+    await signUserAvatar(userObj);
 
     res.json(userObj);
   } catch (error) {
@@ -96,6 +113,7 @@ export const updateStudentProfileSettings = async (req, res) => {
     const updatedObj = updated.toObject();
     
     updatedObj.assignedBatch = await resolveAssignedBatch(updated);
+    await signUserAvatar(updatedObj);
 
     res.json(updatedObj);
   } catch (error) {
@@ -327,27 +345,44 @@ export const uploadStudentAvatar = async (req, res) => {
     }
 
     // Write file to R2 if configured, else write local file
+    console.log("Upload started: Student Avatar upload");
+    const r2Key = `avatars/student_${req.user.user_id}_${Date.now()}.webp`;
+    console.log("Generated object key:", r2Key);
+
     let avatarUrl = relativePath;
     if (isR2Configured()) {
       try {
-        const r2Key = `avatars/student_${req.user.user_id}_${Date.now()}.webp`;
+        console.log("Uploading to R2...");
         avatarUrl = await uploadToR2(buffer, r2Key, 'image/webp');
+        console.log("Upload success. Final object key:", r2Key);
       } catch (r2Err) {
-        console.error('R2 Avatar Upload Failed, falling back to local file:', r2Err);
+        console.error("Upload failure: R2 Avatar Upload Failed, falling back to local file:", r2Err);
         fs.writeFileSync(filePath, buffer);
       }
     } else {
+      console.log("R2 not configured, writing local file.");
       fs.writeFileSync(filePath, buffer);
     }
+
+    console.log("Final public URL:", avatarUrl);
+    console.log("Bucket name:", process.env.R2_BUCKET_NAME);
+    console.log("Account ID:", process.env.R2_ACCOUNT_ID);
+    console.log("Object key:", r2Key);
 
     user.avatar = avatarUrl;
     user.profileImageUrl = avatarUrl;
     await user.save();
 
+    console.log("Saved profileImage:", user.avatar);
+    console.log("Saved profileImageUrl:", user.profileImageUrl);
+
+    const resObj = { avatar: avatarUrl, profileImageUrl: avatarUrl };
+    await signUserAvatar(resObj);
+
     res.json({
       message: 'Avatar uploaded successfully',
-      avatar: avatarUrl,
-      profileImageUrl: avatarUrl
+      avatar: resObj.avatar,
+      profileImageUrl: resObj.profileImageUrl
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
