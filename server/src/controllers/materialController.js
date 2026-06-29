@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import jwt from 'jsonwebtoken';
 import { StudyMaterial } from '../models/StudyMaterial.js';
 import { Course } from '../models/Course.js';
 import { Program } from '../models/Program.js';
@@ -438,6 +439,19 @@ export const downloadStudyMaterial = async (req, res) => {
 
     const downloadName = populated.originalName || path.basename(populated.filePath);
     return res.download(populated.filePath, downloadName);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const generateDownloadToken = async (req, res) => {
+  try {
+    const downloadToken = jwt.sign(
+      { id: req.user._id, sessionToken: req.user.activeSessionToken, isPlaybackToken: true },
+      process.env.JWT_SECRET || 'trineo_stream_premium_saas_crm_lms_secret_key_2026_xyz',
+      { expiresIn: '5m' }
+    );
+    res.json({ token: downloadToken });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

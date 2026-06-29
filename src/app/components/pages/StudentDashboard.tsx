@@ -74,7 +74,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { ThemeToggleButton } from '../ThemeToggle';
-import { apiFetch, getApiUrl, getUploadUrl } from '../../utils/api';
+import { apiFetch, getApiUrl, getUploadUrl, getDownloadUrlWithToken } from '../../utils/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush, initializePushNotifications } from '../../utils/pushManager';
 import { toast } from 'sonner';
@@ -2679,10 +2679,7 @@ export default function StudentDashboard() {
                                       }
                                     }
 
-                                    const token = localStorage.getItem('token');
-                                    const url = token
-                                      ? `${getApiUrl(material.downloadUrl)}?token=${encodeURIComponent(token)}`
-                                      : getApiUrl(material.downloadUrl);
+                                    const url = await getDownloadUrlWithToken(material.downloadUrl);
                                     window.open(url, '_blank');
                                   }}
                                 >

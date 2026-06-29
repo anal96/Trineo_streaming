@@ -68,7 +68,7 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet';
-import { apiFetch, getApiUrl } from '../../utils/api';
+import { apiFetch, getApiUrl, getDownloadUrlWithToken } from '../../utils/api';
 import { useQuery } from '@tanstack/react-query';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { toast } from 'sonner';
@@ -1505,11 +1505,8 @@ export default function VideoPlayer() {
   };
 
 
-  const openDownload = (downloadUrl: string) => {
-    const token = localStorage.getItem('token');
-    const url = token
-      ? `${getApiUrl(downloadUrl)}?token=${encodeURIComponent(token)}`
-      : getApiUrl(downloadUrl);
+  const openDownload = async (downloadUrl: string) => {
+    const url = await getDownloadUrlWithToken(downloadUrl);
     window.open(url, '_blank');
   };
 

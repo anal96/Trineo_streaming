@@ -29,6 +29,10 @@ const securitySessionSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  userAgent: {
+    type: String,
+    default: ''
+  },
   location: {
     type: String,
     default: ''

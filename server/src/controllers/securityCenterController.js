@@ -83,6 +83,7 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     existing.ipAddress = ipAddress || existing.ipAddress;
     existing.browser = browser;
     existing.device = device;
+    existing.userAgent = userAgent || existing.userAgent;
     await existing.save();
     return existing;
   }
@@ -93,6 +94,7 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     device,
     browser,
     ipAddress: ipAddress || '',
+    userAgent: userAgent || '',
     location: '',
     status: 'active',
     loginAt: new Date(),

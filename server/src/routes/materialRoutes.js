@@ -11,12 +11,14 @@ import {
   createStudyMaterial,
   updateStudyMaterial,
   deleteStudyMaterial,
-  downloadStudyMaterial
+  downloadStudyMaterial,
+  generateDownloadToken
 } from '../controllers/materialController.js';
 
 const router = express.Router();
 
 router.get('/', protect, getStudentMaterials);
+router.get('/token', protect, generateDownloadToken);
 router.get('/admin', protect, adminOnly, getAdminMaterials);
 router.post(
   '/',

@@ -93,3 +93,18 @@ export const decodeShortId = (shortId: string) => {
   return Array.from(binary).map(char => char.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 };
 
+export async function getDownloadUrlWithToken(downloadUrl: string) {
+  let downloadToken = '';
+  try {
+    const res = await apiFetch('/materials/token');
+    if (res && res.token) {
+      downloadToken = res.token;
+    }
+  } catch (e) {
+    console.error('Failed to get download token', e);
+  }
+  return downloadToken
+    ? `${getApiUrl(downloadUrl)}?token=${encodeURIComponent(downloadToken)}`
+    : getApiUrl(downloadUrl);
+}
+
