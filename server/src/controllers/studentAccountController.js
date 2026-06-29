@@ -7,6 +7,9 @@ import { SecuritySession } from '../models/SecuritySession.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
 import { Institute } from '../models/Institute.js';
 import { Course } from '../models/Course.js';
+import { Enrollment } from '../models/Enrollment.js';
+import { Program } from '../models/Program.js';
+import { isR2Configured, uploadToR2 } from '../utils/r2Service.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -21,26 +24,50 @@ const logSecurityEvent = async (req, userId, details) => {
   });
 };
 
+const resolveAssignedBatch = async (user) => {
+  // 1. Try to find active enrollment
+  const activeEnrollment = await Enrollment.findOne({
+    studentId: user._id,
+    status: 'active',
+    institute: user.institute ? user.institute._id : null
+  }).populate('programId');
+
+  if (activeEnrollment && activeEnrollment.programId && !activeEnrollment.programId.isDeleted) {
+    return {
+      _id: activeEnrollment.programId._id,
+      name: activeEnrollment.programId.name
+    };
+  }
+
+  // 2. Fallback to Program matching by name/title/slug of student.batchName or student.courseName or student.program
+  const userFields = [user.batchName, user.courseName, user.program]
+    .filter(Boolean);
+  
+  if (userFields.length > 0) {
+    const matchedProgram = await Program.findOne({
+      name: { $in: userFields },
+      institute: user.institute ? user.institute._id : null,
+      isDeleted: false
+    });
+    if (matchedProgram) {
+      return {
+        _id: matchedProgram._id,
+        name: matchedProgram.name
+      };
+    }
+  }
+
+  return null;
+};
+
 export const getStudentProfileSettings = async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
     const user = await User.findById(req.user._id).populate('institute').select('-password -passwordResetTokenHash');
     if (!user) return res.status(404).json({ message: 'User not found' });
     const userObj = user.toObject();
-    userObj.assignedBatch = null;
-
-    if (user.courseName) {
-      const matchedCourse = await Course.findOne({
-        title: user.courseName,
-        institute: user.institute ? user.institute._id : null
-      });
-      if (matchedCourse) {
-        userObj.assignedBatch = {
-          _id: matchedCourse._id,
-          name: matchedCourse.title
-        };
-      }
-    }
+    
+    userObj.assignedBatch = await resolveAssignedBatch(user);
 
     res.json(userObj);
   } catch (error) {
@@ -67,20 +94,8 @@ export const updateStudentProfileSettings = async (req, res) => {
     const updated = await User.findById(user._id).populate('institute').select('-password -passwordResetTokenHash');
     if (!updated) return res.status(404).json({ message: 'User not found' });
     const updatedObj = updated.toObject();
-    updatedObj.assignedBatch = null;
-
-    if (updated.courseName) {
-      const matchedCourse = await Course.findOne({
-        title: updated.courseName,
-        institute: updated.institute ? updated.institute._id : null
-      });
-      if (matchedCourse) {
-        updatedObj.assignedBatch = {
-          _id: matchedCourse._id,
-          name: matchedCourse.title
-        };
-      }
-    }
+    
+    updatedObj.assignedBatch = await resolveAssignedBatch(updated);
 
     res.json(updatedObj);
   } catch (error) {
@@ -311,17 +326,28 @@ export const uploadStudentAvatar = async (req, res) => {
       }
     }
 
-    // Write the new WebP file
-    fs.writeFileSync(filePath, buffer);
+    // Write file to R2 if configured, else write local file
+    let avatarUrl = relativePath;
+    if (isR2Configured()) {
+      try {
+        const r2Key = `avatars/student_${req.user.user_id}_${Date.now()}.webp`;
+        avatarUrl = await uploadToR2(buffer, r2Key, 'image/webp');
+      } catch (r2Err) {
+        console.error('R2 Avatar Upload Failed, falling back to local file:', r2Err);
+        fs.writeFileSync(filePath, buffer);
+      }
+    } else {
+      fs.writeFileSync(filePath, buffer);
+    }
 
-    user.avatar = relativePath;
-    user.profileImageUrl = relativePath;
+    user.avatar = avatarUrl;
+    user.profileImageUrl = avatarUrl;
     await user.save();
 
     res.json({
       message: 'Avatar uploaded successfully',
-      avatar: relativePath,
-      profileImageUrl: relativePath
+      avatar: avatarUrl,
+      profileImageUrl: avatarUrl
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

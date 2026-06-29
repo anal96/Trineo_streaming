@@ -10,6 +10,8 @@ import { SecurityState } from '../models/SecurityState.js';
 import { upsertSecuritySessionFromRequest } from './securityCenterController.js';
 import { syncStudentProfile } from '../services/crmSyncService.js';
 import { Course } from '../models/Course.js';
+import { Enrollment } from '../models/Enrollment.js';
+import { Program } from '../models/Program.js';
 
 const parseAgent = (ua = '') => {
   const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
@@ -286,17 +288,39 @@ export const getUserProfile = async (req, res) => {
     const userObj = user.toObject();
     userObj.assignedBatch = null;
 
-    if (user.role === 'student' && user.courseName) {
-      const matchedCourse = await Course.findOne({
-        title: user.courseName,
+    if (user.role === 'student') {
+      // 1. Try to find active enrollment
+      const activeEnrollment = await Enrollment.findOne({
+        studentId: user._id,
+        status: 'active',
         institute: user.institute ? user.institute._id : null
-      });
-      if (matchedCourse) {
+      }).populate('programId');
+
+      if (activeEnrollment && activeEnrollment.programId && !activeEnrollment.programId.isDeleted) {
         userObj.assignedBatch = {
-          _id: matchedCourse._id,
-          name: matchedCourse.title
+          _id: activeEnrollment.programId._id,
+          name: activeEnrollment.programId.name
         };
+      } else {
+        // 2. Fallback to Program matching by name/title/slug of student.batchName or student.courseName or student.program
+        const userFields = [user.batchName, user.courseName, user.program]
+          .filter(Boolean);
+        
+        if (userFields.length > 0) {
+          const matchedProgram = await Program.findOne({
+            name: { $in: userFields },
+            institute: user.institute ? user.institute._id : null,
+            isDeleted: false
+          });
+          if (matchedProgram) {
+            userObj.assignedBatch = {
+              _id: matchedProgram._id,
+              name: matchedProgram.name
+            };
+          }
+        }
       }
+
     }
 
     res.json(userObj);
