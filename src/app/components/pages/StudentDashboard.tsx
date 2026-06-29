@@ -2680,7 +2680,14 @@ export default function StudentDashboard() {
                                     }
 
                                     const url = await getDownloadUrlWithToken(material.downloadUrl);
-                                    window.open(url, '_blank');
+                                    console.log("ANDROID PDF CLICK");
+                                    console.log("window.AndroidApp =", window.AndroidApp);
+                                    console.log("Calling openPdf()");
+                                    if (window.AndroidApp?.openPdf) {
+                                      window.AndroidApp.openPdf(url, material.title || 'Document.pdf', material.id || material._id || 'unknown');
+                                    } else {
+                                      window.open(url, '_blank');
+                                    }
                                   }}
                                 >
                                   <Download className="w-3.5 h-3.5" />

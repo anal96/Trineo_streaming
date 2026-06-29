@@ -96,12 +96,19 @@ export default function StudyMaterialsManagement() {
     }
   };
 
-  const openDownload = (downloadUrl: string) => {
+  const openDownload = (downloadUrl: string, fileName?: string, materialId?: string) => {
     const token = localStorage.getItem('token');
     const url = token
       ? `${getApiUrl(downloadUrl)}?token=${encodeURIComponent(token)}`
       : getApiUrl(downloadUrl);
-    window.open(url, '_blank');
+    console.log("ANDROID PDF CLICK");
+    console.log("window.AndroidApp =", window.AndroidApp);
+    console.log("Calling openPdf()");
+    if (window.AndroidApp?.openPdf) {
+      window.AndroidApp.openPdf(url, fileName || 'Document.pdf', materialId || 'unknown');
+    } else {
+      window.open(url, '_blank');
+    }
   };
 
   return (
@@ -226,7 +233,7 @@ export default function StudyMaterialsManagement() {
                         <TableCell>{new Date(material.createdAt).toLocaleDateString()}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap justify-end gap-2">
-                            <Button size="sm" variant="outline" className="min-h-11" onClick={() => openDownload(material.downloadUrl)}><Download className="w-4 h-4 mr-1" />Download</Button>
+                             <Button size="sm" variant="outline" className="min-h-11" onClick={() => openDownload(material.downloadUrl, material.title, material.id)}><Download className="w-4 h-4 mr-1" />Download</Button>
                             <Button size="sm" variant="outline" className="min-h-11 border-red-500/30 text-red-500" onClick={() => handleDelete(material.id)}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>
                           </div>
                         </TableCell>
@@ -256,7 +263,7 @@ export default function StudyMaterialsManagement() {
                       ]}
                       actions={
                         <>
-                          <Button size="sm" variant="outline" className="min-h-11 flex-1" onClick={() => openDownload(material.downloadUrl)}>Download</Button>
+                           <Button size="sm" variant="outline" className="min-h-11 flex-1" onClick={() => openDownload(material.downloadUrl, material.title, material.id)}>Download</Button>
                           <Button size="sm" variant="outline" className="min-h-11 text-red-500" onClick={() => handleDelete(material.id)}>Delete</Button>
                         </>
                       }

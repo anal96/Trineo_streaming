@@ -1505,9 +1505,16 @@ export default function VideoPlayer() {
   };
 
 
-  const openDownload = async (downloadUrl: string) => {
+  const openDownload = async (downloadUrl: string, fileName?: string, materialId?: string) => {
     const url = await getDownloadUrlWithToken(downloadUrl);
-    window.open(url, '_blank');
+    console.log("ANDROID PDF CLICK");
+    console.log("window.AndroidApp =", window.AndroidApp);
+    console.log("Calling openPdf()");
+    if (window.AndroidApp?.openPdf) {
+      window.AndroidApp.openPdf(url, fileName || 'Document.pdf', materialId || 'unknown');
+    } else {
+      window.open(url, '_blank');
+    }
   };
 
   const submitReport = async (e: React.FormEvent) => {
@@ -2703,7 +2710,7 @@ export default function VideoPlayer() {
                               size="sm"
                               variant="outline"
                               className="h-9 text-[11px] font-bold flex items-center gap-1.5 shrink-0 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 border-indigo-200 text-indigo-650 dark:border-indigo-900/60 dark:text-indigo-400 dark:hover:bg-zinc-800 px-3 shadow-none"
-                              onClick={() => openDownload(material.downloadUrl, material.title || material.originalName)}
+                              onClick={() => openDownload(material.downloadUrl, material.title || material.originalName, material._id)}
                             >
                               <Download className="w-3.5 h-3.5" /> Download
                             </Button>
@@ -2903,7 +2910,7 @@ export default function VideoPlayer() {
                                     size="sm"
                                     variant="outline"
                                     className="h-8 lg:h-9 text-[11px] lg:text-xs flex items-center gap-1.5 shrink-0 rounded-lg lg:rounded-xl hover:bg-purple-50 border-slate-200 text-slate-600 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 px-2.5 lg:px-4"
-                                    onClick={() => openDownload(material.downloadUrl, material.title || material.originalName)}
+                                    onClick={() => openDownload(material.downloadUrl, material.title || material.originalName, material._id)}
                                   >
                                     <Download className="w-3.5 h-3.5" />
                                     <span className="hidden sm:inline">Download</span>
