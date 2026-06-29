@@ -3793,8 +3793,8 @@ export default function StudentDashboard() {
                           <AvatarImage src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
                           <AvatarFallback className="bg-primary/10 text-primary text-lg font-black">{(user?.name || 'S').charAt(0).toUpperCase()}</AvatarFallback>
                         </Avatar>
-                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-emerald-500 rounded-full border-2 border-card flex items-center justify-center">
-                          <Check className="w-2.5 h-2.5 text-white" />
+                        <div className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 rounded-full border-2 border-card flex items-center justify-center">
+                          <Check className="w-2 h-2 text-white" />
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 space-y-1.5">
@@ -3936,20 +3936,22 @@ export default function StudentDashboard() {
                         <div className="p-4 border-t border-border/40 space-y-5 animate-in fade-in slide-in-from-top-2 duration-200">
                           {/* Profile completion / details */}
                           <div className="flex flex-col items-center text-center space-y-3 pb-4 border-b border-border/40">
-                            <div className="relative w-24 h-24 group">
-                              <div className="w-full h-full rounded-full overflow-hidden border-4 border-purple-500/20 bg-muted flex items-center justify-center relative shadow-inner">
-                                <img 
+                            <div className="relative w-[72px] h-[72px] mx-auto group">
+                              <Avatar className="w-full h-full border-[3px] border-card bg-muted shadow-md rounded-full">
+                                <AvatarImage 
                                   src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} 
                                   alt="Student Avatar" 
-                                  className="w-full h-full object-cover" 
                                 />
-                              </div>
+                                <AvatarFallback className="bg-primary/10 text-primary text-xl font-black">
+                                  {(user?.name || 'S').charAt(0).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
                               <button 
                                 onClick={() => setAvatarModalOpen(true)}
-                                className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-auto"
                               >
-                                <Camera className="w-5 h-5 mb-0.5" />
-                                <span className="text-[9px] font-black uppercase tracking-wider">Change</span>
+                                <Camera className="w-4 h-4 mb-0.5" />
+                                <span className="text-[8px] font-black uppercase tracking-wider">Change</span>
                               </button>
                             </div>
                             <div>
@@ -4282,21 +4284,23 @@ export default function StudentDashboard() {
                       <CardContent className="p-6 text-center space-y-5">
                         
                         {/* Avatar container */}
-                        <div className="relative w-32 h-32 mx-auto group">
-                          <div className="w-full h-full rounded-full overflow-hidden border-4 border-purple-500/20 bg-muted flex items-center justify-center relative shadow-inner">
-                            <img 
+                        <div className="relative w-20 h-20 mx-auto group">
+                          <Avatar className="w-full h-full border-[3px] border-card bg-muted shadow-md rounded-full">
+                            <AvatarImage 
                               src={user?.avatar ? (user.avatar.startsWith('/') ? getUploadUrl(user.avatar) : user.avatar) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} 
                               alt="Student Avatar" 
-                              className="w-full h-full object-cover" 
                             />
-                          </div>
+                            <AvatarFallback className="bg-primary/10 text-primary text-2xl font-black">
+                              {(user?.name || 'S').charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
                           <button 
                             onClick={() => setAvatarModalOpen(true)}
-                            className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                            className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-auto"
                             aria-label="Change Profile Photo"
                           >
-                            <Camera className="w-6 h-6 mb-1" />
-                            <span className="text-[10px] font-bold tracking-wider uppercase">Change Photo</span>
+                            <Camera className="w-5 h-5 mb-0.5" />
+                            <span className="text-[8px] font-bold tracking-wider uppercase">Change Photo</span>
                           </button>
                         </div>
 
