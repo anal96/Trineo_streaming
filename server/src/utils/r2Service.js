@@ -56,7 +56,10 @@ export const uploadFile = async (fileBuffer, key, contentType) => {
 
   await client.send(command);
 
-  const publicUrlBase = process.env.R2_PUBLIC_URL || `${getEndpoint()}/${bucket}`;
+  const useBucketStyle = !process.env.R2_PUBLIC_URL || process.env.R2_PUBLIC_URL.includes('storage.trineo.in');
+  const publicUrlBase = useBucketStyle
+    ? `https://${bucket}.${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+    : process.env.R2_PUBLIC_URL;
   return `${publicUrlBase.replace(/\/$/, '')}/${key}`;
 };
 
@@ -170,7 +173,8 @@ export const parseR2Key = (url) => {
     const parsed = new URL(url);
     let pathname = parsed.pathname;
     
-    if (process.env.R2_PUBLIC_URL) {
+    const useBucketStyle = !process.env.R2_PUBLIC_URL || process.env.R2_PUBLIC_URL.includes('storage.trineo.in') || parsed.hostname.includes('r2.cloudflarestorage.com');
+    if (!useBucketStyle) {
       return pathname.replace(/^\//, '');
     } else {
       const bucket = process.env.R2_BUCKET_NAME;
