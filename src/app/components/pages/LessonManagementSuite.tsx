@@ -28,9 +28,12 @@ import {
   Copy,
   Info,
   MoreVertical,
-  ExternalLink
+  ExternalLink,
+  Loader2,
+  Trash,
+  RefreshCw
 } from 'lucide-react';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, getApiUrl } from '../../utils/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -116,6 +119,184 @@ export default function LessonManagementSuite({
   const [isLoading, setIsLoading] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewLesson, setPreviewLesson] = useState<any>(null);
+
+  // Multi-video management modal states
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
+  const [videoModalMode, setVideoModalMode] = useState<'upload' | 'edit' | 'replace'>('upload');
+  const [selectedVideoContent, setSelectedVideoContent] = useState<any>(null);
+  const [selectedUploadLesson, setSelectedUploadLesson] = useState<any>(null);
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoDuration, setVideoDuration] = useState('');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const [expandedLessons, setExpandedLessons] = useState<Set<string>>(new Set());
+
+  const triggerAddVideo = (lesson: any) => {
+    setSelectedUploadLesson(lesson);
+    setVideoModalMode('upload');
+    setVideoTitle('');
+    setVideoDuration('');
+    setVideoFile(null);
+    setPdfTitle('');
+    setPdfFile(null);
+    setSelectedVideoContent(null);
+    setVideoModalOpen(true);
+  };
+
+  const triggerEditVideo = (video: any) => {
+    setSelectedVideoContent(video);
+    setVideoModalMode('edit');
+    setVideoTitle(video.title);
+    setVideoDuration(video.youtubeDuration || video.duration || '');
+    setVideoModalOpen(true);
+  };
+
+  const triggerReplaceVideo = (video: any) => {
+    setSelectedVideoContent(video);
+    setVideoModalMode('replace');
+    setVideoTitle(video.title);
+    setVideoDuration(video.youtubeDuration || video.duration || '');
+    setVideoFile(null);
+    setVideoModalOpen(true);
+  };
+
+  const deleteVideoContent = async (contentId: string) => {
+    const confirmDelete = window.confirm('Are you sure you want to delete this video?');
+    if (!confirmDelete) return;
+
+    try {
+      setIsLoading(true);
+      await apiFetch(`/content/${contentId}`, { method: 'DELETE' });
+      toast.success('Video deleted successfully');
+      await loadAllDataForProgram(selectedProgramId);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete video');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const moveVideoOrder = async (lesson: any, videoIdx: number, direction: 'up' | 'down') => {
+    const lessonVideos = lesson.videos || lesson.contents?.filter((c: any) => c.type === 'video') || [];
+    if (lessonVideos.length <= 1) return;
+    if (direction === 'up' && videoIdx === 0) return;
+    if (direction === 'down' && videoIdx === lessonVideos.length - 1) return;
+
+    const newVideos = [...lessonVideos];
+    const targetIdx = direction === 'up' ? videoIdx - 1 : videoIdx + 1;
+    const temp = newVideos[videoIdx];
+    newVideos[videoIdx] = newVideos[targetIdx];
+    newVideos[targetIdx] = temp;
+
+    const reorderItems = newVideos.map((v, idx) => ({
+      id: v._id,
+      order: idx + 1
+    }));
+
+    try {
+      setIsLoading(true);
+      await apiFetch('/content/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ items: reorderItems })
+      });
+      toast.success('Video order updated');
+      await loadAllDataForProgram(selectedProgramId);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reorder videos');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVideoModalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (videoModalMode === 'edit') {
+      if (!videoTitle.trim()) return alert('Video title is required');
+      try {
+        setIsLoading(true);
+        await apiFetch(`/content/${selectedVideoContent._id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            title: videoTitle.trim(),
+            youtubeDuration: videoDuration.trim(),
+            duration: videoDuration.trim()
+          })
+        });
+        toast.success('Video updated successfully');
+        setVideoModalOpen(false);
+        await loadAllDataForProgram(selectedProgramId);
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to update video');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (!videoFile) {
+      alert('Please select an MP4 video file first');
+      return;
+    }
+
+    setUploadingVideo(true);
+    setVideoUploadProgress(0);
+
+    const formData = new FormData();
+    formData.append('video', videoFile);
+    formData.append('title', videoTitle.trim() || 'New Video');
+    formData.append('duration', videoDuration.trim() || '15:00');
+    formData.append('courseId', selectedProgramId);
+    
+    if (videoModalMode === 'replace') {
+      formData.append('lessonId', selectedVideoContent.lessonId);
+      formData.append('replaceContentId', selectedVideoContent._id);
+      formData.append('contentId', selectedVideoContent._id);
+    } else {
+      formData.append('lessonId', selectedUploadLesson._id);
+      if (pdfFile) {
+        formData.append('attachment', pdfFile);
+        formData.append('attachmentName', pdfTitle || pdfFile.name.replace(/\.[^/.]+$/, ""));
+      }
+    }
+
+    const xhr = new XMLHttpRequest();
+    xhr.withCredentials = true;
+    const token = localStorage.getItem('token');
+
+    xhr.open('POST', getApiUrl('/videos/youtube/upload'));
+    if (token && token !== 'session_active') {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setVideoUploadProgress(percent);
+      }
+    };
+
+    xhr.onload = async () => {
+      setUploadingVideo(false);
+      if (xhr.status === 202 || xhr.status === 200) {
+        toast.success(videoModalMode === 'replace' ? 'Video replaced successfully' : 'Video uploaded successfully');
+        setVideoModalOpen(false);
+        await loadAllDataForProgram(selectedProgramId);
+      } else {
+        const resp = JSON.parse(xhr.responseText || '{}');
+        alert(resp.message || 'Upload failed');
+      }
+    };
+
+    xhr.onerror = () => {
+      setUploadingVideo(false);
+      alert('Network error during upload');
+    };
+
+    xhr.send(formData);
+  };
 
   // Load Programs (Batches)
   const loadPrograms = async () => {
@@ -1337,107 +1518,214 @@ export default function LessonManagementSuite({
                                               .map((lesson, lIdx) => {
                                                 const isLessonSelected = selectedLessonId === lesson._id;
                                                 const isLessonChecked = checkedLessonIds.includes(lesson._id);
+                                                const isLessonExpanded = expandedLessons.has(lesson._id);
+                                                const lessonVideos = lesson.videos || lesson.contents?.filter((c: any) => c.type === 'video') || [];
 
                                                 return (
-                                                  <div
-                                                    key={lesson._id}
-                                                    onClick={() => {
-                                                      setSelectedLessonId(lesson._id);
-                                                      setSelectedTopicTab('overview');
-                                                    }}
-                                                    className={`group/lesson relative mt-1 flex items-center justify-between p-3 rounded-xl border bg-white cursor-pointer transition-all duration-200 hover:-translate-y-0.5 ${
-                                                      isLessonSelected
-                                                        ? 'border-purple-500 bg-purple-50/20 shadow-sm ring-1 ring-purple-500/15'
-                                                        : 'border-slate-150 hover:border-slate-250 hover:bg-purple-50/5'
-                                                    }`}
-                                                  >
-                                                    {/* Horizontal branch line */}
-                                                    <div className="absolute -left-[19px] top-5.5 w-4.5 h-px bg-slate-200" />
+                                                  <div key={lesson._id} className="mt-1 space-y-1">
+                                                    <div
+                                                      onClick={() => {
+                                                        setSelectedLessonId(lesson._id);
+                                                        setSelectedTopicTab('overview');
+                                                      }}
+                                                      className={`group/lesson relative flex items-center justify-between p-3 rounded-xl border bg-white cursor-pointer transition-all duration-200 hover:-translate-y-0.5 ${
+                                                        isLessonSelected
+                                                          ? 'border-purple-500 bg-purple-50/20 shadow-sm ring-1 ring-purple-500/15'
+                                                          : 'border-slate-150 hover:border-slate-250 hover:bg-purple-50/5'
+                                                      }`}
+                                                    >
+                                                      {/* Horizontal branch line */}
+                                                      <div className="absolute -left-[19px] top-5.5 w-4.5 h-px bg-slate-200" />
 
-                                                    <div className="flex items-center gap-2.5 min-w-0">
-                                                      <input
-                                                        type="checkbox"
-                                                        checked={isLessonChecked}
-                                                        onChange={(e) => {
-                                                          setCheckedLessonIds(curr => e.target.checked ? [...curr, lesson._id] : curr.filter(id => id !== lesson._id));
-                                                        }}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className="h-3.5 w-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer shrink-0"
-                                                      />
+                                                      <div className="flex items-center gap-2.5 min-w-0">
+                                                        <button
+                                                          type="button"
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setExpandedLessons(prev => {
+                                                              const next = new Set(prev);
+                                                              if (next.has(lesson._id)) {
+                                                                next.delete(lesson._id);
+                                                              } else {
+                                                                next.add(lesson._id);
+                                                              }
+                                                              return next;
+                                                            });
+                                                          }}
+                                                          className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-400 shrink-0"
+                                                        >
+                                                          <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${isLessonExpanded ? 'rotate-90' : ''}`} />
+                                                        </button>
 
-                                                      {lesson.videoCount > 0 ? (
-                                                        <Play className="w-3.5 h-3.5 text-purple-500 shrink-0 fill-purple-500/10" />
-                                                      ) : (
-                                                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                      )}
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={isLessonChecked}
+                                                          onChange={(e) => {
+                                                            setCheckedLessonIds(curr => e.target.checked ? [...curr, lesson._id] : curr.filter(id => id !== lesson._id));
+                                                          }}
+                                                          onClick={(e) => e.stopPropagation()}
+                                                          className="h-3.5 w-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer shrink-0"
+                                                        />
 
-                                                      <span className={`text-xs font-semibold truncate ${
-                                                        isLessonSelected ? 'text-purple-900 font-bold' : 'text-slate-700'
-                                                      }`}>
-                                                        {lesson.title}
-                                                      </span>
+                                                        <span className={`text-xs font-semibold truncate ${
+                                                          isLessonSelected ? 'text-purple-900 font-bold' : 'text-slate-700'
+                                                        }`}>
+                                                          {lesson.title}
+                                                        </span>
 
-                                                      {lesson.videoCount > 0 ? (
-                                                        <span className="bg-purple-50 text-purple-700 text-[9px] px-1 rounded border border-purple-200/50 font-medium">Video</span>
-                                                      ) : (
-                                                        <span className="bg-slate-100 text-slate-500 text-[9px] px-1 rounded font-medium">Document</span>
-                                                      )}
+                                                        <span className="bg-purple-50 text-purple-700 text-[9px] px-1.5 py-0.5 rounded border border-purple-200/50 font-medium shrink-0">
+                                                          {lessonVideos.length} {lessonVideos.length === 1 ? 'Video' : 'Videos'}
+                                                        </span>
 
-                                                      {lesson.publishStatus === 'published' ? (
-                                                        <Badge variant="outline" className="text-[8px] text-green-500 border-green-500/20 bg-green-500/5 px-1 py-0 leading-none">Published</Badge>
-                                                      ) : (
-                                                        <Badge variant="outline" className="text-[8px] text-slate-400 border-slate-300 bg-slate-50 px-1 py-0 leading-none">Draft</Badge>
-                                                      )}
-                                                      {lesson.isLocked && <Lock className="w-2.5 h-2.5 text-rose-500 shrink-0" />}
+                                                        {lesson.publishStatus === 'published' ? (
+                                                          <Badge variant="outline" className="text-[8px] text-green-500 border-green-500/20 bg-green-500/5 px-1 py-0 leading-none">Published</Badge>
+                                                        ) : (
+                                                          <Badge variant="outline" className="text-[8px] text-slate-400 border-slate-300 bg-slate-50 px-1 py-0 leading-none">Draft</Badge>
+                                                        )}
+                                                        {lesson.isLocked && <Lock className="w-2.5 h-2.5 text-rose-500 shrink-0" />}
+                                                      </div>
+
+                                                      {/* Actions */}
+                                                      <div className="flex items-center gap-0.5 opacity-0 group-hover/lesson:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => startEditLesson(lesson)}
+                                                          className="h-6 w-6 rounded hover:bg-slate-100 text-slate-500"
+                                                          title="Edit Topic"
+                                                        >
+                                                          <Pencil className="w-3 h-3" />
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => handleDuplicateLesson(lesson)}
+                                                          className="h-6 w-6 rounded hover:bg-slate-100 text-indigo-500"
+                                                          title="Duplicate"
+                                                        >
+                                                          <Copy className="w-3 h-3" />
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => handleMoveLesson(unit._id, lIdx, 'up')}
+                                                          disabled={lIdx === 0}
+                                                          className="h-6 w-6 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-20"
+                                                        >
+                                                          ▲
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => handleMoveLesson(unit._id, lIdx, 'down')}
+                                                          disabled={lIdx === unitLessons.length - 1}
+                                                          className="h-6 w-6 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-20"
+                                                        >
+                                                          ▼
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => handleDeleteLesson(lesson._id)}
+                                                          className="h-6 w-6 rounded hover:bg-slate-100 text-rose-500"
+                                                          title="Delete"
+                                                        >
+                                                          <Trash className="w-3 h-3" />
+                                                        </Button>
+                                                      </div>
                                                     </div>
 
-                                                    {/* Actions */}
-                                                    <div className="flex items-center gap-0.5 opacity-0 group-hover/lesson:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => startEditLesson(lesson)}
-                                                        className="h-6 w-6 rounded hover:bg-slate-100 text-slate-500"
-                                                        title="Edit Topic"
-                                                      >
-                                                        <Pencil className="w-3 h-3" />
-                                                      </Button>
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => handleDuplicateLesson(lesson)}
-                                                        className="h-6 w-6 rounded hover:bg-slate-100 text-indigo-500"
-                                                        title="Duplicate"
-                                                      >
-                                                        <Copy className="w-3 h-3" />
-                                                      </Button>
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => handleMoveLesson(unit._id, lIdx, 'up')}
-                                                        disabled={lIdx === 0}
-                                                        className="h-6 w-6 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-20"
-                                                      >
-                                                        <ArrowUp className="w-3 h-3" />
-                                                      </Button>
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => handleMoveLesson(unit._id, lIdx, 'down')}
-                                                        disabled={lIdx === unitLessons.length - 1}
-                                                        className="h-6 w-6 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-20"
-                                                      >
-                                                        <ArrowDown className="w-3 h-3" />
-                                                      </Button>
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => handleDeleteLesson(lesson._id)}
-                                                        className="h-6 w-6 rounded hover:bg-red-50 text-red-500"
-                                                      >
-                                                        <Trash2 className="w-3 h-3" />
-                                                      </Button>
-                                                    </div>
+                                                    {/* Expanding Child Videos */}
+                                                    {isLessonExpanded && (
+                                                      <div className="pl-6 pr-2 py-1.5 space-y-1 bg-slate-50/30 rounded-lg border border-slate-100/50 mt-0.5 ml-3 text-left">
+                                                        {lessonVideos.length === 0 ? (
+                                                          <div className="p-2 text-center text-[10px] text-slate-400 font-medium">
+                                                            No videos uploaded to this topic.
+                                                          </div>
+                                                        ) : (
+                                                          lessonVideos.map((video: any, videoIdx: number) => {
+                                                            const isReady = video.uploadStatus === 'ready';
+                                                            return (
+                                                              <div key={video._id} className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 border border-slate-150/60 dark:border-zinc-800 rounded-lg text-[11px] shadow-sm hover:border-purple-200 transition-colors">
+                                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                                  <Play className="w-3 h-3 text-purple-500 fill-purple-500/10 shrink-0" />
+                                                                  <span className="font-bold text-slate-700 dark:text-zinc-350 truncate">
+                                                                    {video.title}
+                                                                  </span>
+                                                                  <span className="text-[9px] text-slate-400 font-medium">
+                                                                    ({video.youtubeDuration || video.duration || '0:00'})
+                                                                  </span>
+                                                                  {isReady ? (
+                                                                    <Badge variant="outline" className="text-[7px] text-green-500 border-green-500/25 bg-green-500/5 px-1 py-0 leading-none">Published</Badge>
+                                                                  ) : (
+                                                                    <Badge variant="outline" className="text-[7px] text-amber-500 border-amber-300 bg-amber-50 px-1 py-0 leading-none">{video.uploadStatus || 'processing'}</Badge>
+                                                                  )}
+                                                                </div>
+                                                                
+                                                                <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                                  <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    onClick={() => triggerEditVideo(video)}
+                                                                    className="h-5 w-5 rounded hover:bg-slate-100 text-slate-500"
+                                                                    title="Edit Title"
+                                                                  >
+                                                                    <Pencil className="w-2.5 h-2.5" />
+                                                                  </Button>
+                                                                  <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    onClick={() => triggerReplaceVideo(video)}
+                                                                    className="h-5 w-5 rounded hover:bg-slate-100 text-amber-600"
+                                                                    title="Replace Video File"
+                                                                  >
+                                                                    <RefreshCw className="w-2.5 h-2.5" />
+                                                                  </Button>
+                                                                  <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    onClick={() => deleteVideoContent(video._id)}
+                                                                    className="h-5 w-5 rounded hover:bg-slate-100 text-rose-500"
+                                                                    title="Delete Video"
+                                                                  >
+                                                                    <Trash className="w-2.5 h-2.5" />
+                                                                  </Button>
+                                                                  <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    onClick={() => moveVideoOrder(lesson, videoIdx, 'up')}
+                                                                    disabled={videoIdx === 0}
+                                                                    className="h-5 w-5 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-20"
+                                                                  >
+                                                                    ▲
+                                                                  </Button>
+                                                                  <Button
+                                                                    size="icon"
+                                                                    variant="ghost"
+                                                                    onClick={() => moveVideoOrder(lesson, videoIdx, 'down')}
+                                                                    disabled={videoIdx === lessonVideos.length - 1}
+                                                                    className="h-5 w-5 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-20"
+                                                                  >
+                                                                    ▼
+                                                                  </Button>
+                                                                </div>
+                                                              </div>
+                                                            );
+                                                          })
+                                                        )}
+
+                                                        <button
+                                                          type="button"
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            triggerAddVideo(lesson);
+                                                          }}
+                                                          className="w-full py-1.5 border border-dashed border-purple-200 hover:border-purple-400 text-purple-600 rounded-lg text-center font-bold text-[10px] bg-purple-50/10 hover:bg-purple-50/20 transition-all flex items-center justify-center gap-1 mt-1"
+                                                        >
+                                                          <span>+ Add Video</span>
+                                                        </button>
+                                                      </div>
+                                                    )}
                                                   </div>
                                                 );
                                               })
@@ -1452,7 +1740,8 @@ export default function LessonManagementSuite({
                         )}
                       </div>
                     );
-                  })}
+                  })
+                }
               </div>
             )}
           </div>
@@ -2170,6 +2459,161 @@ export default function LessonManagementSuite({
                 {previewLesson.description || 'No syllabus description provided for this lesson.'}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Video Management Modal */}
+      {videoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4 text-left animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <h3 className="font-extrabold text-base text-slate-800 dark:text-zinc-100">
+                {videoModalMode === 'upload' && `Upload Video to: ${selectedUploadLesson?.title}`}
+                {videoModalMode === 'edit' && `Edit Video: ${selectedVideoContent?.title}`}
+                {videoModalMode === 'replace' && `Replace Video: ${selectedVideoContent?.title}`}
+              </h3>
+              <button
+                type="button"
+                onClick={() => !uploadingVideo && setVideoModalOpen(false)}
+                className="text-slate-450 hover:text-slate-600 dark:hover:text-zinc-200 text-sm font-bold"
+                disabled={uploadingVideo}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleVideoModalSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="modal-video-title">Video Title *</Label>
+                  <Input
+                    id="modal-video-title"
+                    placeholder="e.g. Overview & Scope"
+                    value={videoTitle}
+                    onChange={(e) => setVideoTitle(e.target.value)}
+                    required
+                    disabled={uploadingVideo}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="modal-video-duration">Duration</Label>
+                  <Input
+                    id="modal-video-duration"
+                    placeholder="e.g. 15:45"
+                    value={videoDuration}
+                    onChange={(e) => setVideoDuration(e.target.value)}
+                    disabled={uploadingVideo}
+                  />
+                </div>
+              </div>
+
+              {videoModalMode === 'upload' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 dark:border-zinc-800/80 pt-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="modal-pdf-title">PDF Note Title</Label>
+                    <Input
+                      id="modal-pdf-title"
+                      placeholder="e.g. Topic Notes PDF"
+                      value={pdfTitle}
+                      onChange={(e) => setPdfTitle(e.target.value)}
+                      disabled={uploadingVideo}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="modal-pdf-file">PDF Attachment</Label>
+                    <Input
+                      id="modal-pdf-file"
+                      type="file"
+                      accept="application/pdf"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setPdfFile(e.target.files[0]);
+                          if (!pdfTitle) {
+                            setPdfTitle(e.target.files[0].name.replace(/\.[^/.]+$/, ""));
+                          }
+                        }
+                      }}
+                      disabled={uploadingVideo}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {videoModalMode !== 'edit' && (
+                <div className="space-y-1.5 pt-1">
+                  <Label>Select MP4 Video File *</Label>
+                  <div className="border border-dashed border-slate-200 dark:border-zinc-800 rounded-2xl p-5 text-center hover:border-purple-300 dark:hover:border-purple-800 transition-colors">
+                    <input
+                      type="file"
+                      accept="video/*"
+                      id="modal-file-input"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setVideoFile(e.target.files[0]);
+                          if (!videoTitle) {
+                            setVideoTitle(e.target.files[0].name.replace(/\.[^/.]+$/, ""));
+                          }
+                        }
+                      }}
+                      required={videoModalMode === 'upload' && !videoFile}
+                      disabled={uploadingVideo}
+                    />
+                    <label htmlFor="modal-file-input" className="space-y-1.5 block cursor-pointer">
+                      <Play className="w-8 h-8 text-slate-400 mx-auto" />
+                      <div className="text-xs font-semibold text-slate-700 dark:text-zinc-350">
+                        {videoFile ? videoFile.name : 'Click to choose MP4 file'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Supports files up to 3GB</div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {uploadingVideo && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-zinc-400">
+                    <span>{videoUploadProgress === 100 ? 'Preparing Video...' : 'Uploading Video...'}</span>
+                    <span>{videoUploadProgress}%</span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-purple-650 to-indigo-600 transition-all duration-300"
+                      style={{ width: `${videoUploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setVideoModalOpen(false)}
+                  className="w-1/3 text-xs h-9.5 rounded-xl border-slate-200 text-slate-650 hover:bg-slate-50"
+                  disabled={uploadingVideo}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="w-2/3 bg-purple-600 hover:bg-purple-700 text-white shadow-sm shadow-purple-500/10 h-9.5 rounded-xl font-bold"
+                  disabled={uploadingVideo || (videoModalMode !== 'edit' && !videoFile)}
+                >
+                  {uploadingVideo ? (
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{videoUploadProgress === 100 ? 'Preparing...' : `Uploading (${videoUploadProgress}%)`}</span>
+                    </div>
+                  ) : (
+                    <span>{videoModalMode === 'edit' ? 'Save Changes' : videoModalMode === 'replace' ? 'Upload & Replace' : 'Upload & Link'}</span>
+                  )}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

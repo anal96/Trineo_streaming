@@ -16,6 +16,16 @@ export const getStudentNotifications = async (req, res) => {
   try {
     if (!requireStudentInstitute(req, res)) return;
 
+    // Fetch the student's active enrollment to extract the active programId
+    const EnrollmentModel = mongoose.model('Enrollment');
+    const activeEnrollment = await EnrollmentModel.findOne({
+      studentId: req.user._id,
+      institute: req.user.institute,
+      isActive: { $ne: false }
+    });
+
+    const activeProgramId = activeEnrollment ? activeEnrollment.programId.toString() : null;
+
     // Only fetch notifications explicitly targeted at this student or at the student role
     const notifications = await Notification.find({
       institute: req.user.institute,
@@ -37,6 +47,11 @@ export const getStudentNotifications = async (req, res) => {
     });
 
     notifications.forEach(n => {
+      // Filter out notifications that target a different program
+      if (n.programId && n.programId.toString() !== activeProgramId) {
+        return;
+      }
+
       if (n.targetType === 'role') {
         // Role-based notification
         const isRead = readRoleMessages.has(`${n.type}::${n.message}`);

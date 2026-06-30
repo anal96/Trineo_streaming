@@ -48,27 +48,35 @@ export const getUnitLessons = async (req, res) => {
     const lessonsWithVideoInfo = lessons.map((lesson) => {
       const lessonObj = lesson.toObject();
       const lessonContents = contentMap[lesson._id.toString()] || [];
-      const videoContent = lessonContents.find(c => c.type === 'video');
+      const videoContents = lessonContents
+        .filter(c => c.type === 'video')
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map(c => {
+          const cObj = c.toObject ? c.toObject() : { ...c };
+          const asset = c.videoAssetId;
+          if (asset && typeof asset === 'object') {
+            cObj.youtubeVideoId = asset.youtubeVideoId || cObj.youtubeVideoId;
+            cObj.uploadStatus = asset.uploadStatus || cObj.uploadStatus;
+            cObj.youtubeDuration = asset.youtubeDuration || cObj.youtubeDuration || cObj.duration;
+            cObj.duration = asset.youtubeDuration || cObj.duration;
+          }
+          return cObj;
+        });
       const pdfContents = lessonContents.filter(c => c.type === 'pdf');
 
       // Diagnostic and Debug information for Admin Panel
       lessonObj.contents = lessonContents;
       lessonObj.contentCount = lessonContents.length;
-      lessonObj.videoCount = lessonContents.filter(c => c.type === 'video').length;
+      lessonObj.videos = videoContents;
+      lessonObj.videoCount = videoContents.length;
       lessonObj.pdfCount = pdfContents.length;
       lessonObj.contentIds = lessonContents.map(c => c._id.toString());
 
-      if (videoContent) {
-        const asset = videoContent.videoAssetId;
-        if (asset && typeof asset === 'object') {
-          lessonObj.videoAssetId = asset._id;
-          lessonObj.youtubeVideoId = asset.youtubeVideoId || null;
-          lessonObj.uploadStatus = asset.uploadStatus || 'pending';
-        } else {
-          lessonObj.videoAssetId = videoContent.videoAssetId || null;
-          lessonObj.youtubeVideoId = videoContent.youtubeVideoId || null;
-          lessonObj.uploadStatus = videoContent.uploadStatus || 'pending';
-        }
+      if (videoContents.length > 0) {
+        const firstVideo = videoContents[0];
+        lessonObj.videoAssetId = firstVideo.videoAssetId || null;
+        lessonObj.youtubeVideoId = firstVideo.youtubeVideoId || null;
+        lessonObj.uploadStatus = firstVideo.uploadStatus || 'pending';
       } else {
         lessonObj.videoAssetId = lessonObj.videoAssetId ? (lessonObj.videoAssetId._id || lessonObj.videoAssetId) : null;
         lessonObj.youtubeVideoId = lessonObj.youtubeVideoId || null;

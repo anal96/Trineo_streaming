@@ -296,7 +296,13 @@ export default function StudentDashboard() {
   // Queries
   const { data: purchasedCourses = [] } = useQuery({
     queryKey: ['courses', 'purchased', userId],
-    queryFn: () => apiFetch('/purchases/my-courses'),
+    queryFn: async () => {
+      const res = await apiFetch('/purchases/my-courses');
+      if (Array.isArray(res)) {
+        return res.map((c: any) => ({ ...c, title: c.title || c.name || '' }));
+      }
+      return [];
+    },
     enabled: !!userId,
   });
 
@@ -308,7 +314,13 @@ export default function StudentDashboard() {
 
   const { data: allCourses = [] } = useQuery({
     queryKey: ['courses', instituteId],
-    queryFn: () => apiFetch('/courses'),
+    queryFn: async () => {
+      const res = await apiFetch('/courses');
+      if (Array.isArray(res)) {
+        return res.map((c: any) => ({ ...c, title: c.title || c.name || '' }));
+      }
+      return [];
+    },
     enabled: !!instituteId,
   });
 
@@ -343,6 +355,39 @@ export default function StudentDashboard() {
     },
     placeholderData: undefined,
   });
+
+  useEffect(() => {
+    if (profile && profile.assignedBatch && userId) {
+      const activeBatchId = profile.assignedBatch._id || profile.assignedBatch;
+      if (typeof activeBatchId === 'string' || (activeBatchId && activeBatchId.toString)) {
+        const activeBatchStr = activeBatchId.toString();
+        const storedBatchId = localStorage.getItem(`trineo_active_batch_id_${userId}`);
+        if (storedBatchId && storedBatchId !== activeBatchStr) {
+          console.log(`[Batch Change Detected] From ${storedBatchId} to ${activeBatchStr}. Clearing client caches.`);
+          
+          // 1. Clear playback & completion caches in localStorage
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith(`resume_${userId}_`) || 
+                key.startsWith(`completed_${userId}_`) ||
+                key.startsWith(`notes_${userId}_`) ||
+                key.startsWith(`discussions_${userId}_`)) {
+              localStorage.removeItem(key);
+            }
+          });
+
+          // 2. Clear accordion expansions
+          localStorage.removeItem(`trineo_expanded_subjects_${userId}`);
+          localStorage.removeItem(`trineo_expanded_units_${userId}`);
+          localStorage.removeItem(`trineo_expanded_lessons_${userId}`);
+
+          // 3. Smooth React Query cache clear and invalidation (no full page reload)
+          queryClient.clear();
+          queryClient.invalidateQueries();
+        }
+        localStorage.setItem(`trineo_active_batch_id_${userId}`, activeBatchStr);
+      }
+    }
+  }, [profile, userId, queryClient]);
 
   // Derived loading state
   const loading = false; // We can set this to false, as cached values render instantly.
@@ -870,6 +915,11 @@ export default function StudentDashboard() {
     if (tabParam && tabParam !== activeTab) {
       setActiveTab(tabParam);
     }
+    const expandParam = params.get('expand');
+    if (expandParam) {
+      setMobileSettingsExpanded(expandParam);
+      setSettingsSubTab(expandParam);
+    }
   }, [location.search]);
 
   const violations = securityLogs?.securityViolations || [];
@@ -1268,7 +1318,7 @@ export default function StudentDashboard() {
   };
 
   const filteredPurchased = purchasedCourses.filter(c =>
-    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+    (c.title || c.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const newCourses = allCourses.filter(c =>
@@ -3823,7 +3873,13 @@ export default function StudentDashboard() {
                         size="sm" 
                         className="shrink-0 h-9 rounded-xl text-[10px] font-bold gap-1.5 border-primary/30 text-primary hover:bg-primary/5 mt-1"
                         onClick={() => {
-                          setMobileSettingsExpanded(mobileSettingsExpanded === 'profile' ? null : 'profile');
+                          setMobileSettingsExpanded('profile');
+                          setTimeout(() => {
+                            const el = document.getElementById('mobile-profile-settings');
+                            if (el) {
+                              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                          }, 100);
                         }}
                       >
                         <Settings className="w-3 h-3" />
@@ -3832,97 +3888,10 @@ export default function StudentDashboard() {
                     </div>
                   </div>
 
-                  {/* ===== SEARCH BAR ===== */}
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search profile, security, enrollments..."
-                      className="pl-11 pr-4 h-12 bg-card border-border/40 rounded-2xl text-xs font-semibold shadow-sm"
-                    />
-                  </div>
-
-                  {/* ===== LEARNING OVERVIEW ===== */}
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center px-1">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Learning Overview</span>
-                      <span className="text-[11px] font-black text-primary">{avgProgress}% Complete</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {/* Active Batch */}
-                      <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
-                        <div className="w-10 h-10 mx-auto rounded-2xl bg-blue-500/10 flex items-center justify-center">
-                          <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                        </div>
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Active Batch</p>
-                          <p className="text-sm font-black text-foreground mt-0.5">{activeBatchCount === 1 ? '1 Batch' : '0 Batch'}</p>
-                        </div>
-                      </div>
-                      {/* Courses Enrolled */}
-                      <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
-                        <div className="w-10 h-10 mx-auto rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                          <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                        </div>
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Courses Enrolled</p>
-                          <p className="text-sm font-black text-foreground mt-0.5">{purchasedCourses.length} Enrolled</p>
-                        </div>
-                      </div>
-                      {/* Security Score */}
-                      <div className="bg-card border border-border/40 rounded-2xl p-3.5 text-center space-y-2 shadow-sm">
-                        <div className="w-10 h-10 mx-auto rounded-2xl bg-amber-500/10 flex items-center justify-center">
-                          <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                        </div>
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground leading-tight">Security Score</p>
-                          <p className="text-sm font-black text-foreground mt-0.5">{securityScore} <span className="text-[9px] text-muted-foreground font-bold">/ 100</span></p>
-                          <p className="text-[9px] font-bold text-emerald-500 -mt-0.5">{securityScore >= 80 ? 'Excellent' : securityScore >= 60 ? 'Good' : 'Needs Attention'}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ===== QUICK ACCESS ===== */}
-                  <div className="space-y-3">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Quick Access</span>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {[
-                        { id: 'live-classes', label: 'Live Classes', sub: 'Join live sessions', icon: Video, color: 'text-rose-500', bg: 'bg-rose-500/10' },
-                        { id: 'materials', label: 'Study Materials', sub: 'Access resources', icon: FileText, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-500/10' },
-                        { id: 'access', label: 'Access Management', sub: 'Manage access', icon: Key, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10' },
-                        { id: 'security', label: 'Security & Devices', sub: 'Manage security', icon: ShieldCheck, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10' },
-                        { id: 'faculty', label: 'Faculty Contacts', sub: 'Connect faculty', icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-                        { id: 'notifications', label: 'Notifications', sub: 'View updates', icon: Bell, color: 'text-violet-500', bg: 'bg-violet-500/10' }
-                      ].map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              setActiveTab(item.id);
-                              navigate(`/student?tab=${item.id}`);
-                            }}
-                            className="flex flex-col items-center gap-2 p-3.5 bg-card border border-border/40 hover:border-primary/20 rounded-2xl transition-all duration-200 text-center active:scale-[0.97] shadow-sm select-none touch-btn"
-                          >
-                            <div className={`w-10 h-10 rounded-2xl ${item.bg} flex items-center justify-center`}>
-                              <Icon className={`w-4.5 h-4.5 ${item.color}`} />
-                            </div>
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] font-black text-foreground leading-tight block">{item.label}</span>
-                              <span className="text-[8px] text-muted-foreground font-semibold block leading-tight">{item.sub}</span>
-                            </div>
-                            <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
                   {/* ===== SETTINGS MENU ITEMS ===== */}
                   <div className="space-y-2.5">
                     {/* Profile Settings */}
-                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                    <div id="mobile-profile-settings" className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
                       <button 
                         onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'profile' ? null : 'profile')}
                         className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
@@ -4178,6 +4147,54 @@ export default function StudentDashboard() {
                       {mobileSettingsExpanded === 'notification-preferences' && (
                         <div className="p-4 border-t border-border/40 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200 bg-card">
                           {renderNotificationPreferencesContent()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Access Manager */}
+                    <div className="border border-border/40 rounded-2xl bg-card overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setMobileSettingsExpanded(mobileSettingsExpanded === 'access' ? null : 'access')}
+                        className="w-full flex items-center gap-3.5 p-4 hover:bg-muted/30 transition-all duration-200"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                          <Key className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <span className="text-xs font-black text-foreground block">Access Manager</span>
+                          <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">Subscription status & access expiry</span>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-300 ${mobileSettingsExpanded === 'access' ? 'rotate-90' : ''}`} />
+                      </button>
+                      {mobileSettingsExpanded === 'access' && (
+                        <div className="p-4 border-t border-border/40 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200 bg-card">
+                          <div className="p-4 rounded-xl border bg-gradient-to-br from-violet-600/5 to-indigo-600/5 border-violet-500/15 space-y-3.5">
+                            <div className="flex items-center justify-between gap-4 border-b border-violet-500/10 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <Package className="w-4 h-4 text-violet-500" />
+                                <h4 className="font-extrabold text-xs text-foreground">Content Package</h4>
+                              </div>
+                              {user?.assignedPackage ? (
+                                <Badge className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 border-none font-bold text-[10px]">{user.assignedPackage.name}</Badge>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground italic font-semibold">None Assigned</span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2.5 pt-0.5">
+                              <Clock className="w-4 h-4 text-violet-500" />
+                              <div className="space-y-0.5">
+                                <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Access Expiry Status</div>
+                                <div className="text-xs font-bold text-foreground">
+                                  {user?.packageExpiryDate ? (
+                                    <>Expires On: <span className="font-black text-violet-600 dark:text-violet-400">{formatAccessDate(user.packageExpiryDate)}</span></>
+                                  ) : (
+                                    <span className="text-emerald-500 font-extrabold">Lifetime Access (No Expiry)</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>

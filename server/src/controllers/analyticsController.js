@@ -781,6 +781,7 @@ export const createStudent = async (req, res) => {
       mustChangePassword: true
     });
 
+    let assignedProgramId = null;
     // Auto-create Purchase record if courseName was provided
     if (courseName) {
       const matchedCourse = await Course.findOne({
@@ -788,20 +789,43 @@ export const createStudent = async (req, res) => {
         institute: req.user.institute
       });
       if (matchedCourse) {
+        assignedProgramId = matchedCourse._id;
         await Purchase.findOneAndUpdate(
           { studentId: student._id, courseId: matchedCourse._id, institute: req.user.institute },
           { amount: 0, status: 'completed', purchasedAt: new Date() },
           { upsert: true, new: true }
         );
+
+        // Immediately establish direct active enrollment
+        const EnrollmentModel = mongoose.model('Enrollment');
+        await EnrollmentModel.create({
+          institute: req.user.institute,
+          studentId: student._id,
+          programId: matchedCourse._id,
+          status: 'active',
+          isActive: true,
+          startedAt: new Date(),
+          endedAt: null
+        });
+
+        // Create COURSE_ASSIGNED audit log
+        const AuditLogModel = mongoose.model('AuditLog');
+        await AuditLogModel.create({
+          institute: req.user.institute,
+          userId: student._id,
+          eventType: 'COURSE_ASSIGNED',
+          details: `Program "${matchedCourse.title || matchedCourse.name}" assigned on student creation.`
+        });
       }
     }
 
     await Notification.create({
-      userId: null,
+      userId: student._id,
       institute: req.user.institute || null,
-      targetType: 'role',
-      targetRole: 'admin',
-      message: `Student account created for ${student.name}`,
+      targetType: 'user',
+      programId: assignedProgramId,
+      title: 'Welcome',
+      message: `Welcome, ${student.name}! Your student account is ready.`,
       type: 'system'
     });
 
@@ -888,14 +912,20 @@ export const resetStudentPassword = async (req, res) => {
 };
 
 export const updateStudent = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     if (req.user.role !== 'owner' && !req.user.institute) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
     const student = req.user.role === 'owner'
-      ? await User.findById(req.params.id)
-      : await User.findOne({ _id: req.params.id, institute: req.user.institute });
+      ? await User.findById(req.params.id).session(session)
+      : await User.findOne({ _id: req.params.id, institute: req.user.institute }).session(session);
     if (!student) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'Student not found' });
     }
 
@@ -916,30 +946,100 @@ export const updateStudent = async (req, res) => {
       student.password = req.body.password;
     }
 
-    await student.save();
+    await student.save({ session });
 
-    // Sync Purchase records if courseName changed
+    // Sync Purchase records & active batch enrollments if courseName changed
     const instId = student.institute || req.user.institute;
     if (req.body.courseName !== undefined && req.body.courseName !== oldCourseName) {
       // Remove purchase for old course
       if (oldCourseName) {
-        const oldCourse = await Course.findOne({ title: oldCourseName, institute: instId });
+        const oldCourse = await Course.findOne({ title: oldCourseName, institute: instId }).session(session);
         if (oldCourse) {
-          await Purchase.deleteOne({ studentId: student._id, courseId: oldCourse._id, institute: instId });
+          await Purchase.deleteOne({ studentId: student._id, courseId: oldCourse._id, institute: instId }).session(session);
         }
       }
-      // Create purchase for new course
-      if (student.courseName) {
-        const newCourse = await Course.findOne({ title: student.courseName, institute: instId });
-        if (newCourse) {
-          await Purchase.findOneAndUpdate(
-            { studentId: student._id, courseId: newCourse._id, institute: instId },
-            { amount: 0, status: 'completed', purchasedAt: new Date() },
-            { upsert: true, new: true }
-          );
+      
+      const newCourse = await Course.findOne({ title: student.courseName, institute: instId }).session(session);
+      if (newCourse) {
+        // Create purchase for new course
+        await Purchase.findOneAndUpdate(
+          { studentId: student._id, courseId: newCourse._id, institute: instId },
+          { amount: 0, status: 'completed', purchasedAt: new Date() },
+          { upsert: true, new: true, session }
+        );
+
+        // Deactivate all active enrollments for this student
+        const EnrollmentModel = mongoose.model('Enrollment');
+        const SecurityStateModel = mongoose.model('SecurityState');
+        
+        const activeEnrollments = await EnrollmentModel.find({ studentId: student._id, institute: instId, isActive: { $ne: false } }).session(session);
+        for (const enrollment of activeEnrollments) {
+          enrollment.isActive = false;
+          enrollment.status = 'suspended';
+          enrollment.endedAt = new Date();
+          await enrollment.save({ session });
+
+          const prog = await Course.findById(enrollment.programId).session(session);
+          const progName = prog ? prog.title || prog.name : 'Unknown Program';
+          await AuditLog.create([{
+            institute: instId,
+            userId: student._id,
+            eventType: 'COURSE_UNASSIGNED',
+            details: `Program "${progName}" unassigned automatically due to batch reassignment.`
+          }], { session });
         }
+
+        // Establish new active enrollment
+        let enrollment = await EnrollmentModel.findOne({ studentId: student._id, programId: newCourse._id, institute: instId }).session(session);
+        if (enrollment) {
+          enrollment.isActive = true;
+          enrollment.status = 'active';
+          enrollment.startedAt = new Date();
+          enrollment.endedAt = null;
+          await enrollment.save({ session });
+        } else {
+          await EnrollmentModel.create([{
+            institute: instId,
+            studentId: student._id,
+            programId: newCourse._id,
+            status: 'active',
+            isActive: true,
+            startedAt: new Date(),
+            endedAt: null
+          }], { session });
+        }
+
+        // Log COURSE_ASSIGNED
+        await AuditLog.create([{
+          institute: instId,
+          userId: student._id,
+          eventType: 'COURSE_ASSIGNED',
+          details: `Program "${newCourse.title || newCourse.name}" assigned via batch update.`
+        }], { session });
+
+        // Set forceLogout on SecurityState
+        let secState = await SecurityStateModel.findOne({ userId: student._id }).session(session);
+        if (!secState) {
+          secState = new SecurityStateModel({ userId: student._id });
+        }
+        secState.forceLogout = true;
+        await secState.save({ session });
+
+        // Send Student Notification
+        await Notification.create([{
+          userId: student._id,
+          institute: instId,
+          targetType: 'user',
+          programId: newCourse._id,
+          title: '📋 Batch Updated',
+          message: `Your batch has been updated to ${newCourse.title || newCourse.name}. Your course content has been refreshed.`,
+          type: 'system'
+        }], { session });
       }
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.json({
       message: 'Student updated successfully',
@@ -960,6 +1060,8 @@ export const updateStudent = async (req, res) => {
       }
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     res.status(500).json({ message: error.message });
   }
 };

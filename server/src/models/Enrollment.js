@@ -30,6 +30,19 @@ const enrollmentSchema = new mongoose.Schema({
     type: String,
     enum: ['active', 'suspended', 'completed'],
     default: 'active'
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+  startedAt: {
+    type: Date,
+    default: Date.now
+  },
+  endedAt: {
+    type: Date,
+    default: null
   }
 });
 

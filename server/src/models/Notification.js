@@ -16,6 +16,12 @@ const notificationSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  programId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Program',
+    default: null,
+    index: true
+  },
   // --- Explicit targeting fields ---
   targetType: {
     type: String,

@@ -2,7 +2,7 @@ import { Enrollment } from '../models/Enrollment.js';
 import { Program } from '../models/Program.js';
 import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
-import { verifyStudentAccess } from '../utils/accessHelper.js';
+import { verifyStudentAccess, deactivateAllOtherEnrollments } from '../utils/accessHelper.js';
 
 const requireInstitute = (req, res) => {
   if (req.user.role === 'owner') return true;
@@ -27,28 +27,33 @@ export const enrollInProgram = async (req, res) => {
       return res.status(404).json({ message: 'Program not found' });
     }
 
-    const existing = await Enrollment.findOne({ studentId, programId, ...instituteFilter(req) });
-    if (existing && existing.status === 'active') {
-      return res.status(400).json({ message: 'Program access already active' });
-    }
-
-    let enrollment;
-    if (existing) {
-      existing.status = 'active';
-      existing.enrolledAt = Date.now();
-      enrollment = await existing.save();
+    let enrollment = await Enrollment.findOne({ studentId, programId, ...instituteFilter(req) });
+    if (enrollment) {
+      enrollment.status = 'active';
+      enrollment.isActive = true;
+      enrollment.startedAt = Date.now();
+      enrollment.endedAt = null;
+      enrollment.enrolledAt = Date.now();
+      await enrollment.save();
     } else {
       enrollment = await Enrollment.create({
         institute: req.user.institute,
         studentId,
         programId,
-        status: 'active'
+        status: 'active',
+        isActive: true,
+        startedAt: Date.now(),
+        endedAt: null
       });
     }
+
+    // Deactivate other active enrollments for this student
+    await deactivateAllOtherEnrollments(studentId, programId, req.user.institute || enrollment.institute);
 
     await Notification.create({
       userId: studentId,
       targetType: 'user',
+      programId,
       institute: req.user.institute,
       message: `Enrolled successfully in program: ${program.name}`,
       type: 'enrollment'
@@ -78,9 +83,12 @@ export const getEnrollments = async (req, res) => {
       return res.json(enrollments);
     }
 
-    // For students, fetch all their enrollments
-    const enrollments = await Enrollment.find({ studentId: req.user._id, ...instituteFilter(req) })
-      .populate('programId');
+    // For students, fetch only their active enrollments
+    const enrollments = await Enrollment.find({ 
+      studentId: req.user._id, 
+      isActive: { $ne: false }, 
+      ...instituteFilter(req) 
+    }).populate('programId');
 
     const enrolledPrograms = enrollments.map(e => {
       if (!e.programId || e.programId.isDeleted) return null;
@@ -122,6 +130,9 @@ export const adminAssignProgram = async (req, res) => {
 
     if (existing) {
       existing.status = 'active';
+      existing.isActive = true;
+      existing.startedAt = Date.now();
+      existing.endedAt = null;
       existing.enrolledAt = Date.now();
       await existing.save();
     } else {
@@ -129,13 +140,20 @@ export const adminAssignProgram = async (req, res) => {
         institute: req.user.institute,
         studentId,
         programId,
-        status: 'active'
+        status: 'active',
+        isActive: true,
+        startedAt: Date.now(),
+        endedAt: null
       });
     }
+
+    // Deactivate other active enrollments for this student
+    await deactivateAllOtherEnrollments(studentId, programId, req.user.institute);
 
     await Notification.create({
       userId: studentId,
       targetType: 'user',
+      programId,
       institute: req.user.institute,
       message: `You were enrolled in program "${program.name}" by the institute admin.`,
       type: 'enrollment'
@@ -155,14 +173,32 @@ export const adminRemoveProgram = async (req, res) => {
     if (!requireInstitute(req, res)) return;
 
     // Soft suspension or hard delete of enrollment record
-    const removed = await Enrollment.findOneAndDelete({ studentId, programId, ...instituteFilter(req) });
-    if (!removed) {
+    const enrollment = await Enrollment.findOne({ studentId, programId, ...instituteFilter(req) });
+    if (!enrollment) {
       return res.status(404).json({ message: 'Enrollment not found' });
     }
+
+    enrollment.isActive = false;
+    enrollment.status = 'suspended';
+    enrollment.endedAt = new Date();
+    await enrollment.save();
+
+    const AuditLog = mongoose.model('AuditLog');
+    const ProgramModel = mongoose.model('Program');
+    const program = await ProgramModel.findById(programId);
+    const progName = program ? program.name : 'Unknown Program';
+
+    await AuditLog.create({
+      institute: req.user.institute,
+      userId: studentId,
+      eventType: 'COURSE_UNASSIGNED',
+      details: `Program "${progName}" unassigned by admin.`
+    });
 
     await Notification.create({
       userId: studentId,
       targetType: 'user',
+      programId,
       institute: req.user.institute,
       message: `Your enrollment for the selected program was removed by the institute admin.`,
       type: 'system'
@@ -193,12 +229,15 @@ export const adminBulkEnroll = async (req, res) => {
       }
 
       const existing = await Enrollment.findOne({ studentId, programId, ...instituteFilter(req) });
-      if (existing && existing.status === 'active') {
+      if (existing && existing.isActive === true) {
         return { studentId, status: 'already-enrolled' };
       }
 
       if (existing) {
         existing.status = 'active';
+        existing.isActive = true;
+        existing.startedAt = Date.now();
+        existing.endedAt = null;
         existing.enrolledAt = Date.now();
         await existing.save();
       } else {
@@ -206,13 +245,20 @@ export const adminBulkEnroll = async (req, res) => {
           institute: req.user.institute,
           studentId,
           programId,
-          status: 'active'
+          status: 'active',
+          isActive: true,
+          startedAt: Date.now(),
+          endedAt: null
         });
       }
+
+      // Deactivate other active enrollments for this student
+      await deactivateAllOtherEnrollments(studentId, programId, req.user.institute);
 
       await Notification.create({
         userId: studentId,
         targetType: 'user',
+        programId,
         institute: req.user.institute,
         message: `You were enrolled in program "${program.name}" through a bulk admin enrollment.`,
         type: 'enrollment'

@@ -400,19 +400,14 @@ export default function CoursesPage() {
               </div>
 
               {/* Search & Filter */}
-              <div className="relative w-full flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search your batches, instructors, topics..."
-                    className="pl-11 pr-4 h-12 bg-card border-border/50 rounded-2xl shadow-sm w-full text-xs font-semibold"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <Button variant="outline" className="h-12 w-12 rounded-2xl border-border/50 bg-card p-0 flex items-center justify-center shrink-0 shadow-sm">
-                  <Sliders className="w-4 h-4 text-foreground/80" />
-                </Button>
+              <div className="relative w-full">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search your batches, instructors, topics..."
+                  className="pl-11 pr-4 h-12 bg-card border-border/50 rounded-2xl shadow-sm w-full text-xs font-semibold"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
             </div>
 
@@ -708,78 +703,7 @@ export default function CoursesPage() {
                     </div>
                   </div>
 
-                  {/* Info Card */}
-                  <Card className="border border-border/40 shadow-sm rounded-2xl bg-card overflow-hidden">
-                    <CardContent className="p-4 flex items-center justify-between gap-4 cursor-pointer hover:bg-muted/10 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0">
-                          <Trophy className="w-5 h-5" />
-                        </div>
-                        <div className="text-left">
-                          <h4 className="font-extrabold text-xs text-foreground">Keep learning!</h4>
-                          <p className="text-[10px] text-muted-foreground font-medium">Complete your batches and unlock new achievements.</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </CardContent>
-                  </Card>
 
-                  {/* Quick Actions */}
-                  <div className="space-y-3">
-                    <h2 className="text-sm font-bold text-foreground pl-1">Quick Actions</h2>
-                    
-                    <div className="grid grid-cols-3 gap-3">
-                      {/* Action Card 1: Browse Courses */}
-                      <Card 
-                        className="bg-card border border-border/40 rounded-2xl p-3 text-center space-y-2 cursor-pointer hover:border-primary/20 transition-all select-none active:scale-95 flex flex-col items-center justify-center"
-                        onClick={() => {
-                          setSelectedCategory('All');
-                          setSelectedLevel('All Levels');
-                          setSearchQuery('');
-                        }}
-                      >
-                        <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-950 flex items-center justify-center text-purple-600 dark:text-purple-400">
-                          <BookOpen className="w-4 h-4" />
-                        </div>
-                        <div className="space-y-0.5">
-                          <h4 className="font-extrabold text-[10px] text-foreground leading-tight">Browse Courses</h4>
-                          <p className="text-[8px] text-muted-foreground leading-normal font-semibold">Explore more courses to learn</p>
-                        </div>
-                      </Card>
-
-                      {/* Action Card 2: Study Materials */}
-                      <Card 
-                        className="bg-card border border-border/40 rounded-2xl p-3 text-center space-y-2 cursor-pointer hover:border-primary/20 transition-all select-none active:scale-95 flex flex-col items-center justify-center"
-                        onClick={() => {
-                          navigate('/student?tab=materials');
-                        }}
-                      >
-                        <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:emerald-400">
-                          <Folder className="w-4 h-4" />
-                        </div>
-                        <div className="space-y-0.5">
-                          <h4 className="font-extrabold text-[10px] text-foreground leading-tight">Study Materials</h4>
-                          <p className="text-[8px] text-muted-foreground leading-normal font-semibold">Access your study resources</p>
-                        </div>
-                      </Card>
-
-                      {/* Action Card 3: Live Classes */}
-                      <Card 
-                        className="bg-card border border-border/40 rounded-2xl p-3 text-center space-y-2 cursor-pointer hover:border-primary/20 transition-all select-none active:scale-95 flex flex-col items-center justify-center"
-                        onClick={() => {
-                          navigate('/student?tab=live');
-                        }}
-                      >
-                        <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 dark:text-amber-400">
-                          <Calendar className="w-4 h-4" />
-                        </div>
-                        <div className="space-y-0.5">
-                          <h4 className="font-extrabold text-[10px] text-foreground leading-tight">Live Classes</h4>
-                          <p className="text-[8px] text-muted-foreground leading-normal font-semibold">Join upcoming live sessions</p>
-                        </div>
-                      </Card>
-                    </div>
-                  </div>
 
                   {/* Need Help support box */}
                   <Card className="border border-purple-500/10 shadow-sm bg-gradient-to-r from-purple-500/[0.03] to-pink-500/[0.03] rounded-2xl overflow-hidden">
@@ -797,7 +721,7 @@ export default function CoursesPage() {
                         variant="outline" 
                         size="sm" 
                         className="border-purple-600/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 rounded-xl px-3.5 py-1.5 text-[10px] font-extrabold shadow-sm shrink-0 bg-background"
-                        onClick={() => navigate('/student?tab=settings')}
+                        onClick={() => navigate('/student?tab=settings&expand=support')}
                       >
                         Contact Support
                       </Button>

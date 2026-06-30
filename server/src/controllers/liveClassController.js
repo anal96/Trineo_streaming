@@ -59,13 +59,14 @@ export const createLiveClass = async (req, res) => {
       const enrollments = await Enrollment.find({
         programId: courseId,
         institute: instituteId,
-        status: 'active'
+        isActive: { $ne: false }
       });
 
       const notifications = enrollments.map(e => ({
         institute: instituteId,
         userId: e.studentId,
         targetType: 'user',
+        programId: courseId,
         title: '🎥 New Live Class Scheduled',
         message: `"${title}" has been scheduled for course "${course.name}". Tap to view.`,
         url: '/student?tab=live-classes',
@@ -136,7 +137,7 @@ export const updateLiveClass = async (req, res) => {
       const enrollments = await Enrollment.find({
         programId: liveClass.courseId,
         institute: req.user.institute,
-        status: 'active'
+        isActive: { $ne: false }
       });
 
       const course = await Program.findById(liveClass.courseId);
@@ -145,6 +146,7 @@ export const updateLiveClass = async (req, res) => {
         institute: req.user.institute,
         userId: e.studentId,
         targetType: 'user',
+        programId: liveClass.courseId,
         title: '🎥 Live Class Rescheduled',
         message: `"${liveClass.title}" is now scheduled for ${new Date(liveClass.startTime).toLocaleString()}. Tap to view details.`,
         url: '/student?tab=live-classes',

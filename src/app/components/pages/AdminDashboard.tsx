@@ -263,6 +263,8 @@ export default function AdminDashboard() {
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState('');
   const [youtubeActionLoading, setYoutubeActionLoading] = useState(false);
+  const [showNewVideoForm, setShowNewVideoForm] = useState(false);
+  const [replaceVideoContentId, setReplaceVideoContentId] = useState<string | null>(null);
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementMsg, setAnnouncementMsg] = useState('');
 
@@ -891,16 +893,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    const targetLesson = availableLessons.find(l => l._id === selectedUploadLessonId);
-    if (targetLesson && (targetLesson.youtubeVideoId || targetLesson.videoAssetId)) {
-      const confirmReplace = window.confirm(
-        `Warning: The lesson "${targetLesson.title}" already has an associated video. Uploading a new video will replace it. Do you want to proceed?`
-      );
-      if (!confirmReplace) {
-        return;
-      }
-    }
-
     setUploading(true);
     setUploadProgress(0);
     setUploadSuccess('');
@@ -915,6 +907,10 @@ export default function AdminDashboard() {
       formData.append('attachment', selectedAttachmentFile);
     }
     formData.append('attachmentName', uploadAttachmentName);
+    if (replaceVideoContentId) {
+      formData.append('replaceContentId', replaceVideoContentId);
+      formData.append('contentId', replaceVideoContentId);
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.withCredentials = true;
@@ -941,13 +937,8 @@ export default function AdminDashboard() {
         setUploadDuration('');
         setSelectedAttachmentFile(null);
         setUploadAttachmentName('');
-        setSelectedUploadProgramId('');
-        setSelectedUploadSubjectId('');
-        setAvailableUploadSubjects([]);
-        setSelectedUploadUnitId('');
-        setAvailableUploadUnits([]);
-        setSelectedUploadLessonId('');
-        setAvailableLessons([]);
+        setShowNewVideoForm(false);
+        setReplaceVideoContentId(null);
         loadCrmData();
       } else {
         const resp = JSON.parse(xhr.responseText || '{}');
@@ -961,6 +952,83 @@ export default function AdminDashboard() {
     };
 
     xhr.send(formData);
+  };
+
+  const handleEditVideo = async (content: any) => {
+    const newTitle = window.prompt('Enter new video title:', content.title);
+    if (newTitle === null) return;
+    if (!newTitle.trim()) return alert('Title cannot be empty');
+
+    const durationInput = window.prompt('Enter duration (e.g. 15:30):', content.youtubeDuration || content.duration || '0:00');
+    if (durationInput === null) return;
+
+    try {
+      setUploading(true);
+      await apiFetch(`/content/${content._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          youtubeDuration: durationInput.trim(),
+          duration: durationInput.trim()
+        })
+      });
+      toast.success('Video updated successfully');
+      loadCrmData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update video');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteVideo = async (content: any) => {
+    const confirmDelete = window.confirm(`Are you sure you want to delete the video "${content.title}"?`);
+    if (!confirmDelete) return;
+
+    try {
+      setUploading(true);
+      await apiFetch(`/content/${content._id}`, {
+        method: 'DELETE'
+      });
+      toast.success('Video deleted successfully');
+      loadCrmData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete video');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleMoveVideo = async (lesson: any, videoIdx: number, direction: 'up' | 'down') => {
+    const videos = lesson.videos || [];
+    if (videos.length <= 1) return;
+    if (direction === 'up' && videoIdx === 0) return;
+    if (direction === 'down' && videoIdx === videos.length - 1) return;
+
+    const newVideos = [...videos];
+    const targetIdx = direction === 'up' ? videoIdx - 1 : videoIdx + 1;
+    const temp = newVideos[videoIdx];
+    newVideos[videoIdx] = newVideos[targetIdx];
+    newVideos[targetIdx] = temp;
+
+    const reorderItems = newVideos.map((v, idx) => ({
+      id: v._id,
+      order: idx + 1
+    }));
+
+    try {
+      setUploading(true);
+      await apiFetch('/content/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ items: reorderItems })
+      });
+      toast.success('Video order updated');
+      loadCrmData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to reorder videos');
+    } finally {
+      setUploading(false);
+    }
   };
 
   // Dispatch announcement broadcast
@@ -1903,151 +1971,262 @@ export default function AdminDashboard() {
                             required
                             disabled={!selectedUploadUnitId}
                           >
-                            <option value="">-- Choose Topic --</option>
+                             <option value="">-- Choose Topic --</option>
                              {availableLessons.map((l) => {
-                               const hasVideo = l.contents && Array.isArray(l.contents)
-                                 ? l.contents.some((item: any) => item.type === 'video' && item.isDeleted !== true)
-                                 : (!!l.videoAssetId || !!l.youtubeVideoId);
-                               
-                               const videoContent = l.contents && Array.isArray(l.contents)
-                                 ? l.contents.find((item: any) => item.type === 'video' && item.isDeleted !== true)
-                                 : null;
-                               
-                               const uploadStatus = videoContent ? videoContent.uploadStatus : l.uploadStatus;
-                               const youtubeVideoId = videoContent ? videoContent.youtubeVideoId : l.youtubeVideoId;
-
-                               const isReady = youtubeVideoId && uploadStatus === 'ready';
-                               
-                               let labelSuffix = ' (🔴 Video Missing)';
-                               if (hasVideo) {
-                                 if (isReady) {
-                                   labelSuffix = ' (🟢 Video Linked)';
-                                 } else {
-                                   labelSuffix = ' (⏳ Upload Processing)';
-                                 }
-                               }
-
-                               // ROOT CAUSE AUDIT DEBUG:
-                               console.log(`[DEBUG] Topic: ${l.title} | topicId: ${l._id} | contentCount: ${l.contentCount} | videoCount: ${l.videoCount} | contents:`, l.contents, `| uploadStatus: ${uploadStatus} | labelSuffix: ${labelSuffix}`);
-
+                               const vCount = l.videos ? l.videos.length : (l.videoCount || 0);
                                return (
                                  <option key={l._id} value={l._id}>
-                                   {l.title}{labelSuffix}
+                                   {l.title} ({vCount} {vCount === 1 ? 'Video' : 'Videos'})
                                  </option>
                                );
                              })}
-                          </select>
-                        </div>
-                      </div>
+                           </select>
+                         </div>
+                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="video-title">Video Title *</Label>
-                          <Input
-                            id="video-title"
-                            placeholder="e.g. useState and useEffect deep-dive"
-                            value={uploadTitle}
-                            onChange={(e) => setUploadTitle(e.target.value)}
-                            required
-                            disabled={!selectedUploadLessonId}
-                          />
-                        </div>
+                      {selectedUploadLessonId && (
+                        (() => {
+                          const lesson = availableLessons.find(l => l._id === selectedUploadLessonId);
+                          if (!lesson) return null;
+                          const lessonVideos = lesson.videos || lesson.contents?.filter((c: any) => c.type === 'video') || [];
 
-                        <div className="space-y-2">
-                          <Label htmlFor="video-duration">Duration</Label>
-                          <Input
-                            id="video-duration"
-                            placeholder="e.g. 14:25"
-                            value={uploadDuration}
-                            onChange={(e) => setUploadDuration(e.target.value)}
-                            disabled={!selectedUploadLessonId}
-                          />
-                        </div>
-                      </div>
+                          return (
+                            <div className="space-y-4 border-t border-border/40 pt-4 text-left">
+                              <div className="flex items-center justify-between border-b border-border/30 pb-2">
+                                <div>
+                                  <h4 className="font-bold text-slate-800 dark:text-zinc-150 text-sm">{lesson.title}</h4>
+                                  <p className="text-xs text-muted-foreground">{lessonVideos.length} {lessonVideos.length === 1 ? 'Video' : 'Videos'}</p>
+                                </div>
+                                {!showNewVideoForm && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => {
+                                      setShowNewVideoForm(true);
+                                      setReplaceVideoContentId(null);
+                                      setUploadTitle('');
+                                      setUploadDuration('');
+                                    }}
+                                    className="bg-primary hover:bg-[#1f5fa7] text-white text-xs h-8 px-3 rounded-lg"
+                                  >
+                                    + Add New Video
+                                  </Button>
+                                )}
+                              </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="video-attachment-name">PDF Title</Label>
-                          <Input
-                            id="video-attachment-name"
-                            placeholder="e.g. Pointer Notes PDF"
-                            value={uploadAttachmentName}
-                            onChange={(e) => setUploadAttachmentName(e.target.value)}
-                            disabled={!selectedUploadLessonId}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="video-attachment-file">PDF Attachment</Label>
-                          <Input
-                            id="video-attachment-file"
-                            type="file"
-                            accept="application/pdf"
-                            onChange={(e) => {
-                              if (e.target.files && e.target.files[0]) {
-                                setSelectedAttachmentFile(e.target.files[0]);
-                                if (!uploadAttachmentName) {
-                                  setUploadAttachmentName(e.target.files[0].name.replace(/\.[^/.]+$/, ""));
-                                }
-                              }
-                            }}
-                            value={selectedAttachmentFile ? undefined : ''}
-                            disabled={!selectedUploadLessonId}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Select MP4 Video File *</Label>
-                        <div className={`border border-dashed border-border/80 rounded-2xl p-6 text-center hover:border-primary/30 transition-colors ${!selectedUploadLessonId ? 'opacity-50' : ''}`}>
-                          <input
-                            type="file"
-                            accept="video/*"
-                            id="file-input"
-                            className="hidden"
-                            onChange={handleFileChange}
-                            value={selectedFile ? undefined : ''}
-                            disabled={!selectedUploadLessonId}
-                          />
-                          <label htmlFor="file-input" className={`space-y-2 block ${selectedUploadLessonId ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
-                            <Upload className="w-10 h-10 text-muted-foreground mx-auto" />
-                            <div className="text-sm font-medium">
-                              {selectedFile ? selectedFile.name : 'Click to select MP4 file'}
+                              {!showNewVideoForm && (
+                                <div className="space-y-3">
+                                  <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Existing Videos</h5>
+                                  {lessonVideos.length === 0 ? (
+                                    <div className="p-4 text-center bg-slate-50 dark:bg-zinc-900/50 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 text-xs text-muted-foreground">
+                                      No videos uploaded to this topic yet. Click "+ Add New Video" to upload.
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      {lessonVideos.map((video: any, videoIdx: number) => (
+                                        <div key={video._id} className="flex items-center justify-between p-3 bg-slate-50/55 dark:bg-zinc-900/30 border border-slate-100 dark:border-zinc-800/80 rounded-xl text-xs">
+                                          <div className="min-w-0 flex-1">
+                                            <span className="font-semibold text-slate-700 dark:text-zinc-300 truncate block">
+                                              🎥 {video.title}
+                                            </span>
+                                            <span className="text-[10px] text-muted-foreground">
+                                              Duration: {video.youtubeDuration || video.duration || '0:00'} | Status: {video.uploadStatus || 'pending'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-7 px-2 text-[10px] min-h-0 text-slate-650"
+                                              onClick={() => handleEditVideo(video)}
+                                            >
+                                              Edit
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-7 px-2 text-[10px] min-h-0 text-amber-600 border-amber-200/50 hover:bg-amber-50"
+                                              onClick={() => {
+                                                setReplaceVideoContentId(video._id);
+                                                setUploadTitle(video.title);
+                                                setUploadDuration(video.youtubeDuration || video.duration || '');
+                                                setShowNewVideoForm(true);
+                                              }}
+                                            >
+                                              Replace
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-7 px-2 text-[10px] min-h-0 text-red-500 border-red-200/50 hover:bg-red-50"
+                                              onClick={() => handleDeleteVideo(video)}
+                                            >
+                                              Delete
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={videoIdx === 0}
+                                              className="h-7 px-1.5 min-h-0"
+                                              onClick={() => handleMoveVideo(lesson, videoIdx, 'up')}
+                                            >
+                                              ▲
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={videoIdx === lessonVideos.length - 1}
+                                              className="h-7 px-1.5 min-h-0"
+                                              onClick={() => handleMoveVideo(lesson, videoIdx, 'down')}
+                                            >
+                                              ▼
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <div className="text-xs text-muted-foreground">Supports files up to 3GB</div>
-                          </label>
-                        </div>
-                      </div>
+                          );
+                        })()
+                      )}
 
-                      {uploading && (
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-xs font-semibold">
-                            <span>{uploadProgress === 100 ? 'Preparing Video...' : 'Uploading Video...'}</span>
-                            <span>{uploadProgress}%</span>
+                      {showNewVideoForm && (
+                        <div className="space-y-4 border-t border-border/40 pt-4">
+                          <h4 className="font-bold text-xs text-slate-700 dark:text-zinc-300 text-left font-sans">
+                            {replaceVideoContentId ? 'Replace Video File' : 'Upload New Video'}
+                          </h4>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2 text-left">
+                              <Label htmlFor="video-title">Video Title *</Label>
+                              <Input
+                                id="video-title"
+                                placeholder="e.g. useState and useEffect deep-dive"
+                                value={uploadTitle}
+                                onChange={(e) => setUploadTitle(e.target.value)}
+                                required
+                              />
+                            </div>
+
+                            <div className="space-y-2 text-left">
+                              <Label htmlFor="video-duration">Duration</Label>
+                              <Input
+                                id="video-duration"
+                                placeholder="e.g. 14:25"
+                                value={uploadDuration}
+                                onChange={(e) => setUploadDuration(e.target.value)}
+                              />
+                            </div>
                           </div>
-                          <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-primary to-slate-700 transition-all duration-300"
-                              style={{ width: `${uploadProgress}%` }}
-                            />
+
+                          {!replaceVideoContentId && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2 text-left">
+                                <Label htmlFor="video-attachment-name">PDF Title</Label>
+                                <Input
+                                  id="video-attachment-name"
+                                  placeholder="e.g. Pointer Notes PDF"
+                                  value={uploadAttachmentName}
+                                  onChange={(e) => setUploadAttachmentName(e.target.value)}
+                                />
+                              </div>
+
+                              <div className="space-y-2 text-left">
+                                <Label htmlFor="video-attachment-file">PDF Attachment</Label>
+                                <Input
+                                  id="video-attachment-file"
+                                  type="file"
+                                  accept="application/pdf"
+                                  onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                      setSelectedAttachmentFile(e.target.files[0]);
+                                      if (!uploadAttachmentName) {
+                                        setUploadAttachmentName(e.target.files[0].name.replace(/\.[^/.]+$/, ""));
+                                      }
+                                    }
+                                  }}
+                                  value={selectedAttachmentFile ? undefined : ''}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="space-y-2 text-left">
+                            <Label>Select MP4 Video File *</Label>
+                            <div className="border border-dashed border-border/80 rounded-2xl p-6 text-center hover:border-primary/30 transition-colors">
+                              <input
+                                type="file"
+                                accept="video/*"
+                                id="file-input"
+                                className="hidden"
+                                onChange={handleFileChange}
+                                value={selectedFile ? undefined : ''}
+                              />
+                              <label htmlFor="file-input" className="space-y-2 block cursor-pointer">
+                                <Upload className="w-10 h-10 text-muted-foreground mx-auto" />
+                                <div className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                  {selectedFile ? selectedFile.name : 'Click to select MP4 file'}
+                                </div>
+                                <div className="text-xs text-muted-foreground">Supports files up to 3GB</div>
+                              </label>
+                            </div>
+                          </div>
+
+                          {uploading && (
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span>{uploadProgress === 100 ? 'Preparing Video...' : 'Uploading Video...'}</span>
+                                <span>{uploadProgress}%</span>
+                              </div>
+                              <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-gradient-to-r from-primary to-slate-700 transition-all duration-300"
+                                  style={{ width: `${uploadProgress}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex gap-3">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                setShowNewVideoForm(false);
+                                setReplaceVideoContentId(null);
+                                setUploadTitle('');
+                                setUploadDuration('');
+                              }}
+                              className="w-1/3 text-xs h-10 rounded-xl"
+                              disabled={uploading}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="submit"
+                              className="w-2/3 bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10 h-10 rounded-xl"
+                              disabled={uploading || !selectedFile}
+                            >
+                              {uploading ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span>{uploadProgress === 100 ? 'Preparing...' : `Uploading (${uploadProgress}%)`}</span>
+                                </div>
+                              ) : (
+                                <span>{replaceVideoContentId ? 'Upload & Replace' : 'Upload & Link'}</span>
+                              )}
+                            </Button>
                           </div>
                         </div>
                       )}
-
-                      <Button
-                        type="submit"
-                        className="w-full bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10"
-                        disabled={uploading || !selectedUploadProgramId || !selectedUploadSubjectId || !selectedUploadUnitId || !selectedUploadLessonId}
-                      >
-                        {uploading ? (
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>{uploadProgress === 100 ? 'Preparing Video...' : 'Uploading Video...'}</span>
-                          </div>
-                        ) : (
-                          <span>Upload & Link</span>
-                        )}
-                      </Button>
                     </form>
                   </CardContent>
                 </Card>
@@ -2941,14 +3120,33 @@ export default function AdminDashboard() {
                             </Button>
                           </div>
                         </div>
+                      ) : youtubeIntegration?.youtubeAuthExpired ? (
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-4 rounded-xl border border-amber-500/10 bg-amber-500/5 dark:bg-amber-955/5">
+                          <div className="space-y-1 text-left">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm text-foreground">YouTube authorization has expired.</span>
+                              <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/20 hover:bg-amber-500/10 text-[10px]">Expired ⚠️</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground text-left">Reconnect your YouTube channel.</p>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            className="bg-amber-600 hover:bg-amber-700 text-white text-xs min-h-9" 
+                            onClick={handleAuthorizeYouTube}
+                            disabled={youtubeActionLoading}
+                          >
+                            {youtubeActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+                            Reconnect
+                          </Button>
+                        </div>
                       ) : (
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-4 rounded-xl border border-border bg-muted/20">
-                          <div className="space-y-1">
+                          <div className="space-y-1 text-left">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-sm text-foreground">No YouTube Channel Connected</span>
                               <Badge variant="outline" className="text-muted-foreground text-[10px]">Not Connected 🔴</Badge>
                             </div>
-                            <p className="text-xs text-muted-foreground">Link your channel to allow course and topic videos to stream via the player.</p>
+                            <p className="text-xs text-muted-foreground text-left">Link your channel to allow course and topic videos to stream via the player.</p>
                           </div>
                           <Button 
                             size="sm" 

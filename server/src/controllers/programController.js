@@ -202,6 +202,49 @@ export const getProgramById = async (req, res) => {
           const lessonObj = transformLessonObj(lesson);
           const lessonBlocked = unitBlocked || isLessonBlocked(lesson._id);
 
+          const lessonVideos = contents
+            .filter(c => c.lessonId.toString() === lesson._id.toString() && c.type === 'video')
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            .map(content => {
+              const contentObj = content.toObject ? content.toObject() : { ...content };
+              
+              // Handle populated videoAssetId details if present
+              const asset = content.videoAssetId;
+              if (asset && typeof asset === 'object') {
+                contentObj.youtubeVideoId = asset.youtubeVideoId || contentObj.youtubeVideoId;
+                contentObj.youtubeThumbnail = asset.youtubeThumbnail || contentObj.youtubeThumbnail;
+                contentObj.youtubeDuration = asset.youtubeDuration || contentObj.youtubeDuration;
+                contentObj.duration = asset.youtubeDuration || contentObj.duration;
+                contentObj.durationSeconds = asset.durationSeconds || contentObj.durationSeconds;
+                contentObj.uploadStatus = asset.uploadStatus || contentObj.uploadStatus;
+              }
+
+              if (req.user.role === 'student') {
+                const progRec = progressMap.get(content._id.toString());
+                contentObj.completed = progRec ? progRec.completed : false;
+                contentObj.completedAt = progRec ? progRec.completedAt : null;
+
+                if (!programAccessGranted || lessonBlocked) {
+                  // Blur out media details for locked programs or blocked topics
+                  contentObj.youtubeVideoId = null;
+                  contentObj.youtubeThumbnail = null;
+                  contentObj.attachmentUrl = null;
+                  contentObj.attachmentName = null;
+                  contentObj.description = '';
+                  contentObj.videoAssetId = null;
+                  contentObj.isLocked = true;
+                  contentObj.lockReason = lessonBlocked 
+                    ? '🔒 Access Restricted. Contact your institute administrator.' 
+                    : (access.reason || '🔒 Batch Locked. Contact your institute.');
+                } else {
+                  contentObj.isLocked = false;
+                }
+              } else {
+                contentObj.isLocked = false;
+              }
+              return contentObj;
+            });
+
           const lessonContents = contents.filter(c => c.lessonId.toString() === lesson._id.toString()).map(content => {
             const contentObj = content.toObject ? content.toObject() : { ...content };
             if (req.user.role === 'student') {
@@ -230,7 +273,24 @@ export const getProgramById = async (req, res) => {
             return contentObj;
           });
 
+          lessonObj.videos = lessonVideos;
+          lessonObj.videoCount = lessonVideos.length;
           lessonObj.contents = lessonContents;
+
+          // Backward compatibility: map the first video's properties directly to the lessonObj
+          if (lessonVideos.length > 0) {
+            lessonObj.videoAssetId = lessonVideos[0].videoAssetId;
+            lessonObj.youtubeVideoId = lessonVideos[0].youtubeVideoId || null;
+            lessonObj.youtubeThumbnail = lessonVideos[0].youtubeThumbnail || null;
+            lessonObj.youtubeDuration = lessonVideos[0].youtubeDuration || null;
+            lessonObj.duration = lessonVideos[0].duration || null;
+            lessonObj.durationSeconds = lessonVideos[0].durationSeconds || 0;
+            lessonObj.uploadStatus = lessonVideos[0].uploadStatus || 'pending';
+          } else {
+            lessonObj.youtubeVideoId = null;
+            lessonObj.uploadStatus = 'pending';
+          }
+
           if (req.user.role === 'student' && lessonBlocked) {
             lessonObj.isLocked = true;
             lessonObj.lockReason = '🔒 Access Restricted. Contact your institute administrator.';

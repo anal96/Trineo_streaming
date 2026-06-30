@@ -233,6 +233,20 @@ export default function VideoPlayer() {
       return {};
     }
   });
+  const [expandedLessons, setExpandedLessons] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(`trineo_expanded_lessons_${userId}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (userId) {
+      localStorage.setItem(`trineo_expanded_lessons_${userId}`, JSON.stringify(expandedLessons));
+    }
+  }, [expandedLessons, userId]);
 
   useEffect(() => {
     if (userId) {
@@ -1534,7 +1548,7 @@ export default function VideoPlayer() {
           reportType,
           description,
           courseId,
-          courseTitle: course?.title || '',
+          courseTitle: course?.title || course?.name || '',
           lessonId: currentLesson?._id || '',
           lessonTitle: currentLesson?.title || '',
           page: window.location.pathname,
@@ -2512,10 +2526,8 @@ export default function VideoPlayer() {
                                 <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isSubjectExpanded ? 'rotate-180' : ''}`} />
                               </button>
                               
-                              {/* Units list */}
-                              {isSubjectExpanded && subject.units?.map((unit: any) => {
+                                                     {isSubjectExpanded && subject.units?.map((unit: any) => {
                                 const isUnitExpanded = expandedUnits[unit._id] !== false;
-                                const unitContents = unit.lessons?.flatMap((l: any) => l.contents || []) || [];
                                 return (
                                   <div key={unit._id} className="pl-3 space-y-2.5">
                                     {/* Unit Header Card */}
@@ -2531,88 +2543,115 @@ export default function VideoPlayer() {
                                         </span>
                                       </div>
                                       <span className="bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 text-[10px] font-black px-2.5 py-0.5 rounded-full shrink-0">
-                                        {unit.lessons?.length || 0} {unit.lessons?.length === 1 ? 'Lesson' : 'Lessons'}
+                                        {unit.lessons?.length || 0} {unit.lessons?.length === 1 ? 'Topic' : 'Topics'}
                                       </span>
                                     </button>
                                     
                                     {/* Lessons List inside Unit */}
                                     {isUnitExpanded && (
                                       <div className="space-y-2 pl-1">
-                                        {unitContents.map((content: any, contentIdx: number) => {
-                                          const isSelected = currentContent?._id === content._id;
-                                          const isLocked = content.isLocked;
-                                          const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
-                                          const displayIndex = contentIdx + 1;
-
-                                          const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
-                                          const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
-                                          const itemProgressPercent = resumeTime && contentDurSec ? Math.min(100, Math.round((resumeTime / contentDurSec) * 100)) : 0;
+                                        {unit.lessons?.map((lesson: any) => {
+                                          const isLessonExpanded = expandedLessons[lesson._id] !== false;
+                                          const lessonVideos = lesson.videos || lesson.contents?.filter((c: any) => c.type === 'video') || [];
+                                          const completedCount = lessonVideos.filter((v: any) => v.completed || localStorage.getItem(`completed_${userId}_${v._id}`) === 'true').length;
 
                                           return (
-                                            <div
-                                              key={content._id}
-                                              onClick={() => {
-                                                if (!isLocked) {
-                                                  setCurrentContent(content);
-                                                  setMobileLessonsOpen(false);
-                                                }
-                                              }}
-                                              className={`w-full p-3.5 rounded-2xl cursor-pointer border transition-all flex items-center justify-between gap-3 shadow-sm ${
-                                                isSelected
-                                                  ? 'bg-purple-50/10 dark:bg-purple-950/10 border-purple-200 dark:border-purple-900/60'
-                                                  : isLocked
-                                                  ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
-                                                  : 'bg-white dark:bg-zinc-900 border-border/40 hover:border-primary/20 text-slate-600 dark:text-zinc-400'
-                                              }`}
-                                            >
-                                              <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                                                {/* Icon Circle */}
-                                                <div className="flex-shrink-0">
-                                                  {isLocked ? (
-                                                    <div className="w-6 h-6 rounded-full border-2 border-slate-200 dark:border-zinc-700 flex items-center justify-center bg-slate-50 dark:bg-zinc-800">
-                                                      <Lock className="w-3 h-3 text-slate-400" />
-                                                    </div>
-                                                  ) : isCompleted ? (
-                                                    <div className="w-6 h-6 rounded-full border-2 border-green-500 bg-green-50 dark:bg-green-950/20 flex items-center justify-center">
-                                                      <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
-                                                    </div>
-                                                  ) : isSelected ? (
-                                                    <div className="w-6 h-6 rounded-full border-2 border-purple-600 bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center">
-                                                      <Play className="w-2.5 h-2.5 text-purple-600 dark:text-purple-400 fill-current" />
-                                                    </div>
-                                                  ) : (
-                                                    <div className="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-zinc-700 flex items-center justify-center bg-white dark:bg-zinc-900" />
-                                                  )}
-                                                </div>
-
-                                                {/* Text Info */}
-                                                <div className="min-w-0 flex-1 text-left">
-                                                  <span className={`block text-xs font-black truncate leading-tight ${isSelected ? 'text-purple-700 dark:text-purple-300' : 'text-slate-850 dark:text-zinc-200'}`}>
-                                                    {displayIndex}. {content.title}
+                                            <div key={lesson._id} className="space-y-1">
+                                              <button
+                                                type="button"
+                                                className="w-full text-left flex items-center justify-between p-2.5 bg-slate-55 dark:bg-zinc-900/10 rounded-xl hover:bg-slate-50/40 transition-colors"
+                                                onClick={() => setExpandedLessons(prev => ({ ...prev, [lesson._id]: !prev[lesson._id] }))}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform shrink-0 ${isLessonExpanded ? 'rotate-90' : ''}`} />
+                                                  <span className="truncate text-xs font-bold text-slate-750 dark:text-zinc-350">
+                                                    {lesson.title}
                                                   </span>
-                                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                    <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-0.5">
-                                                      <Clock className="w-3 h-3 text-slate-450" />
-                                                      {content.youtubeDuration || content.duration || '10:00'}
-                                                    </span>
-                                                    <span className={`text-[8px] font-black uppercase rounded px-1.5 py-0.5 tracking-wider leading-none ${
-                                                      isCompleted
-                                                        ? 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400'
-                                                        : isSelected
-                                                        ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300'
-                                                        : 'bg-indigo-50/70 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400'
-                                                    }`}>
-                                                      {isCompleted ? 'COMPLETED' : isSelected ? 'PLAYING' : 'UPCOMING'}
-                                                    </span>
-                                                  </div>
                                                 </div>
-                                              </div>
-                                              <ChevronRight className="w-4 h-4 text-slate-450 shrink-0" />
+                                                <span className="text-[10px] text-slate-400 font-medium shrink-0 font-sans">
+                                                  {completedCount} / {lessonVideos.length} Completed
+                                                </span>
+                                              </button>
+
+                                              {isLessonExpanded && (
+                                                <div className="space-y-2 pl-2 border-l border-slate-100 dark:border-zinc-800/80 ml-1.5 mt-1">
+                                                  {lessonVideos.map((content: any, contentIdx: number) => {
+                                                    const isSelected = currentContent?._id === content._id;
+                                                    const isLocked = content.isLocked;
+                                                    const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
+
+                                                    const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
+                                                    const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
+                                                    const itemProgressPercent = resumeTime && contentDurSec ? Math.min(100, Math.round((resumeTime / contentDurSec) * 100)) : 0;
+
+                                                    return (
+                                                      <div
+                                                        key={content._id}
+                                                        onClick={() => {
+                                                          if (!isLocked) {
+                                                            setCurrentContent(content);
+                                                            setMobileLessonsOpen(false);
+                                                          }
+                                                        }}
+                                                        className={`w-full p-3 rounded-xl cursor-pointer border transition-all flex items-center justify-between gap-3 shadow-sm ${
+                                                          isSelected
+                                                            ? 'bg-purple-50/10 dark:bg-purple-950/10 border-purple-200 dark:border-purple-900/60'
+                                                            : isLocked
+                                                            ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
+                                                            : 'bg-white dark:bg-zinc-900 border-border/40 hover:border-primary/20 text-slate-650 dark:text-zinc-400'
+                                                        }`}
+                                                      >
+                                                        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                                          <div className="flex-shrink-0">
+                                                            {isLocked ? (
+                                                              <div className="w-5 h-5 rounded-full border border-slate-200 dark:border-zinc-700 flex items-center justify-center bg-slate-50 dark:bg-zinc-800">
+                                                                <Lock className="w-2.5 h-2.5 text-slate-400" />
+                                                              </div>
+                                                            ) : isCompleted ? (
+                                                              <div className="w-5 h-5 rounded-full border border-green-500 bg-green-50 dark:bg-green-950/20 flex items-center justify-center">
+                                                                <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                                              </div>
+                                                            ) : isSelected ? (
+                                                              <div className="w-5 h-5 rounded-full border border-purple-600 bg-purple-50 dark:bg-purple-950/20 flex items-center justify-center">
+                                                                <Play className="w-2 h-2 text-purple-650 dark:text-purple-400 fill-current animate-pulse" />
+                                                              </div>
+                                                            ) : (
+                                                              <div className="w-5 h-5 rounded-full border border-slate-300 dark:border-zinc-700 flex items-center justify-center bg-white dark:bg-zinc-900" />
+                                                            )}
+                                                          </div>
+
+                                                          <div className="min-w-0 flex-1 text-left">
+                                                            <span className={`block text-xs font-black truncate leading-tight ${isSelected ? 'text-purple-750 dark:text-purple-300 font-bold' : 'text-slate-800 dark:text-zinc-250'}`}>
+                                                              {content.title}
+                                                            </span>
+                                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                              <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-0.5">
+                                                                <Clock className="w-3 h-3 text-slate-450" />
+                                                                {content.youtubeDuration || content.duration || '10:00'}
+                                                              </span>
+                                                              <span className={`text-[8px] font-black uppercase rounded px-1.5 py-0.5 tracking-wider leading-none ${
+                                                                isCompleted
+                                                                  ? 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400'
+                                                                  : isSelected
+                                                                  ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300'
+                                                                  : 'bg-indigo-50/70 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400'
+                                                              }`}>
+                                                                {isCompleted ? 'COMPLETED' : isSelected ? 'PLAYING' : 'UPCOMING'}
+                                                              </span>
+                                                            </div>
+                                                          </div>
+                                                        </div>
+                                                        <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              )}
                                             </div>
                                           );
                                         })}
-                                        {unitContents.length === 0 && (
-                                          <p className="text-[10px] text-slate-400 italic pl-6 py-1">No learning items in this unit.</p>
+                                        {(!unit.lessons || unit.lessons.length === 0) && (
+                                          <p className="text-[10px] text-slate-400 italic pl-6 py-1">No topics configured in this unit.</p>
                                         )}
                                       </div>
                                     )}
@@ -3089,7 +3128,6 @@ export default function VideoPlayer() {
                             
                             {isSubjectExpanded && subject.units?.map((unit: any) => {
                               const isUnitExpanded = expandedUnits[unit._id] !== false;
-                              const unitContents = unit.lessons?.flatMap((l: any) => l.contents || []) || [];
                               return (
                                 <div key={unit._id} className="pl-3 mt-1.5 space-y-1">
                                   <button
@@ -3102,79 +3140,106 @@ export default function VideoPlayer() {
                                   </button>
                                   
                                   {isUnitExpanded && (
-                                    <div className="space-y-1.5 mt-1 pl-1">
-                                      {unitContents.map((content: any, contentIdx: number) => {
-                                        const isSelected = currentContent?._id === content._id;
-                                        const isLocked = content.isLocked;
-                                        const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
-                                        const displayIndex = contentIdx + 1;
-                                        
-                                        // Status calculation
-                                        let statusText = '○ Upcoming';
-                                        let statusColor = 'text-slate-400';
-                                        if (isCompleted) {
-                                          statusText = '✓ Completed';
-                                          statusColor = 'text-green-500 font-bold';
-                                        } else if (isSelected) {
-                                          statusText = '▶ Current';
-                                          statusColor = 'text-purple-600 dark:text-purple-400 font-bold';
-                                        }
-
-                                        const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
-                                        const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
-                                        const itemProgressPercent = resumeTime && contentDurSec ? Math.min(100, Math.round((resumeTime / contentDurSec) * 100)) : 0;
+                                    <div className="space-y-1.5 mt-1 pl-2">
+                                      {unit.lessons?.map((lesson: any) => {
+                                        const isLessonExpanded = expandedLessons[lesson._id] !== false;
+                                        const lessonVideos = lesson.videos || lesson.contents?.filter((c: any) => c.type === 'video') || [];
+                                        const completedCount = lessonVideos.filter((v: any) => v.completed || localStorage.getItem(`completed_${userId}_${v._id}`) === 'true').length;
 
                                         return (
-                                          <div
-                                            key={content._id}
-                                            onClick={() => {
-                                              if (!isLocked) setCurrentContent(content);
-                                            }}
-                                            className={`w-full p-2.5 rounded-xl cursor-pointer border transition-all flex flex-col gap-1.5 text-xs ${
-                                              isSelected
-                                                ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/60 shadow-sm'
-                                                : isLocked
-                                                ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
-                                                : 'bg-transparent border-transparent text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/40 hover:border-slate-200/50 dark:hover:border-zinc-800'
-                                            }`}
-                                          >
-                                            <div className="flex items-start justify-between gap-3">
-                                              <div className="flex items-center gap-2 min-w-0">
-                                                <div className="flex-shrink-0">
-                                                  {isLocked ? (
-                                                    <Lock className="w-3.5 h-3.5 text-slate-400" />
-                                                  ) : isCompleted ? (
-                                                    <CheckCircle2 className="w-4 h-4 text-green-500 fill-green-500/10" />
-                                                  ) : isSelected ? (
-                                                    <PlayCircle className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />
-                                                  ) : (
-                                                    <Circle className="w-4 h-4 text-slate-400" />
-                                                  )}
-                                                </div>
-                                                <span className={`truncate font-medium ${isSelected ? 'text-purple-700 dark:text-purple-300 font-semibold' : 'text-slate-700 dark:text-zinc-300'}`}>
-                                                  {displayIndex}. {content.title}
-                                                </span>
-                                              </div>
-                                              <span className="text-[10px] text-slate-400 font-medium shrink-0">
-                                                {content.youtubeDuration || content.duration || '10:00'}
+                                          <div key={lesson._id} className="space-y-1">
+                                            <button
+                                              type="button"
+                                              className="w-full text-left font-bold text-[10px] text-slate-550 dark:text-zinc-450 flex items-center justify-between py-1 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors"
+                                              onClick={() => setExpandedLessons(prev => ({ ...prev, [lesson._id]: !prev[lesson._id] }))}
+                                            >
+                                              <span className="truncate flex items-center gap-1">
+                                                <ChevronRight className={`w-2.5 h-2.5 text-slate-400 transition-transform shrink-0 ${isLessonExpanded ? 'rotate-90' : ''}`} />
+                                                {lesson.title}
                                               </span>
-                                            </div>
+                                              <span className="text-[9px] text-slate-400 font-medium shrink-0 font-sans">
+                                                {completedCount} / {lessonVideos.length} Completed
+                                              </span>
+                                            </button>
 
-                                            <div className="flex items-center justify-between text-[9px] uppercase tracking-wider mt-0.5">
-                                              <span className={statusColor}>{statusText}</span>
-                                              {itemProgressPercent > 0 && !isCompleted && (
-                                                <span className="text-slate-400 font-medium">Progress: {itemProgressPercent}%</span>
-                                              )}
-                                            </div>
+                                            {isLessonExpanded && (
+                                              <div className="space-y-1 pl-2.5 border-l border-slate-100 dark:border-zinc-800/80 ml-1.5">
+                                                {lessonVideos.map((content: any, contentIdx: number) => {
+                                                  const isSelected = currentContent?._id === content._id;
+                                                  const isLocked = content.isLocked;
+                                                  const isCompleted = content.completed || localStorage.getItem(`completed_${userId}_${content._id}`) === 'true';
 
-                                            {itemProgressPercent > 0 && !isCompleted && (
-                                              <Progress value={itemProgressPercent} className="h-1 bg-slate-100 dark:bg-zinc-800 rounded-full mt-1" />
+                                                  // Status calculation
+                                                  let statusText = 'Upcoming';
+                                                  let statusColor = 'text-slate-400';
+                                                  if (isCompleted) {
+                                                    statusText = 'Completed';
+                                                    statusColor = 'text-green-500 font-bold';
+                                                  } else if (isSelected) {
+                                                    statusText = 'Current';
+                                                    statusColor = 'text-purple-600 dark:text-purple-400 font-bold';
+                                                  }
+
+                                                  const resumeTime = parseFloat(localStorage.getItem(`resume_${userId}_${content._id}`) || '0');
+                                                  const contentDurSec = content.durationSeconds || (content.videoAssetId && typeof content.videoAssetId === 'object' ? content.videoAssetId.durationSeconds : 0) || parseDurationToSeconds(content.youtubeDuration || content.duration);
+                                                  const itemProgressPercent = resumeTime && contentDurSec ? Math.min(100, Math.round((resumeTime / contentDurSec) * 100)) : 0;
+
+                                                  return (
+                                                    <div
+                                                      key={content._id}
+                                                      onClick={() => {
+                                                        if (!isLocked) setCurrentContent(content);
+                                                      }}
+                                                      className={`w-full p-2.5 rounded-xl cursor-pointer border transition-all flex flex-col gap-1 text-[11px] ${
+                                                        isSelected
+                                                          ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/60 shadow-sm'
+                                                          : isLocked
+                                                          ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
+                                                          : 'bg-transparent border-transparent text-slate-650 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/40 hover:border-slate-200/50 dark:hover:border-zinc-800'
+                                                      }`}
+                                                    >
+                                                      <div className="flex items-start justify-between gap-3">
+                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                          <div className="flex-shrink-0">
+                                                            {isLocked ? (
+                                                              <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                                            ) : isCompleted ? (
+                                                              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 fill-green-500/10" />
+                                                            ) : isSelected ? (
+                                                              <PlayCircle className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 animate-pulse" />
+                                                            ) : (
+                                                              <Circle className="w-3.5 h-3.5 text-slate-400" />
+                                                            )}
+                                                          </div>
+                                                          <span className={`truncate font-medium ${isSelected ? 'text-purple-700 dark:text-purple-300 font-semibold' : 'text-slate-700 dark:text-zinc-300'}`}>
+                                                            {content.title}
+                                                          </span>
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                                                          {content.youtubeDuration || content.duration || '10:00'}
+                                                        </span>
+                                                      </div>
+
+                                                      <div className="flex items-center justify-between text-[9px] uppercase tracking-wider mt-0.5">
+                                                        <span className={statusColor}>{statusText}</span>
+                                                        {itemProgressPercent > 0 && !isCompleted && (
+                                                          <span className="text-slate-400 font-medium">Progress: {itemProgressPercent}%</span>
+                                                        )}
+                                                      </div>
+
+                                                      {itemProgressPercent > 0 && !isCompleted && (
+                                                        <Progress value={itemProgressPercent} className="h-1 bg-slate-100 dark:bg-zinc-800 rounded-full mt-1" />
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
                                             )}
                                           </div>
                                         );
                                       })}
-                                      {unitContents.length === 0 && (
-                                        <p className="text-[10px] text-slate-400 italic pl-6 py-1">No learning items in this unit.</p>
+                                      {(!unit.lessons || unit.lessons.length === 0) && (
+                                        <p className="text-[10px] text-slate-400 italic pl-6 py-1">No topics configured in this unit.</p>
                                       )}
                                     </div>
                                   )}

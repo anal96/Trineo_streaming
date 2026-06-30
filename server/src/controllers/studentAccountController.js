@@ -25,10 +25,10 @@ const logSecurityEvent = async (req, userId, details) => {
 };
 
 const resolveAssignedBatch = async (user) => {
-  // 1. Try to find active enrollment
+  // Find the single active enrollment
   const activeEnrollment = await Enrollment.findOne({
     studentId: user._id,
-    status: 'active',
+    isActive: { $ne: false },
     institute: user.institute ? user.institute._id : null
   }).populate('programId');
 
@@ -37,24 +37,6 @@ const resolveAssignedBatch = async (user) => {
       _id: activeEnrollment.programId._id,
       name: activeEnrollment.programId.name
     };
-  }
-
-  // 2. Fallback to Program matching by name/title/slug of student.batchName or student.courseName or student.program
-  const userFields = [user.batchName, user.courseName, user.program]
-    .filter(Boolean);
-  
-  if (userFields.length > 0) {
-    const matchedProgram = await Program.findOne({
-      name: { $in: userFields },
-      institute: user.institute ? user.institute._id : null,
-      isDeleted: false
-    });
-    if (matchedProgram) {
-      return {
-        _id: matchedProgram._id,
-        name: matchedProgram.name
-      };
-    }
   }
 
   return null;

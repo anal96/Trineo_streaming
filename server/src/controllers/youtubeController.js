@@ -20,7 +20,8 @@ import {
   getChannelIdentity,
   revokeOAuthToken,
   encryptRefreshToken,
-  decryptRefreshToken
+  decryptRefreshToken,
+  verifyYouTubeTokenHealth
 } from '../utils/youtubeService.js';
 import { getVideoProvider, getThumbnailUrl } from '../utils/videoProvider.js';
 import { isR2Configured, uploadToR2 } from '../utils/r2Service.js';
@@ -244,7 +245,7 @@ export const youtubeCallback = async (req, res) => {
         dashboardUrl,
         actionLabel: 'Return to Dashboard',
         actionUrl: dashboardUrl,
-        postMessagePayload: { type: 'YOUTUBE_CONNECT_RESULT', success: false, message: safeMsg },
+        postMessagePayload: { type: 'YOUTUBE_OAUTH_RESULT', status: 'error', message: safeMsg },
         closeOnLoad: false
       }));
     }
@@ -256,7 +257,7 @@ export const youtubeCallback = async (req, res) => {
         dashboardUrl,
         actionLabel: 'Return to Dashboard',
         actionUrl: dashboardUrl,
-        postMessagePayload: { type: 'YOUTUBE_CONNECT_RESULT', success: false, message: 'Missing authorization code.' },
+        postMessagePayload: { type: 'YOUTUBE_OAUTH_RESULT', status: 'error', message: 'Missing authorization code.' },
         closeOnLoad: false
       }));
     }
@@ -276,7 +277,7 @@ export const youtubeCallback = async (req, res) => {
         dashboardUrl,
         actionLabel: 'Return to Dashboard',
         actionUrl: dashboardUrl,
-        postMessagePayload: { type: 'YOUTUBE_CONNECT_RESULT', success: false, message: 'Institute not found.' },
+        postMessagePayload: { type: 'YOUTUBE_OAUTH_RESULT', status: 'error', message: 'Institute not found.' },
         closeOnLoad: false
       }));
     }
@@ -294,7 +295,7 @@ export const youtubeCallback = async (req, res) => {
         dashboardUrl,
         actionLabel: 'Return to Dashboard',
         actionUrl: dashboardUrl,
-        postMessagePayload: { type: 'YOUTUBE_CONNECT_RESULT', success: false, message: 'Unable to obtain secure token.' },
+        postMessagePayload: { type: 'YOUTUBE_OAUTH_RESULT', status: 'error', message: 'Unable to obtain secure token.' },
         closeOnLoad: false
       }));
     }
@@ -381,8 +382,17 @@ export const youtubeCallback = async (req, res) => {
 export const getInstituteYouTubeStatus = async (req, res) => {
   try {
     if (!req.user?.institute) return res.status(403).json({ message: 'Institute access required' });
-    const institute = await Institute.findById(req.user.institute);
+    const institute = await Institute.findById(req.user.institute)
+      .select('+youtubeRefreshToken')
+      .select('+refreshToken')
+      .select('+accessToken')
+      .select('+youtubeAccessToken');
     if (!institute) return res.status(404).json({ message: 'Institute not found' });
+    
+    // Verify token health dynamically (will automatically disconnect if invalid_grant detected)
+    const isHealthy = await verifyYouTubeTokenHealth(institute);
+    const wasConnectedButExpired = !isHealthy || (!institute.youtubeConnected && !!institute.youtubeChannelName);
+
     const videosUploaded = await Lesson.countDocuments({ institute: institute._id, youtubeVideoId: { $exists: true, $ne: '' } });
     
     const responsePayload = {
@@ -392,6 +402,7 @@ export const getInstituteYouTubeStatus = async (req, res) => {
       youtubeConnectedAt: institute.youtubeConnectedAt || null,
       youtubeLastSync: institute.youtubeLastSync || null,
       videosUploaded,
+      youtubeAuthExpired: wasConnectedButExpired,
       // Spec compliance for the investigation checklist
       connected: Boolean(institute.youtubeConnected),
       channelId: institute.youtubeChannelId || '',
@@ -569,17 +580,26 @@ export const uploadVideoToYouTube = async (req, res) => {
     const savedAsset = await videoAsset.save();
 
     // Link VideoAsset to selected lesson content and save other content video metadata
-    let videoContent = await Content.findOne({ lessonId: lesson._id, type: 'video', isDeleted: false });
+    let videoContent = null;
+    const contentIdVal = req.body.contentId || req.body.replaceContentId;
+    if (contentIdVal) {
+      videoContent = await Content.findOne({ _id: contentIdVal, isDeleted: false });
+    }
+
     if (!videoContent) {
+      const videoCount = await Content.countDocuments({ lessonId: lesson._id, type: 'video', isDeleted: false });
       videoContent = new Content({
         lessonId: lesson._id,
         type: 'video',
         title: title || (lesson.title + ' Video'),
         institute: lesson.institute,
         instituteId: lesson.instituteId,
-        order: 1
+        order: videoCount + 1
       });
+    } else {
+      if (title) videoContent.title = title;
     }
+
     videoContent.videoAssetId = savedAsset._id;
     videoContent.youtubeVideoId = null;
     videoContent.uploadStatus = 'uploading';
@@ -693,8 +713,9 @@ export const uploadVideoToYouTube = async (req, res) => {
                 targetType: 'role',
                 targetRole: 'student',
                 institute: savedAsset.institute || req.user.institute || null,
-                title: '📚 New Lesson Available',
-                message: `"${title}" has been uploaded. Tap to continue learning.`,
+                programId: courseId,
+                title: '🎥 New Video Added',
+                message: `Topic: ${lesson.title}\nVideo: ${title || 'New Video'}`,
                 url: `/student/video/${courseId}`,
                 type: 'upload'
               });
@@ -1061,6 +1082,7 @@ export const replaceVideoAsset = async (req, res) => {
                 targetType: 'role',
                 targetRole: 'student',
                 institute: videoAsset.institute || req.user.institute || null,
+                programId: videoAsset.courseId,
                 title: '📚 New Lesson Available',
                 message: `"${videoAsset.title}" has been replaced and is now ready. Tap to continue learning.`,
                 url: `/student/video/${videoAsset.courseId}`,
@@ -1454,6 +1476,7 @@ export const replaceLessonVideo = async (req, res) => {
                 targetType: 'role',
                 targetRole: 'student',
                 institute: videoAsset.institute || req.user.institute || null,
+                programId: videoAsset.courseId || (lesson && lesson.courseId) || null,
                 title: '📚 New Lesson Available',
                 message: `"${lesson.title}" is now ready. Tap to continue learning.`,
                 url: `/student/video/${videoAsset.courseId || (lesson && lesson.courseId) || ''}`,

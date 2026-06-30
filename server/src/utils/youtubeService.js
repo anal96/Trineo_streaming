@@ -136,6 +136,56 @@ const getOAuth2Client = (authSource = null) => {
   return oauth2Client;
 };
 
+export const handleInvalidGrantError = async (authSource, err) => {
+  if (err && err.message && err.message.includes('invalid_grant')) {
+    console.warn(`[YouTube OAuth Failure] invalid_grant detected. Automatically disconnecting channel for institute: ${authSource?._id || 'unknown'}`);
+    console.warn(`  - Error Name: ${err.name}`);
+    console.warn(`  - Error Message: ${err.message}`);
+    if (err.response) {
+      console.warn(`  - Google Response Status: ${err.response.status}`);
+      console.warn(`  - Google Response Data: ${JSON.stringify(err.response.data)}`);
+    }
+
+    if (authSource && typeof authSource.save === 'function') {
+      authSource.youtubeConnected = false;
+      authSource.youtubeRefreshToken = '';
+      authSource.refreshToken = '';
+      authSource.youtubeAccessToken = '';
+      authSource.accessToken = '';
+      authSource.youtubeTokenExpiry = null;
+      authSource.tokenExpiry = null;
+      // Note: We do NOT clear youtubeChannelName or youtubeChannelId so the UI knows which channel expired.
+      await authSource.save().catch((saveErr) => {
+        console.error('[YouTube Service] Failed to save automatic disconnect state:', saveErr.message);
+      });
+      console.log(`[YouTube Service] Automatically disconnected invalid YouTube credentials for institute ${authSource._id}`);
+    }
+  }
+};
+
+export const verifyYouTubeTokenHealth = async (institute) => {
+  if (!institute || !institute.youtubeConnected) return true;
+  const rawRefreshToken = institute.refreshToken || institute.youtubeRefreshToken || '';
+  const refreshToken = rawRefreshToken && rawRefreshToken.includes(':') ? decryptRefreshToken(rawRefreshToken) : rawRefreshToken;
+  if (!refreshToken) {
+    institute.youtubeConnected = false;
+    await institute.save().catch(() => {});
+    return false;
+  }
+  const oauth2Client = getOAuth2Client(institute);
+  try {
+    await oauth2Client.getAccessToken();
+    return true;
+  } catch (err) {
+    console.error('[YouTube Token Health Verification Failed]', err.message);
+    if (err.message && err.message.includes('invalid_grant')) {
+      await handleInvalidGrantError(institute, err);
+      return false;
+    }
+    return true;
+  }
+};
+
 /**
  * Generate the OAuth2 consent URL for first-time admin setup.
  * Admin visits this URL once, approves, and we store the refresh token.
@@ -171,6 +221,9 @@ export const getChannelIdentity = async ({ refreshToken = null, accessToken = nu
     }
   } catch (err) {
     console.error('[YouTube Channel Identity Auth Check Failed]', err.message);
+    if (authSource) {
+      await handleInvalidGrantError(authSource, err);
+    }
   }
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
   const channelRes = await youtube.channels.list({
@@ -228,6 +281,8 @@ export const uploadToYouTube = async (filePath, title, description = '', onProgr
     }
   } catch (err) {
     console.error('[YouTube Upload Auth Check Failed]', err.message);
+    await handleInvalidGrantError(authSource, err);
+    throw err; // Rethrow to make sure background job fails correctly
   }
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
@@ -279,6 +334,7 @@ export const getVideoMetadata = async (videoId, authSource = null) => {
     }
   } catch (err) {
     console.error('[YouTube Metadata Auth Check Failed]', err.message);
+    await handleInvalidGrantError(authSource, err);
   }
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
@@ -325,6 +381,7 @@ export const checkYouTubeProcessingStatus = async (videoId, authSource = null) =
     }
   } catch (err) {
     console.error('[YouTube Status Auth Check Failed]', err.message);
+    await handleInvalidGrantError(authSource, err);
   }
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
@@ -349,6 +406,7 @@ export const ensureUnlisted = async (videoId, authSource = null) => {
     }
   } catch (err) {
     console.error('[YouTube Unlist Auth Check Failed]', err.message);
+    await handleInvalidGrantError(authSource, err);
   }
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 

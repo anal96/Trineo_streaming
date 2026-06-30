@@ -98,11 +98,72 @@ export const getWatchHistory = async (req, res) => {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
 
-    const query = req.user.role === 'owner'
-      ? { studentId: req.user._id }
-      : { studentId: req.user._id, institute: req.user.institute };
+    if (req.user.role === 'owner' || req.user.role === 'admin') {
+      const query = req.user.role === 'owner'
+        ? { studentId: req.user._id }
+        : { studentId: req.user._id, institute: req.user.institute };
 
-    const history = await WatchHistory.find({ ...query, contentId: { $ne: null } })
+      const history = await WatchHistory.find({ ...query, contentId: { $ne: null } })
+        .populate({
+          path: 'contentId',
+          select: 'title type youtubeVideoId attachmentUrl attachmentName lessonId description',
+          populate: {
+            path: 'lessonId',
+            select: 'title unitId',
+            populate: {
+              path: 'unitId',
+              select: 'name subjectId',
+              populate: {
+                path: 'subjectId',
+                select: 'subjectName programId',
+                populate: {
+                  path: 'programId',
+                  select: 'name slug'
+                }
+              }
+            }
+          }
+        })
+        .sort({ lastWatchedAt: -1 });
+      return res.json(history);
+    }
+
+    // For students, filter history by the active program's contents
+    const EnrollmentModel = mongoose.model('Enrollment');
+    const SubjectModel = mongoose.model('Subject');
+    const UnitModel = mongoose.model('Unit');
+    const LessonModel = mongoose.model('Lesson');
+    const ContentModel = mongoose.model('Content');
+
+    const activeEnrollment = await EnrollmentModel.findOne({
+      studentId: req.user._id,
+      institute: req.user.institute,
+      isActive: { $ne: false }
+    });
+
+    if (!activeEnrollment) {
+      return res.json([]);
+    }
+
+    const activeProgramId = activeEnrollment.programId;
+
+    const subjects = await SubjectModel.find({ programId: activeProgramId, isDeleted: false });
+    const subjectIds = subjects.map(s => s._id);
+
+    const units = await UnitModel.find({ subjectId: { $in: subjectIds }, isDeleted: false });
+    const unitIds = units.map(u => u._id);
+
+    const lessons = await LessonModel.find({ unitId: { $in: unitIds }, isDeleted: false });
+    const lessonIds = lessons.map(l => l._id);
+
+    const contents = await ContentModel.find({ lessonId: { $in: lessonIds }, isDeleted: false });
+    const contentIds = contents.map(c => c._id);
+
+    const history = await WatchHistory.find({
+      studentId: req.user._id,
+      institute: req.user.institute,
+      contentId: { $in: contentIds }
+    })
       .populate({
         path: 'contentId',
         select: 'title type youtubeVideoId attachmentUrl attachmentName lessonId description',
