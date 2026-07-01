@@ -3,7 +3,7 @@ export const getPlatformInfo = (userAgent = '', headers = {}) => {
   
   // 1. App Webview / Custom headers detection
   const hasAppHeader = String(headers['x-trineo-app'] || '').toLowerCase() === 'android';
-  const hasAppUA = ua.includes('trineoandroid');
+  const hasAppUA = ua.includes('trineoandroid') || ua.includes('trineostreamandroid');
   const isAndroidApp = hasAppHeader || hasAppUA;
 
   // 2. Platform OS checks
