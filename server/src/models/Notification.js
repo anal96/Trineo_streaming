@@ -171,11 +171,11 @@ export const sendPushNotification = async (doc) => {
       if (doc.institute) {
         filter.institute = doc.institute;
       }
-      const users = await UserModelRef.find(filter).select('_id notificationPreferences');
+      const users = await UserModelRef.find(filter).select('_id notificationPreferences fcmToken deviceName');
       targetUsers = users;
     } else if (tType === 'broadcast') {
       // Platform-level broadcast — only push to owners
-      const owners = await UserModelRef.find({ role: 'owner' }).select('_id notificationPreferences');
+      const owners = await UserModelRef.find({ role: 'owner' }).select('_id notificationPreferences fcmToken deviceName');
       targetUsers = owners;
     }
 

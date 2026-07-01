@@ -33,6 +33,51 @@ const parseDurationToSeconds = (duration = '0:00') => {
   return Number(parts[0] || 0);
 };
 
+const resolveProgramId = async (videoAsset, lesson) => {
+  try {
+    if (videoAsset && videoAsset.courseId) {
+      const ProgramModel = mongoose.model('Program');
+      const isProgram = await ProgramModel.exists({ _id: videoAsset.courseId });
+      if (isProgram) return videoAsset.courseId;
+    }
+    
+    let lessonId = lesson ? (lesson._id || lesson) : null;
+    if (!lessonId && videoAsset) {
+      const ContentModel = mongoose.model('Content');
+      const content = await ContentModel.findOne({ videoAssetId: videoAsset._id, isDeleted: false });
+      if (content) {
+        lessonId = content.lessonId;
+      }
+    }
+    
+    if (lessonId) {
+      const LessonModel = mongoose.model('Lesson');
+      const UnitModel = mongoose.model('Unit');
+      const SubjectModel = mongoose.model('Subject');
+      
+      const lessonDoc = await LessonModel.findById(lessonId);
+      if (lessonDoc && lessonDoc.unitId) {
+        const unit = await UnitModel.findById(lessonDoc.unitId);
+        if (unit && unit.subjectId) {
+          const subject = await SubjectModel.findById(unit.subjectId);
+          if (subject && subject.programId) {
+            return subject.programId;
+          }
+        }
+      }
+      
+      if (lessonDoc && lessonDoc.courseId) {
+        const ProgramModel = mongoose.model('Program');
+        const isProgram = await ProgramModel.exists({ _id: lessonDoc.courseId });
+        if (isProgram) return lessonDoc.courseId;
+      }
+    }
+  } catch (err) {
+    console.error('Error resolving programId:', err);
+  }
+  return null;
+};
+
 const markLessonAndJobReady = async (lesson, job, meta = {}) => {
   lesson.uploadStatus = 'ready';
   lesson.youtubeDuration = meta.duration || lesson.youtubeDuration || lesson.duration;
@@ -708,15 +753,16 @@ export const uploadVideoToYouTube = async (req, res) => {
               clearInterval(pollInterval);
               await markVideoAssetAndJobReady(savedAsset, job, meta);
 
+              const resolvedProgId = await resolveProgramId(savedAsset, lesson) || courseId;
               await Notification.create({
                 userId: null,
                 targetType: 'role',
                 targetRole: 'student',
                 institute: savedAsset.institute || req.user.institute || null,
-                programId: courseId,
+                programId: resolvedProgId,
                 title: '🎥 New Video Added',
                 message: `Topic: ${lesson.title}\nVideo: ${title || 'New Video'}`,
-                url: `/student/video/${courseId}`,
+                url: `/student/video/${resolvedProgId}`,
                 type: 'upload'
               });
               
@@ -1077,15 +1123,16 @@ export const replaceVideoAsset = async (req, res) => {
               clearInterval(pollInterval);
               await markVideoAssetAndJobReady(videoAsset, job, meta);
 
+              const resolvedProgId = await resolveProgramId(videoAsset) || videoAsset.courseId;
               await Notification.create({
                 userId: null,
                 targetType: 'role',
                 targetRole: 'student',
                 institute: videoAsset.institute || req.user.institute || null,
-                programId: videoAsset.courseId,
+                programId: resolvedProgId,
                 title: '📚 New Lesson Available',
                 message: `"${videoAsset.title}" has been replaced and is now ready. Tap to continue learning.`,
-                url: `/student/video/${videoAsset.courseId}`,
+                url: `/student/video/${resolvedProgId}`,
                 type: 'upload'
               });
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {
@@ -1471,15 +1518,16 @@ export const replaceLessonVideo = async (req, res) => {
               clearInterval(pollInterval);
               await markVideoAssetAndJobReady(videoAsset, job, meta);
 
+              const resolvedProgId = await resolveProgramId(videoAsset, lesson) || (videoAsset.courseId || (lesson && lesson.courseId) || null);
               await Notification.create({
                 userId: null,
                 targetType: 'role',
                 targetRole: 'student',
                 institute: videoAsset.institute || req.user.institute || null,
-                programId: videoAsset.courseId || (lesson && lesson.courseId) || null,
+                programId: resolvedProgId,
                 title: '📚 New Lesson Available',
                 message: `"${lesson.title}" is now ready. Tap to continue learning.`,
-                url: `/student/video/${videoAsset.courseId || (lesson && lesson.courseId) || ''}`,
+                url: `/student/video/${resolvedProgId || ''}`,
                 type: 'upload'
               });
             } else if (meta.processingStatus === 'failed' || meta.processingStatus === 'rejected' || attempts >= maxAttempts) {
