@@ -545,66 +545,108 @@ export default function LiveClassesManagement() {
 
       {/* ATTENDANCE LIST VIEWER DIALOG */}
       <Dialog open={!!attendanceClass} onOpenChange={(open) => !open && setAttendanceClass(null)}>
-        <DialogContent className="max-w-2xl w-[94vw] rounded-2xl border-border bg-card p-0 overflow-hidden shadow-2xl">
-          <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-primary to-indigo-600" />
-          <div className="p-6 space-y-4">
-            <DialogHeader className="flex flex-row items-center justify-between">
-              <div>
-                <DialogTitle className="flex items-center gap-2 text-base font-bold">
-                  <Users className="w-5 h-5 text-primary" />
-                  Attendance Log
-                </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  Class: "{attendanceClass?.title}" · Enrolled Batch: "{attendanceClass?.courseId?.name || attendanceClass?.courseId?.title}"
-                </DialogDescription>
+        <DialogContent className="w-full max-w-[100vw] h-full sm:h-auto sm:w-[90vw] sm:max-w-[90vw] lg:w-[950px] lg:max-w-[95vw] sm:max-h-[90vh] rounded-none sm:rounded-2xl border-border bg-card p-0 overflow-hidden shadow-2xl flex flex-col">
+          <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-primary to-indigo-600 shrink-0" />
+          
+          {/* HEADER SECTION */}
+          <div className="p-6 pb-5 border-b border-border flex flex-row items-start justify-between bg-muted/5 shrink-0">
+            <div className="space-y-1.5 flex-1 pr-4">
+              <DialogTitle className="flex items-center gap-2.5 text-lg font-bold text-foreground">
+                <Users className="w-5.5 h-5.5 text-primary" />
+                Attendance Log
+              </DialogTitle>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-xs text-muted-foreground">
+                <div className="flex flex-col gap-0.5 bg-muted/40 p-2.5 rounded-lg border border-border/50">
+                  <span className="font-semibold text-foreground/80">Class</span>
+                  <span className="truncate text-foreground/90 font-medium" title={attendanceClass?.title}>{attendanceClass?.title || 'N/A'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 bg-muted/40 p-2.5 rounded-lg border border-border/50">
+                  <span className="font-semibold text-foreground/80">Enrolled Batch</span>
+                  <span className="truncate text-foreground/90 font-medium" title={attendanceClass?.courseId?.name || attendanceClass?.courseId?.title}>{attendanceClass?.courseId?.name || attendanceClass?.courseId?.title || 'N/A'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 bg-muted/40 p-2.5 rounded-lg border border-border/50">
+                  <span className="font-semibold text-foreground/80">Total Students</span>
+                  <span className="text-foreground/90 font-bold text-sm">{attendanceRecords.length}</span>
+                </div>
               </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 rounded-full" 
-                onClick={() => setAttendanceClass(null)}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </DialogHeader>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-9 w-9 rounded-full shrink-0 -mt-1 hover:bg-muted/80" 
+              onClick={() => setAttendanceClass(null)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
 
+          {/* TABLE / CONTENT SECTION */}
+          <div className="p-6 flex-1 min-h-0 overflow-hidden flex flex-col justify-stretch">
             {attendanceLoading ? (
-              <div className="py-12 text-center text-muted-foreground">Fetching logs...</div>
+              <div className="py-12 text-center text-muted-foreground flex-1 flex items-center justify-center">
+                <div className="animate-pulse text-sm">Fetching logs...</div>
+              </div>
+            ) : attendanceRecords.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border flex-1">
+                <div className="p-3.5 bg-muted rounded-full text-muted-foreground/85">
+                  <Users className="w-7 h-7" />
+                </div>
+                <h3 className="mt-4 text-sm font-semibold text-foreground">No attendance records found</h3>
+                <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
+                  Students who join this live class session will appear here in real-time.
+                </p>
+              </div>
             ) : (
-              <div className="max-h-80 overflow-y-auto rounded-xl border border-border">
-                <Table>
-                  <TableHeader className="bg-muted/30">
-                    <TableRow>
-                      <TableHead>Student ID</TableHead>
-                      <TableHead>Student Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Joined At</TableHead>
+              <div className="flex-1 w-full overflow-x-auto overflow-y-auto rounded-xl border border-border bg-card">
+                <Table className="w-full table-fixed min-w-[840px]">
+                  <TableHeader className="bg-muted/30 sticky top-0 z-10 backdrop-blur border-b">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[120px] px-4 py-3 whitespace-nowrap font-semibold">Student ID</TableHead>
+                      <TableHead className="w-[220px] px-4 py-3 whitespace-nowrap font-semibold">Student Name</TableHead>
+                      <TableHead className="w-[280px] px-4 py-3 whitespace-nowrap font-semibold">Email</TableHead>
+                      <TableHead className="w-[220px] px-4 py-3 whitespace-nowrap font-semibold">Joined At</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {attendanceRecords.map((record) => (
-                      <TableRow key={record._id}>
-                        <TableCell className="font-mono text-primary text-xs">{record.studentId?.user_id || 'N/A'}</TableCell>
-                        <TableCell className="font-medium text-sm">{record.studentId?.name || 'Student'}</TableCell>
-                        <TableCell className="text-muted-foreground text-xs">{record.studentId?.email || 'N/A'}</TableCell>
-                        <TableCell className="text-xs">{new Date(record.joinedAt).toLocaleString()}</TableCell>
+                      <TableRow 
+                        key={record._id}
+                        className="odd:bg-muted/5 even:bg-transparent hover:bg-muted/15 transition-colors border-b border-border/40"
+                      >
+                        <TableCell className="w-[120px] px-4 py-3 whitespace-nowrap font-mono text-primary text-xs font-semibold align-middle">
+                          {record.studentId?.user_id || 'N/A'}
+                        </TableCell>
+                        <TableCell className="w-[220px] px-4 py-3 whitespace-nowrap font-medium text-sm text-foreground align-middle">
+                          {record.studentId?.name || 'Student'}
+                        </TableCell>
+                        <TableCell className="w-[280px] px-4 py-3 align-middle">
+                          <span 
+                            className="block w-full max-w-[280px] truncate text-muted-foreground text-xs"
+                            title={record.studentId?.email}
+                          >
+                            {record.studentId?.email || 'N/A'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="w-[220px] px-4 py-3 whitespace-nowrap text-xs text-foreground/80 align-middle">
+                          {new Date(record.joinedAt).toLocaleString()}
+                        </TableCell>
                       </TableRow>
                     ))}
-                    {attendanceRecords.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground py-8 text-xs">No students have joined this live class session yet.</TableCell>
-                      </TableRow>
-                    )}
                   </TableBody>
                 </Table>
               </div>
             )}
+          </div>
 
-            <DialogFooter className="pt-2">
-              <Button variant="outline" className="w-full" onClick={() => setAttendanceClass(null)}>
-                Close Viewer
-              </Button>
-            </DialogFooter>
+          {/* FOOTER SECTION */}
+          <div className="p-6 pt-4 border-t border-border flex flex-row justify-end bg-muted/5 shrink-0">
+            <Button 
+              variant="outline" 
+              className="w-full sm:w-auto px-6 font-semibold" 
+              onClick={() => setAttendanceClass(null)}
+            >
+              Close Viewer
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

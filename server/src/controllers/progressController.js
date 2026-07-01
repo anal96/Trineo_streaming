@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { WatchHistory } from '../models/WatchHistory.js';
 import { Content } from '../models/Content.js';
 import { ContentProgress } from '../models/ContentProgress.js';
@@ -147,44 +148,86 @@ export const getWatchHistory = async (req, res) => {
 
     const activeProgramId = activeEnrollment.programId;
 
-    const subjects = await SubjectModel.find({ programId: activeProgramId, isDeleted: false });
+    const subjects = await SubjectModel.find({ programId: activeProgramId, isDeleted: false }).sort({ displayOrder: 1, createdAt: 1 });
     const subjectIds = subjects.map(s => s._id);
 
-    const units = await UnitModel.find({ subjectId: { $in: subjectIds }, isDeleted: false });
+    const units = await UnitModel.find({ subjectId: { $in: subjectIds }, isDeleted: false }).sort({ displayOrder: 1, createdAt: 1 });
     const unitIds = units.map(u => u._id);
 
-    const lessons = await LessonModel.find({ unitId: { $in: unitIds }, isDeleted: false });
+    const lessons = await LessonModel.find({ unitId: { $in: unitIds }, isDeleted: false }).sort({ displayOrder: 1, createdAt: 1 });
     const lessonIds = lessons.map(l => l._id);
 
-    const contents = await ContentModel.find({ lessonId: { $in: lessonIds }, isDeleted: false });
+    const contents = await ContentModel.find({ lessonId: { $in: lessonIds }, isDeleted: false }).sort({ order: 1, createdAt: 1 });
     const contentIds = contents.map(c => c._id);
+
+    const populateChain = {
+      path: 'contentId',
+      select: 'title type youtubeVideoId attachmentUrl attachmentName lessonId description',
+      populate: {
+        path: 'lessonId',
+        select: 'title unitId',
+        populate: {
+          path: 'unitId',
+          select: 'name title subjectId',
+          populate: {
+            path: 'subjectId',
+            select: 'subjectName programId',
+            populate: {
+              path: 'programId',
+              select: 'name slug thumbnail'
+            }
+          }
+        }
+      }
+    };
 
     const history = await WatchHistory.find({
       studentId: req.user._id,
       institute: req.user.institute,
       contentId: { $in: contentIds }
     })
-      .populate({
-        path: 'contentId',
-        select: 'title type youtubeVideoId attachmentUrl attachmentName lessonId description',
-        populate: {
+      .populate(populateChain)
+      .sort({ lastWatchedAt: -1 });
+
+    // If student has no watch history but the program has content,
+    // return a synthetic starter entry so the frontend shows real
+    // lesson/unit names instead of hardcoded mock placeholders.
+    if (history.length === 0 && contents.length > 0) {
+      const firstContent = await ContentModel.findById(contents[0]._id)
+        .select('title type youtubeVideoId attachmentUrl attachmentName lessonId description')
+        .populate({
           path: 'lessonId',
           select: 'title unitId',
           populate: {
             path: 'unitId',
-            select: 'name subjectId',
+            select: 'name title subjectId',
             populate: {
               path: 'subjectId',
               select: 'subjectName programId',
               populate: {
                 path: 'programId',
-                select: 'name slug'
+                select: 'name slug thumbnail'
               }
             }
           }
-        }
-      })
-      .sort({ lastWatchedAt: -1 });
+        });
+
+      if (firstContent) {
+        const starterEntry = {
+          _id: new mongoose.Types.ObjectId(),
+          studentId: req.user._id,
+          institute: req.user.institute,
+          contentId: firstContent,
+          progress: 0,
+          watchTime: 0,
+          duration: 0,
+          completed: false,
+          lastWatchedAt: null,
+          _isStarter: true
+        };
+        return res.json([starterEntry]);
+      }
+    }
 
     res.json(history);
   } catch (error) {

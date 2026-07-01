@@ -1857,13 +1857,16 @@ export default function StudentDashboard() {
                         return dateB - dateA;
                       });
                       const last = sorted[0];
-                      const courseTitle = last.contentId?.lessonId?.unitId?.subjectId?.programId?.name || last.courseId?.title || 'C Programming';
-                      const lessonTitle = last.contentId?.title || last.lessonId?.title || 'Introduction to pointers';
+                      const courseTitle = last.contentId?.lessonId?.unitId?.subjectId?.programId?.name || last.courseId?.title || 'My Course';
+                      const lessonTitle = last.contentId?.title || last.lessonId?.title || 'Lesson';
                       const progress = last.progress || 0;
                       const courseId = last.contentId?.lessonId?.unitId?.subjectId?.programId?._id || last.courseId?._id;
-                      const duration = last.contentId?.lessonId?.duration || last.lessonId?.duration || 15;
+                      // Duration: try lesson duration first, then WatchHistory duration (seconds → minutes), then fallback
+                      const lessonDuration = last.contentId?.lessonId?.duration;
+                      const watchDurationMins = last.duration > 0 ? Math.round(last.duration / 60) : 0;
+                      const duration = lessonDuration || watchDurationMins || 15;
                       const remaining = Math.max(1, Math.round(duration * (1 - progress / 100)));
-                      const unitTitle = last.contentId?.lessonId?.unitId?.title || 'Unit 1';
+                      const unitTitle = last.contentId?.lessonId?.unitId?.title || last.contentId?.lessonId?.unitId?.name || 'Unit 1';
                       const thumbnail = last.contentId?.lessonId?.unitId?.subjectId?.programId?.thumbnail || 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=400&q=80';
                       return {
                         courseTitle,

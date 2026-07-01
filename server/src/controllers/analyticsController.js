@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
+import { Enrollment } from '../models/Enrollment.js';
 import { Course } from '../models/Course.js';
 import { Purchase } from '../models/Purchase.js';
 import { WatchHistory } from '../models/WatchHistory.js';
@@ -1091,28 +1092,75 @@ export const deleteStudent = async (req, res) => {
 };
 
 export const createAnnouncement = async (req, res) => {
-  const { title, message } = req.body;
+  const { title, message, batchIds } = req.body;
   try {
     if (!req.user.institute) {
       return res.status(403).json({ message: 'Forbidden: institute access required' });
     }
+    if (!batchIds || !Array.isArray(batchIds) || batchIds.length === 0) {
+      return res.status(400).json({ message: 'At least one batch must be selected' });
+    }
+    if (!title || !message) {
+      return res.status(400).json({ message: 'Title and message are required' });
+    }
+
+    // Find active enrollments under the specified batchIds (Programs)
+    const enrollments = await Enrollment.find({
+      institute: req.user.institute,
+      programId: { $in: batchIds },
+      status: 'active',
+      isActive: { $ne: false }
+    }).select('studentId programId');
+
+    if (!enrollments.length) {
+      return res.status(400).json({ message: 'No active students found in the selected batches' });
+    }
+
+    // Create Announcement record
     const announcement = await Announcement.create({
       title,
       message,
       author: req.user.name || 'Institute Admin',
       institute: req.user.institute || null
     });
-    const students = await User.find({ institute: req.user.institute, role: 'student', status: 'active' }).select('_id');
-    if (students.length) {
-      await Notification.insertMany(students.map((student) => ({
-        institute: req.user.institute || null,
-        userId: student._id,
-        targetType: 'user',
-        message: `New announcement: ${title}`,
-        type: 'system',
-        read: false
-      })));
+
+    // Create unique student list with their program mappings
+    const studentProgramMap = {}; // studentId -> programId
+    enrollments.forEach((e) => {
+      const sId = e.studentId.toString();
+      if (!studentProgramMap[sId]) {
+        studentProgramMap[sId] = e.programId;
+      }
+    });
+
+    const uniqueStudentIds = Object.keys(studentProgramMap);
+
+    // Bulk create notifications targeting each student and their batch/program
+    const notifications = uniqueStudentIds.map((sId) => ({
+      institute: req.user.institute || null,
+      userId: sId,
+      programId: studentProgramMap[sId],
+      targetType: 'user',
+      title: '📢 New Announcement',
+      message: `New announcement: ${title}`,
+      type: 'announcement',
+      read: false
+    }));
+
+    if (notifications.length) {
+      await Notification.insertMany(notifications);
     }
+
+    // Write to AuditLog
+    await AuditLog.create({
+      eventType: 'API_ACCESS',
+      userId: req.user._id,
+      institute: req.user.institute || null,
+      details: `Announcement Sent. Admin: ${req.user._id}, Batch Count: ${batchIds.length}, Recipient Count: ${uniqueStudentIds.length}. Title: "${title}"`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || ''
+    });
+
     res.status(201).json(announcement);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1127,6 +1175,30 @@ export const getAnnouncements = async (req, res) => {
     const filter = req.user.role === 'owner' ? {} : { institute: req.user.institute };
     const announcements = await Announcement.find(filter).sort({ createdAt: -1 });
     res.json(announcements);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const estimateAnnouncementRecipients = async (req, res) => {
+  const { batchIds } = req.body;
+  try {
+    if (!req.user.institute) {
+      return res.status(403).json({ message: 'Forbidden: institute access required' });
+    }
+    if (!batchIds || !Array.isArray(batchIds) || batchIds.length === 0) {
+      return res.json({ count: 0 });
+    }
+
+    const enrollments = await Enrollment.find({
+      institute: req.user.institute,
+      programId: { $in: batchIds },
+      status: 'active',
+      isActive: { $ne: false }
+    }).select('studentId');
+
+    const uniqueStudentIds = new Set(enrollments.map((e) => e.studentId.toString()));
+    res.json({ count: uniqueStudentIds.size });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -7,6 +7,7 @@ import {
   deleteStudent,
   createAnnouncement,
   getAnnouncements,
+  estimateAnnouncementRecipients,
   updateInstituteBranding,
   resendWelcomeEmail,
   resetStudentPassword,
@@ -27,6 +28,7 @@ router.post('/students/:id/reset-password', protect, adminOnly, resetStudentPass
 
 // Announcements & Branding
 router.post('/announcement', protect, adminOnly, createAnnouncement);
+router.post('/announcement/estimate', protect, adminOnly, estimateAnnouncementRecipients);
 router.get('/announcements', protect, getAnnouncements);
 router.put('/branding', protect, adminOnly, updateInstituteBranding);
 

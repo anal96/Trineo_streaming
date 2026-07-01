@@ -267,6 +267,34 @@ export default function AdminDashboard() {
   const [replaceVideoContentId, setReplaceVideoContentId] = useState<string | null>(null);
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementMsg, setAnnouncementMsg] = useState('');
+  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
+  const [batchSearchQuery, setBatchSearchQuery] = useState('');
+  const [estimatedRecipients, setEstimatedRecipients] = useState<number | null>(null);
+  const [isEstimating, setIsEstimating] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  useEffect(() => {
+    if (selectedBatchIds.length === 0) {
+      setEstimatedRecipients(0);
+      return;
+    }
+    const fetchEstimate = async () => {
+      setIsEstimating(true);
+      try {
+        const res = await apiFetch('/analytics/announcement/estimate', {
+          method: 'POST',
+          body: JSON.stringify({ batchIds: selectedBatchIds })
+        });
+        setEstimatedRecipients(res.count);
+      } catch (err) {
+        console.error('Failed to fetch recipient estimate:', err);
+      } finally {
+        setIsEstimating(false);
+      }
+    };
+    const debounceTimer = setTimeout(fetchEstimate, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [selectedBatchIds]);
 
   const [studentSearch, setStudentSearch] = useState('');
 
@@ -1034,15 +1062,26 @@ export default function AdminDashboard() {
   // Dispatch announcement broadcast
   const handleBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedBatchIds.length === 0) return alert('Select at least one batch');
     if (!announcementTitle || !announcementMsg) return alert('Fill in all fields');
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmSendAnnouncement = async () => {
     try {
       await apiFetch('/analytics/announcement', {
         method: 'POST',
-        body: JSON.stringify({ title: announcementTitle, message: announcementMsg })
+        body: JSON.stringify({ 
+          title: announcementTitle, 
+          message: announcementMsg, 
+          batchIds: selectedBatchIds 
+        })
       });
       alert('Announcement dispatched successfully!');
       setAnnouncementTitle('');
       setAnnouncementMsg('');
+      setSelectedBatchIds([]);
+      setShowConfirmModal(false);
     } catch (err: any) {
       alert(err.message || 'Failed to dispatch announcement.');
     }
@@ -2823,13 +2862,111 @@ export default function AdminDashboard() {
 
             {/* TAB 5: ANNOUNCEMENTS */}
             {activeTab === 'announcements' && (
-              <Card className="max-w-2xl border-border/50 bg-card">
-                <CardHeader>
-                  <CardTitle>Broadcast Announcement</CardTitle>
-                  <CardDescription>Dispatch a high-priority system notification to all active students.</CardDescription>
+              <Card className="max-w-2xl border-border/50 bg-card shadow-lg">
+                <CardHeader className="border-b border-border/40 pb-5">
+                  <CardTitle>Batch Announcement</CardTitle>
+                  <CardDescription>Send announcements to one or more selected batches.</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleBroadcast} className="space-y-4">
+                <CardContent className="pt-6">
+                  <form onSubmit={handleBroadcast} className="space-y-5">
+                    {/* Batch Selection Container */}
+                    <div className="space-y-2.5">
+                      <Label className="text-sm font-semibold flex items-center justify-between">
+                        <span>Select Target Batches</span>
+                        {selectedBatchIds.length > 0 && (
+                          <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-none">
+                            {selectedBatchIds.length} selected
+                          </Badge>
+                        )}
+                      </Label>
+
+                      <div className="border border-border rounded-xl bg-muted/20 p-4 space-y-3">
+                        {/* Search & Actions Bar */}
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              placeholder="Search batches..."
+                              value={batchSearchQuery}
+                              onChange={(e) => setBatchSearchQuery(e.target.value)}
+                              className="pl-9 h-9 border-border bg-card"
+                            />
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9 text-xs border-border bg-card font-medium"
+                              onClick={() => {
+                                const allIds = coursesList.map((c: any) => c._id);
+                                setSelectedBatchIds(allIds);
+                              }}
+                            >
+                              Select All
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9 text-xs border-border bg-card font-medium text-red-500 hover:text-red-600"
+                              onClick={() => setSelectedBatchIds([])}
+                            >
+                              Clear All
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Batches Checkbox List */}
+                        <ScrollArea className="h-44 border border-border/60 rounded-lg p-2.5 bg-card">
+                          <div className="space-y-1.5">
+                            {coursesList
+                              .filter((c: any) => c.title.toLowerCase().includes(batchSearchQuery.toLowerCase()))
+                              .map((batch: any) => {
+                                const isChecked = selectedBatchIds.includes(batch._id);
+                                return (
+                                  <label
+                                    key={batch._id}
+                                    className="flex items-center gap-2.5 p-2 rounded-md hover:bg-muted/50 cursor-pointer text-sm select-none transition-colors"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        if (isChecked) {
+                                          setSelectedBatchIds(prev => prev.filter(id => id !== batch._id));
+                                        } else {
+                                          setSelectedBatchIds(prev => [...prev, batch._id]);
+                                        }
+                                      }}
+                                      className="h-4.5 w-4.5 rounded border-border text-primary focus:ring-primary/30 cursor-pointer"
+                                    />
+                                    <span className="font-medium text-foreground">{batch.title}</span>
+                                  </label>
+                                );
+                              })}
+                            {coursesList.filter((c: any) => c.title.toLowerCase().includes(batchSearchQuery.toLowerCase())).length === 0 && (
+                              <div className="text-center text-xs text-muted-foreground py-10">
+                                No batches found matching "{batchSearchQuery}"
+                              </div>
+                            )}
+                          </div>
+                        </ScrollArea>
+
+                        {/* Recipient Estimation info card */}
+                        <div className="flex items-center justify-between bg-primary/5 rounded-lg p-3 border border-primary/10 text-xs">
+                          <span className="text-muted-foreground">Estimated Recipients:</span>
+                          <span className="font-semibold text-foreground text-sm">
+                            {isEstimating ? (
+                              <span className="text-xs text-muted-foreground animate-pulse">Estimating...</span>
+                            ) : (
+                              `${estimatedRecipients ?? 0} Students`
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="ann-title">Subject Line</Label>
                       <Input
@@ -2845,7 +2982,7 @@ export default function AdminDashboard() {
                       <textarea
                         id="ann-msg"
                         className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        placeholder="Compose your global message here..."
+                        placeholder="Compose your message here..."
                         value={announcementMsg}
                         onChange={(e) => setAnnouncementMsg(e.target.value)}
                         required
@@ -2853,11 +2990,66 @@ export default function AdminDashboard() {
                     </div>
                     <Button type="submit" className="w-full bg-primary hover:bg-[#1f5fa7] text-white shadow-sm shadow-primary/10">
                       <Bell className="w-4 h-4 mr-2" />
-                      Dispatch Broadcast
+                      Send Announcement
                     </Button>
                   </form>
                 </CardContent>
               </Card>
+            )}
+
+            {/* SEND CONFIRMATION MODAL OVERLAY */}
+            {showConfirmModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+                  <div className="h-1 w-full bg-gradient-to-r from-amber-500 to-orange-600" />
+                  <div className="p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-500/10 rounded-xl text-amber-500">
+                        <Bell className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-foreground">Send Announcement?</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5 font-medium">Please confirm the details below before dispatching.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 bg-muted/40 p-4 rounded-xl border border-border/50 text-sm">
+                      <div>
+                        <span className="font-semibold text-foreground/80 block text-xs uppercase tracking-wider mb-1">Title</span>
+                        <span className="text-foreground font-semibold text-sm">{announcementTitle}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-foreground/80 block text-xs uppercase tracking-wider mb-1">Recipients</span>
+                        <span className="text-foreground font-semibold text-xs">
+                          {selectedBatchIds.length} batches selected
+                        </span>
+                      </div>
+                      <div className="pt-2.5 border-t border-border/40 flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground font-semibold">Estimated Students:</span>
+                        <span className="text-foreground font-bold text-sm bg-primary/10 text-primary px-2.5 py-0.5 rounded">
+                          {isEstimating ? 'Estimating...' : `${estimatedRecipients ?? 0} Students`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <Button 
+                        variant="outline" 
+                        className="flex-1 font-semibold" 
+                        onClick={() => setShowConfirmModal(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold" 
+                        onClick={handleConfirmSendAnnouncement}
+                      >
+                        Send
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* TAB 6: INSTITUTE BRANDING */}

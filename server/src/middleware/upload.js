@@ -22,20 +22,44 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
-  const allowedMimes = [
-    'video/mp4',
-    'video/x-matroska',
-    'video/x-msvideo',
-    'video/quicktime',
-    'video/webm'
-  ];
   const ext = path.extname(file.originalname).toLowerCase();
 
-  if (allowedExtensions.includes(ext) && allowedMimes.includes(file.mimetype)) {
-    cb(null, true);
+  if (file.fieldname === 'video') {
+    const allowedVideoExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
+    const allowedVideoMimes = [
+      'video/mp4',
+      'video/x-matroska',
+      'video/x-msvideo',
+      'video/quicktime',
+      'video/webm'
+    ];
+    if (allowedVideoExtensions.includes(ext) && allowedVideoMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only valid video files are allowed (mp4, mkv, avi, mov, webm)'), false);
+    }
+  } else if (file.fieldname === 'attachment' || file.fieldname === 'pdf') {
+    const allowedAttachmentExtensions = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'];
+    const allowedAttachmentMimes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'image/png',
+      'image/jpeg',
+      'image/jpg'
+    ];
+    if (allowedAttachmentExtensions.includes(ext) && allowedAttachmentMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only valid attachment files are allowed (pdf, doc, docx, ppt, pptx, xls, xlsx, txt, png, jpg, jpeg)'), false);
+    }
   } else {
-    cb(new Error('Only valid video files are allowed (mp4, mkv, avi, mov, webm)'), false);
+    cb(null, true);
   }
 };
 
