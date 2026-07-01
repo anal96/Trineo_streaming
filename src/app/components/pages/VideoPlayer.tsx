@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import Hls from 'hls.js';
 import { ProtectionManager } from '../../utils/ProtectionManager';
 import { SessionTerminationService } from '../../utils/SessionTerminationService';
+import { getLectureState, getCountdownText } from '../../utils/lectureHelpers';
 import {
   Play,
   Pause,
@@ -3025,8 +3026,11 @@ export default function VideoPlayer() {
                             Upcoming & Live Lectures
                           </h4>
                           <div className="grid gap-3">
-                            {liveClasses.filter(c => new Date(c.endTime) > new Date() && c.status !== 'cancelled').sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()).map((lc) => {
-                              const isLive = lc.status === 'live' || (new Date(lc.startTime) <= new Date() && new Date(lc.endTime) >= new Date());
+                            {liveClasses.filter(c => {
+                              const state = getLectureState(c);
+                              return state === 'upcoming' || state === 'live';
+                            }).sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()).map((lc) => {
+                              const isLive = getLectureState(lc) === 'live';
                               return (
                                 <Card key={lc._id} className={`border border-slate-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] hover:border-purple-500/25 transition-all shadow-sm ${isLive ? 'ring-2 ring-red-500/20 border-red-500/40' : ''}`}>
                                   <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -3055,8 +3059,10 @@ export default function VideoPlayer() {
                                       <Badge variant="secondary" className="px-2 py-0.5 text-[10px] rounded-md">{lc.platform}</Badge>
                                       <Button
                                         size="sm"
-                                        className="bg-purple-600 hover:bg-purple-700 text-white text-xs h-8 min-h-8 rounded-xl font-semibold shadow-sm"
+                                        className={`${isLive ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-muted text-muted-foreground cursor-not-allowed hover:bg-muted'} text-xs h-8 min-h-8 rounded-xl font-semibold shadow-sm`}
+                                        disabled={!isLive}
                                         onClick={async () => {
+                                          if (!isLive) return;
                                           try {
                                             const res = await apiFetch(`/live-classes/${lc._id}/join`, { method: 'POST' });
                                             if (res.meetingUrl) {
@@ -3070,14 +3076,17 @@ export default function VideoPlayer() {
                                           }
                                         }}
                                       >
-                                        Join Class
+                                        {isLive ? 'Join Class' : getCountdownText(lc.startTime)}
                                       </Button>
                                     </div>
                                   </CardContent>
                                 </Card>
                               );
                             })}
-                            {liveClasses.filter(c => new Date(c.endTime) > new Date() && c.status !== 'cancelled').length === 0 && (
+                            {liveClasses.filter(c => {
+                              const state = getLectureState(c);
+                              return state === 'upcoming' || state === 'live';
+                            }).length === 0 && (
                               <p className="text-xs text-slate-400 text-center py-4 font-medium italic">No upcoming live classes scheduled for this batch.</p>
                             )}
                           </div>
@@ -3090,7 +3099,10 @@ export default function VideoPlayer() {
                             Completed Lectures History
                           </h4>
                           <div className="grid gap-2">
-                            {liveClasses.filter(c => new Date(c.endTime) <= new Date() || c.status === 'completed' || c.status === 'cancelled').sort((a, b) => new Date(b.endTime).getTime() - new Date(a.startTime).getTime()).map((lc) => (
+                            {liveClasses.filter(c => {
+                              const state = getLectureState(c);
+                              return state === 'completed' || state === 'cancelled';
+                            }).sort((a, b) => new Date(b.endTime).getTime() - new Date(a.startTime).getTime()).map((lc) => (
                               <Card key={lc._id} className="border border-slate-200/50 dark:border-zinc-800 bg-slate-50/20 dark:bg-zinc-900/30 opacity-75 rounded-[16px]">
                                 <CardContent className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                   <div className="min-w-0 space-y-1">
@@ -3111,7 +3123,10 @@ export default function VideoPlayer() {
                                 </CardContent>
                               </Card>
                             ))}
-                            {liveClasses.filter(c => new Date(c.endTime) <= new Date() || c.status === 'completed' || c.status === 'cancelled').length === 0 && (
+                            {liveClasses.filter(c => {
+                              const state = getLectureState(c);
+                              return state === 'completed' || state === 'cancelled';
+                            }).length === 0 && (
                               <p className="text-[11px] text-slate-400 text-center py-2 italic font-medium">No past live classes recorded for this batch.</p>
                             )}
                           </div>
@@ -3543,3 +3558,4 @@ export default function VideoPlayer() {
     </div>
   );
 }
+

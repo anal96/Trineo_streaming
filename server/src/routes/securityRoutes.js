@@ -362,10 +362,18 @@ router.post('/heartbeat', protect, async (req, res) => {
       session.lastSeen = now;
       session.lastSeenAt = now;
       session.heartbeatAt = now;
+      session.lastActivity = now;
       session.isOnline = true;
       session.currentPage = page || session.currentPage || '';
       session.currentAction = action || session.currentAction || '';
-      if (contentId) session.currentContentId = contentId;
+      
+      if (contentId && String(session.currentContentId) !== String(contentId)) {
+        session.watchingSince = now;
+      } else if (!contentId) {
+        session.watchingSince = null;
+      }
+      session.currentContentId = contentId || null;
+      
       if (network) session.networkType = network;
       
       const loginTime = session.loginTime || session.createdAt || now;

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Laptop, Smartphone, Globe, Search, Filter, ShieldAlert, Ban, 
   Copy, Check, AlertTriangle, ArrowRight, Eye, Shield, Users, 
-  Activity, RefreshCw, Trash2, Calendar
+  Activity, RefreshCw, Trash2, Calendar, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -71,11 +71,11 @@ export default function ActiveSessionsDashboard() {
   const stats = useMemo(() => {
     return {
       totalActive: pagination.total || 0,
-      online: sessions.filter((s: any) => s.isOnline).length,
-      android: sessions.filter((s: any) => s.appType === 'Android App').length,
+      online: data?.stats?.onlineCount ?? sessions.filter((s: any) => s.isOnline).length,
+      android: data?.stats?.androidCount ?? sessions.filter((s: any) => s.appType === 'Android App').length,
       blocked: blockedDevices.length
     };
-  }, [sessions, pagination.total, blockedDevices]);
+  }, [sessions, pagination.total, blockedDevices, data?.stats]);
 
   const handleCopyFingerprint = (fingerprint: string, id: string) => {
     if (!fingerprint) return;

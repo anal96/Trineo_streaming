@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, lazy, Suspense, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { SessionTerminationService } from '../../utils/SessionTerminationService';
+import { getLectureState, getCountdownText } from '../../utils/lectureHelpers';
 import { motion } from 'motion/react';
 import {
   Home,
@@ -3667,8 +3668,11 @@ export default function StudentDashboard() {
                         Upcoming & Live Lectures
                       </h3>
                       <div className="grid gap-3">
-                        {liveClasses.filter(c => new Date(c.endTime) > new Date() && c.status !== 'cancelled').sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()).map((lc) => {
-                          const isLive = lc.status === 'live' || (new Date(lc.startTime) <= new Date() && new Date(lc.endTime) >= new Date());
+                        {liveClasses.filter(c => {
+                          const state = getLectureState(c);
+                          return state === 'upcoming' || state === 'live';
+                        }).sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()).map((lc) => {
+                          const isLive = getLectureState(lc) === 'live';
                           return (
                             <Card key={lc._id} className={`border-border/60 bg-card hover:border-primary/20 transition-all ${isLive ? 'border-primary/50 shadow-md shadow-primary/5' : ''}`}>
                               <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -3690,7 +3694,7 @@ export default function StudentDashboard() {
                                         <Badge variant="outline" className="text-blue-500 border-blue-500/30 text-[10px] uppercase">Upcoming</Badge>
                                       )}
                                       {lc.hasAttended && (
-                                        <Badge className="bg-green-500/15 text-green-500 border border-green-500/30 text-[10px] uppercase font-semibold">Attended</Badge>
+                                        <Badge className="bg-green-500/15 text-green-500 border-green-500/30 text-[10px] uppercase font-semibold">Attended</Badge>
                                       )}
                                     </div>
                                     <div className="text-xs text-muted-foreground truncate mt-0.5">{lc.courseId?.name || lc.courseId?.title || 'Batch'} · {lc.facultyId?.name || 'Faculty Instructor'}</div>
@@ -3704,8 +3708,10 @@ export default function StudentDashboard() {
                                 <div className="flex items-center gap-3 shrink-0 self-stretch sm:self-auto justify-end">
                                   <Badge variant="secondary" className="px-2.5 py-1 text-xs">{lc.platform}</Badge>
                                   <Button
-                                    className="bg-primary hover:bg-[#1f5fa7] text-white text-xs px-4 h-9 min-h-9"
+                                    className={`${isLive ? 'bg-primary hover:bg-[#1f5fa7] text-white' : 'bg-muted text-muted-foreground cursor-not-allowed hover:bg-muted'} text-xs px-4 h-9 min-h-9`}
+                                    disabled={!isLive}
                                     onClick={async () => {
+                                      if (!isLive) return;
                                       try {
                                         const res = await apiFetch(`/live-classes/${lc._id}/join`, { method: 'POST' });
                                         if (res.meetingUrl) {
@@ -3720,14 +3726,17 @@ export default function StudentDashboard() {
                                       }
                                     }}
                                   >
-                                    Join Class
+                                    {isLive ? 'Join Class' : getCountdownText(lc.startTime)}
                                   </Button>
                                 </div>
                               </CardContent>
                             </Card>
                           );
                         })}
-                        {liveClasses.filter(c => new Date(c.endTime) > new Date() && c.status !== 'cancelled').length === 0 && (
+                        {liveClasses.filter(c => {
+                          const state = getLectureState(c);
+                          return state === 'upcoming' || state === 'live';
+                        }).length === 0 && (
                           <div className="p-8 text-center border border-dashed border-border rounded-xl">
                             <Video className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-40" />
                             <p className="text-sm text-muted-foreground">No live classes scheduled.</p>
@@ -3743,7 +3752,10 @@ export default function StudentDashboard() {
                         Completed Lectures History
                       </h3>
                       <div className="grid gap-3">
-                        {liveClasses.filter(c => new Date(c.endTime) <= new Date() || c.status === 'completed' || c.status === 'cancelled').sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime()).map((lc) => (
+                        {liveClasses.filter(c => {
+                          const state = getLectureState(c);
+                          return state === 'completed' || state === 'cancelled';
+                        }).sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime()).map((lc) => (
                           <Card key={lc._id} className="border-border/60 bg-muted/10 opacity-75">
                             <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                               <div className="flex items-center gap-4 min-w-0">
@@ -3770,7 +3782,10 @@ export default function StudentDashboard() {
                             </CardContent>
                           </Card>
                         ))}
-                        {liveClasses.filter(c => new Date(c.endTime) <= new Date() || c.status === 'completed' || c.status === 'cancelled').length === 0 && (
+                        {liveClasses.filter(c => {
+                          const state = getLectureState(c);
+                          return state === 'completed' || state === 'cancelled';
+                        }).length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-4">No past live classes recorded.</p>
                         )}
                       </div>
@@ -5141,3 +5156,4 @@ export default function StudentDashboard() {
     </div>
   );
 }
+

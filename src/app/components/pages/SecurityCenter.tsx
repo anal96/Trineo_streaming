@@ -82,11 +82,12 @@ export default function SecurityCenter() {
   });
   const overview = overviewRes?.cards || null;
 
-  const { data: sessions = [] } = useQuery({
+  const { data: sessionsRes } = useQuery({
     queryKey: ['security-center', 'sessions', instituteId],
-    queryFn: () => apiFetch('/security-center/sessions'),
+    queryFn: () => apiFetch('/security-center/sessions?limit=500'),
     enabled: !!instituteId,
   });
+  const sessions = sessionsRes?.sessions || [];
 
   const { data: events = [] } = useQuery({
     queryKey: ['security-center', 'events', instituteId],

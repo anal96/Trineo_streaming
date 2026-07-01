@@ -61,8 +61,96 @@ export const getSecurityCenterOverview = async (req, res) => {
 export const getSecuritySessions = async (req, res) => {
   try {
     if (req.user.role !== 'owner' && !req.user.institute) return res.status(403).json({ message: 'Forbidden: institute access required' });
-    const sessions = await SecuritySession.find({ ...instituteFilter(req) }).populate('userId', 'name email status user_id branchName').sort({ lastSeenAt: -1 }).limit(500);
-    res.json(sessions);
+
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 500));
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const filter = { ...instituteFilter(req), status: 'active' };
+
+    // Platform filter
+    if (req.query.platform && req.query.platform !== 'all') {
+      filter.platform = new RegExp(req.query.platform, 'i');
+    }
+
+    // App type filter
+    if (req.query.appType && req.query.appType !== 'all') {
+      filter.appType = req.query.appType;
+    }
+
+    // Online status filter
+    if (req.query.online === 'true') {
+      filter.isOnline = true;
+    } else if (req.query.online === 'false') {
+      filter.isOnline = false;
+    }
+
+    // Time range filter
+    if (req.query.timeRange && req.query.timeRange !== 'all') {
+      const now = new Date();
+      let since;
+      switch (req.query.timeRange) {
+        case '1h':  since = new Date(now - 60 * 60 * 1000); break;
+        case '6h':  since = new Date(now - 6 * 60 * 60 * 1000); break;
+        case '24h': since = new Date(now - 24 * 60 * 60 * 1000); break;
+        case '7d':  since = new Date(now - 7 * 24 * 60 * 60 * 1000); break;
+        case '30d': since = new Date(now - 30 * 24 * 60 * 60 * 1000); break;
+        default: break;
+      }
+      if (since) {
+        filter.loginTime = { $gte: since };
+      }
+    }
+
+    // Search: match against populated user fields — we need a two-step approach
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      const matchingUsers = await User.find({
+        ...instituteFilter(req),
+        $or: [
+          { name: searchRegex },
+          { email: searchRegex },
+          { user_id: !isNaN(req.query.search) ? parseInt(req.query.search) : -1 }
+        ]
+      }).select('_id').limit(200);
+      const userIds = matchingUsers.map(u => u._id);
+
+      // Also match IP address directly
+      filter.$or = [
+        { userId: { $in: userIds } },
+        { ipAddress: searchRegex }
+      ];
+    }
+
+    const total = await SecuritySession.countDocuments(filter);
+
+    const sessions = await SecuritySession.find(filter)
+      .populate('userId', 'name email status user_id branchName program batchName')
+      .sort({ lastSeenAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Compute global stats for the institute (unfiltered by search/platform)
+    const baseFilter = instituteFilter(req);
+    const [onlineCount, androidCount] = await Promise.all([
+      SecuritySession.countDocuments({ ...baseFilter, isOnline: true }),
+      SecuritySession.countDocuments({ ...baseFilter, appType: 'Android App', status: 'active' })
+    ]);
+
+    res.json({
+      sessions,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.max(1, Math.ceil(total / limit))
+      },
+      stats: {
+        onlineCount,
+        androidCount
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -127,6 +215,8 @@ export const getSecurityEvents = async (req, res) => {
 export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent, ipAddress, req }) => {
   const body = req?.body || {};
   const headers = req?.headers || {};
+  const trineoAppHeader = headers['x-trineo-app'] || '';
+  const isAndroid = trineoAppHeader.toLowerCase() === 'android' || (userAgent || '').includes('TrineoStreamAndroid');
   const parsed = parseAgent(userAgent || '');
   const suffix = token ? token.slice(-12) : '';
 
@@ -135,11 +225,26 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
   let city = body.city || headers['x-vercel-ip-city'] || '';
   let timezone = body.timezone || headers['x-vercel-ip-timezone'] || '';
 
-  if (ipAddress === '127.0.0.1' || ipAddress === '::1') {
-    country = country || 'India';
-    state = state || 'Kerala';
-    city = city || 'Kochi';
-    timezone = timezone || 'Asia/Kolkata';
+  const isLocalhost = 
+    !ipAddress ||
+    ipAddress === '127.0.0.1' || 
+    ipAddress === '::1' || 
+    ipAddress.includes('127.0.0.1') || 
+    ipAddress.includes('::1') ||
+    ipAddress.includes('::ffff:');
+
+  if (isLocalhost) {
+    country = 'Development Environment';
+    state = 'Localhost';
+    city = '';
+    timezone = 'Asia/Kolkata';
+  } else {
+    if (ipAddress === '127.0.0.1' || ipAddress === '::1') {
+      country = country || 'India';
+      state = state || 'Kerala';
+      city = city || 'Kochi';
+      timezone = timezone || 'Asia/Kolkata';
+    }
   }
 
   const fingerprint = body.deviceFingerprint || '';
@@ -157,9 +262,10 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     existing.lastActivity = now;
     existing.ipAddress = ipAddress || existing.ipAddress;
     existing.isOnline = true;
-    existing.browser = parsed.browser;
-    existing.os = parsed.os;
-    existing.platform = parsed.platform;
+    existing.browser = isAndroid ? 'Official Trineo Android App' : parsed.browser;
+    existing.os = isAndroid ? 'Android' : parsed.os;
+    existing.platform = isAndroid ? 'Android' : parsed.platform;
+    existing.appType = isAndroid ? 'Android App' : existing.appType;
     existing.userAgent = userAgent || existing.userAgent;
     await existing.save();
     return existing;
@@ -167,7 +273,9 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
 
   // Determine app type
   let appType = 'Web';
-  if (body.appType) {
+  if (isAndroid) {
+    appType = 'Android App';
+  } else if (body.appType) {
     appType = body.appType;
   } else if (userAgent.includes('TrineoApp') || body.androidVersion || body.appVersion) {
     appType = 'Android App';
@@ -178,14 +286,14 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     userId: user._id,
     sessionId: crypto.randomUUID(),
     tokenSuffix: suffix,
-    device: body.deviceName || parsed.os,
-    deviceName: body.deviceName || parsed.os,
+    device: body.deviceName || (isAndroid ? 'Android Device' : parsed.os),
+    deviceName: body.deviceName || (isAndroid ? 'Android Device' : parsed.os),
     deviceModel: body.deviceModel || '',
     manufacturer: body.manufacturer || '',
-    platform: body.platform || parsed.platform,
-    os: body.os || parsed.os,
+    platform: isAndroid ? 'Android' : (body.platform || parsed.platform),
+    os: isAndroid ? 'Android' : (body.os || parsed.os),
     osVersion: body.osVersion || '',
-    browser: parsed.browser,
+    browser: isAndroid ? 'Official Trineo Android App' : parsed.browser,
     appType,
     appVersion: body.appVersion || '',
     ipAddress: ipAddress || '',
