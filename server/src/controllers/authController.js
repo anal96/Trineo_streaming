@@ -225,6 +225,18 @@ export const loginUser = async (req, res) => {
       const userAgent = req.headers['user-agent'] || '';
       const platformInfo = getPlatformInfo(userAgent, req.headers);
       const isAllowed = isPlatformAllowed(user.role, platformInfo);
+
+      // ── TEMPORARY DIAGNOSTIC LOGGING — Remove after Android fix ──
+      console.log('═══════════════════════════════════════════════════');
+      console.log('[PLATFORM-DIAG] Login attempt for:', user.email);
+      console.log('[PLATFORM-DIAG] Role:', user.role);
+      console.log('[PLATFORM-DIAG] User-Agent:', userAgent);
+      console.log('[PLATFORM-DIAG] X-Trineo-App header:', req.headers['x-trineo-app'] || 'NOT PRESENT');
+      console.log('[PLATFORM-DIAG] platformInfo:', JSON.stringify(platformInfo, null, 2));
+      console.log('[PLATFORM-DIAG] isPlatformAllowed:', isAllowed);
+      console.log('═══════════════════════════════════════════════════');
+      // ── END TEMPORARY DIAGNOSTIC LOGGING ──
+
       if (!isAllowed) {
         const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
         const ipAddress = rawIp === '::1' ? '127.0.0.1' : rawIp;

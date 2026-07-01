@@ -41,6 +41,12 @@ export async function apiFetch(endpoint: string, options: RequestInit & { ignore
     headers['Content-Type'] = 'application/json';
   }
 
+  // Identify official Android WebView app to the backend
+  const isAndroidApp = typeof (window as any).AndroidApp !== 'undefined';
+  if (isAndroidApp) {
+    headers['X-Trineo-App'] = 'Android';
+  }
+
   if (token && token !== 'session_active') {
     headers['Authorization'] = `Bearer ${token}`;
   }
