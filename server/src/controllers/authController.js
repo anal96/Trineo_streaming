@@ -13,6 +13,9 @@ import { Course } from '../models/Course.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Program } from '../models/Program.js';
 import { isR2Configured, getSignedR2Url, parseR2Key } from '../utils/r2Service.js';
+import { BlockedDevice } from '../models/BlockedDevice.js';
+import { LoginHistory } from '../models/LoginHistory.js';
+import { getPlatformInfo, isPlatformAllowed } from '../utils/platformHelper.js';
 
 const parseAgent = (ua = '') => {
   const browser = ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser';
@@ -23,6 +26,33 @@ const parseAgent = (ua = '') => {
 // Exported dependency wrapper — allows tests to inject mocks without needing
 // module-level monkey-patching (ES module bindings are read-only).
 export const _deps = { upsertSecuritySessionFromRequest, UsedSSOToken, SecuritySession, syncStudentProfile };
+
+const logLoginAttempt = async (userId, success, reason, req, sessionId = '') => {
+  try {
+    const rawIp = req?.headers['x-forwarded-for'] || req?.socket?.remoteAddress || '127.0.0.1';
+    const ipAddress = rawIp === '::1' ? '127.0.0.1' : rawIp;
+    const userAgent = req?.headers['user-agent'] || 'Unknown Browser';
+    const { browser, device } = parseAgent(userAgent);
+    
+    let country = req?.headers['x-vercel-ip-country'] || '';
+    if (ipAddress === '127.0.0.1') {
+      country = country || 'India';
+    }
+
+    await LoginHistory.create({
+      userId: userId || null,
+      sessionId,
+      ipAddress,
+      device,
+      browser,
+      country,
+      success,
+      reason
+    });
+  } catch (err) {
+    console.error('Error logging to LoginHistory:', err);
+  }
+};
 
 const ssoLogsBuffer = [];
 const originalLog = console.log;
@@ -50,6 +80,37 @@ const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 export const registerUser = async (req, res) => {
   const { name, email, password, role, phone } = req.body;
+  const userRole = role || 'student';
+  
+  // Platform restriction check
+  const userAgent = req.headers['user-agent'] || '';
+  const platformInfo = getPlatformInfo(userAgent, req.headers);
+  const isAllowed = isPlatformAllowed(userRole, platformInfo);
+  if (!isAllowed) {
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    const ipAddress = rawIp === '::1' ? '127.0.0.1' : rawIp;
+    
+    // Log blocked registration attempt
+    await AuditLog.create({
+      eventType: 'UNSUPPORTED_PLATFORM_LOGIN',
+      details: `Blocked registration attempt from unsupported platform. OS: ${platformInfo.platform}, Client: ${platformInfo.appType}, Email: ${email || 'N/A'}, IP: ${ipAddress}`,
+      ipAddress,
+      userAgent
+    });
+
+    return res.status(403).json({
+      success: false,
+      error: "UNSUPPORTED_PLATFORM",
+      platform: platformInfo.platform,
+      supportedPlatforms: userRole === 'student' 
+        ? ["Windows", "Official Trineo Android App"] 
+        : ["Windows", "macOS", "Linux", "Android"],
+      message: userRole === 'student'
+        ? "Trineo Stream currently supports Windows PCs and the Official Trineo Android App only."
+        : "Trineo Stream currently supports Windows, macOS, Linux and Android for administrators."
+    });
+  }
+
   try {
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -90,12 +151,14 @@ export const registerUser = async (req, res) => {
     });
 
     const populatedUser = await User.findById(user._id).populate('institute').select('-password');
-    await _deps.upsertSecuritySessionFromRequest({
+    const sessionObj = await _deps.upsertSecuritySessionFromRequest({
       user: populatedUser,
       token,
       userAgent,
-      ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress
+      ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress,
+      req
     });
+    await logLoginAttempt(user._id, true, 'Success (Registration)', req, sessionObj ? sessionObj.sessionId : '');
 
     res.cookie('token', token, {
       httpOnly: true,
@@ -128,6 +191,7 @@ export const loginUser = async (req, res) => {
   try {
     const users = await User.find({ email });
     if (users.length === 0) {
+      await logLoginAttempt(null, false, 'Invalid Email', req);
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
@@ -156,20 +220,74 @@ export const loginUser = async (req, res) => {
       }
     }
 
+    if (user) {
+      // Platform restriction check
+      const userAgent = req.headers['user-agent'] || '';
+      const platformInfo = getPlatformInfo(userAgent, req.headers);
+      const isAllowed = isPlatformAllowed(user.role, platformInfo);
+      if (!isAllowed) {
+        const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+        const ipAddress = rawIp === '::1' ? '127.0.0.1' : rawIp;
+        
+        // Log to AuditLog: UNSUPPORTED_PLATFORM_LOGIN
+        await AuditLog.create({
+          userId: user._id,
+          institute: user.institute || null,
+          eventType: 'UNSUPPORTED_PLATFORM_LOGIN',
+          details: `Blocked login attempt from unsupported platform. OS: ${platformInfo.platform}, Client: ${platformInfo.appType}, Email: ${user.email || 'N/A'}, IP: ${ipAddress}`,
+          ipAddress,
+          userAgent
+        });
+        
+        await logLoginAttempt(user._id, false, `Unsupported platform: ${platformInfo.platform}`, req);
+        
+        return res.status(403).json({
+          success: false,
+          error: "UNSUPPORTED_PLATFORM",
+          platform: platformInfo.platform,
+          supportedPlatforms: user.role === 'student' 
+            ? ["Windows", "Official Trineo Android App"] 
+            : ["Windows", "macOS", "Linux", "Android"],
+          message: user.role === 'student'
+            ? "Trineo Stream currently supports Windows PCs and the Official Trineo Android App only."
+            : "Trineo Stream currently supports Windows, macOS, Linux and Android for administrators."
+        });
+      }
+
+      const fingerprint = req.body.deviceFingerprint || '';
+      if (fingerprint && user.institute) {
+        const blocked = await BlockedDevice.findOne({ institute: user.institute, deviceFingerprint: fingerprint });
+        if (blocked) {
+          if (blocked.blockType === 'permanent') {
+            await logLoginAttempt(user._id, false, 'Permanently Blocked Device Fingerprint', req);
+            return res.status(403).json({ message: 'This device has been permanently blocked by the administrator.' });
+          } else if (blocked.blockType === 'temporary') {
+            if (blocked.blockedUntil && blocked.blockedUntil > new Date()) {
+              await logLoginAttempt(user._id, false, 'Temporarily Blocked Device Fingerprint', req);
+              return res.status(403).json({ message: `This device is temporarily blocked. Try again after ${new Date(blocked.blockedUntil).toLocaleTimeString()}` });
+            }
+          }
+        }
+      }
+    }
+
     if (user && (await user.matchPassword(password))) {
       if (user.status !== 'active') {
+        await logLoginAttempt(user._id, false, 'Account Deactivated', req);
         return res.status(403).json({ message: 'Your account is deactivated' });
       }
 
       if (user.role !== 'owner' && user.institute) {
         const inst = await Institute.findById(user.institute);
         if (inst && (inst.subscriptionStatus === 'suspended' || inst.subscriptionStatus === 'inactive')) {
+          await logLoginAttempt(user._id, false, 'Subscription Suspended', req);
           return res.status(403).json({ message: 'Subscription Suspended. Please contact Trineo Support.' });
         }
       }
 
       const securityState = await SecurityState.findOne({ userId: user._id });
       if (securityState && securityState.accountLocked) {
+        await logLoginAttempt(user._id, false, 'Account Locked', req);
         return res.status(403).json({ message: 'Account locked due to security violations.', accountLocked: true });
       }
 
@@ -237,12 +355,15 @@ export const loginUser = async (req, res) => {
       });
 
       const populatedUser = await User.findById(user._id).populate('institute').select('-password');
-      await _deps.upsertSecuritySessionFromRequest({
+      const sessionObj = await _deps.upsertSecuritySessionFromRequest({
         user: populatedUser,
         token,
         userAgent,
-        ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress
+        ipAddress: ipAddress === '::1' ? '127.0.0.1' : ipAddress,
+        req
       });
+
+      await logLoginAttempt(user._id, true, 'Success', req, sessionObj ? sessionObj.sessionId : '');
 
       res.cookie('token', token, {
         httpOnly: true,
@@ -273,6 +394,7 @@ export const loginUser = async (req, res) => {
         hostname: req.hostname,
         reason: 'Invalid email or password'
       });
+      await logLoginAttempt(user ? user._id : null, false, 'Invalid Credentials', req);
       res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error) {
@@ -359,67 +481,38 @@ export const getSecurityLogs = async (req, res) => {
     const normalizedIp = currentIp === '::1' ? '127.0.0.1' : currentIp;
     const currentUA = req.headers['user-agent'] || 'Unknown Browser/OS';
 
-    // Fetch system audit logs for logins / logouts
-    const dbAuditLogs = await AuditLog.find({
-      ...(req.user.role === 'owner' ? {} : { institute: req.user.institute }),
-      userId,
-      eventType: { $in: ['login', 'logout', 'LOGIN_SUCCESS', 'LOGOUT'] }
-    }).sort({ createdAt: -1 });
-
     // Fetch security center violations
     const dbSecurityEvents = await SecurityEvent.find({
       ...(req.user.role === 'owner' ? {} : { institute: req.user.institute }),
       studentId: userId
     }).sort({ createdAt: -1 });
 
-    const loginHistory = dbAuditLogs.map(l => ({
-      _id: l._id,
-      eventType: l.eventType === 'LOGIN_SUCCESS' || l.eventType === 'login' ? 'login' : 'logout',
-      ipAddress: l.ipAddress,
-      userAgent: l.userAgent,
-      details: l.details,
-      createdAt: l.createdAt
-    }));
-
     const securityViolations = dbSecurityEvents.map(e => ({
       _id: e._id,
       eventType: e.eventType,
       ipAddress: e.ipAddress,
-      userAgent: `${e.device} / ${e.browser}`,
+      userAgent: `${e.device || 'Device'} / ${e.browser || 'Browser'}`,
       details: e.details || `Action Taken: ${e.actionTaken}`,
       createdAt: e.createdAt,
       topicTitle: e.topicTitle,
       batchName: e.batchName
     }));
 
-    // If loginHistory is empty (e.g. fresh database), let's construct realistic simulated history records
-    const finalLoginHistory = [...loginHistory];
-    if (finalLoginHistory.length === 0) {
-      finalLoginHistory.push({
-        _id: 'sim-log-1',
-        eventType: 'login',
-        ipAddress: normalizedIp,
-        userAgent: currentUA,
-        details: `Active Session login via ${currentUA}`,
-        createdAt: new Date(Date.now() - 5 * 60 * 1000)
-      });
-      finalLoginHistory.push({
-        _id: 'sim-log-2',
-        eventType: 'login',
-        ipAddress: '198.51.100.42',
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36',
-        details: 'Successful login from Chrome on Windows',
-        createdAt: new Date(Date.now() - 26 * 60 * 60 * 1000)
-      });
-      finalLoginHistory.push({
-        _id: 'sim-log-3',
-        eventType: 'login',
-        ipAddress: '198.51.100.42',
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
-        details: 'Successful login from Safari on macOS',
-        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
-      });
-    }
+    // Real active sessions
+    const activeSessions = await SecuritySession.find({ userId, status: 'active' }).sort({ lastSeen: -1 });
+
+    // Real login history from LoginHistory collection
+    const dbLoginHistory = await LoginHistory.find({ userId }).sort({ createdAt: -1 }).limit(100);
+
+    const loginHistory = dbLoginHistory.map(h => ({
+      _id: h._id,
+      eventType: h.success ? 'login' : 'failed_login',
+      ipAddress: h.ipAddress,
+      userAgent: h.browser && h.device ? `${h.device} / ${h.browser}` : 'Unknown Client',
+      details: h.success ? `Successful login (${h.reason || 'Success'})` : `Failed login: ${h.reason || 'Unknown'}`,
+      createdAt: h.createdAt,
+      country: h.country
+    }));
 
     res.json({
       currentDevice: {
@@ -428,18 +521,18 @@ export const getSecurityLogs = async (req, res) => {
         sessionId: req.user.activeSessionToken ? req.user.activeSessionToken.substring(req.user.activeSessionToken.length - 12) : 'N/A',
         lastActive: new Date()
       },
-      loginHistory: finalLoginHistory,
-      securityViolations: securityViolations,
-      activeSessions: [
+      loginHistory: loginHistory.length > 0 ? loginHistory : [
         {
-          id: req.user.activeSessionToken ? req.user.activeSessionToken.substring(0, 10) : 'current',
+          _id: 'sim-log-1',
+          eventType: 'login',
           ipAddress: normalizedIp,
           userAgent: currentUA,
-          status: 'active',
-          isCurrent: true,
-          lastActive: new Date()
+          details: `Active Session login via ${currentUA}`,
+          createdAt: new Date()
         }
-      ]
+      ],
+      securityViolations,
+      activeSessions
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -692,6 +785,28 @@ export const ssoLogin = async (req, res) => {
       }
     }
 
+    // Platform restriction check
+    const platformInfo = getPlatformInfo(userAgent, req.headers);
+    const isAllowed = isPlatformAllowed(user.role, platformInfo);
+    if (!isAllowed) {
+      // Log to AuditLog: UNSUPPORTED_PLATFORM_LOGIN
+      await AuditLog.create({
+        userId: user._id,
+        institute: inst._id,
+        instituteId,
+        eventType: 'UNSUPPORTED_PLATFORM_LOGIN',
+        details: `Blocked SSO login attempt from unsupported platform. OS: ${platformInfo.platform}, Client: ${platformInfo.appType}, Email: ${user.email || 'N/A'}, IP: ${normalizedIp}`,
+        ipAddress: normalizedIp,
+        userAgent
+      });
+      
+      await logLoginAttempt(user._id, false, `SSO Unsupported platform: ${platformInfo.platform}`, req);
+      
+      console.error('REDIRECTING TO LOGIN WITH ERROR');
+      console.error('Unsupported Platform');
+      return res.redirect(`${frontendUrl}/login?error=UNSUPPORTED_PLATFORM&platform=${platformInfo.platform}`);
+    }
+
     console.log('STEP 7: JIT provisioning');
     console.log(newUser);
 
@@ -773,6 +888,22 @@ export const ssoLogin = async (req, res) => {
     console.log('STEP 8: Creating session');
 
     // ── 8. Create session ─────────────────────────────────────────────────────
+    const fingerprint = req.body.deviceFingerprint || req.query.deviceFingerprint || '';
+    if (fingerprint && user.institute) {
+      const blocked = await BlockedDevice.findOne({ institute: user.institute, deviceFingerprint: fingerprint });
+      if (blocked) {
+        if (blocked.blockType === 'permanent') {
+          await logLoginAttempt(user._id, false, 'SSO Permanently Blocked Device Fingerprint', req);
+          return res.redirect(`${frontendUrl}/login?error=This device has been permanently blocked by the administrator.`);
+        } else if (blocked.blockType === 'temporary') {
+          if (blocked.blockedUntil && blocked.blockedUntil > new Date()) {
+            await logLoginAttempt(user._id, false, 'SSO Temporarily Blocked Device Fingerprint', req);
+            return res.redirect(`${frontendUrl}/login?error=This device is temporarily blocked.`);
+          }
+        }
+      }
+    }
+
     const hasPreviousSession = !!user.activeSessionToken;
     const sessionToken = generateToken(user._id);
 
@@ -825,12 +956,15 @@ export const ssoLogin = async (req, res) => {
     });
 
     const populatedUser = await User.findById(user._id).populate('institute').select('-password');
-    await _deps.upsertSecuritySessionFromRequest({
+    const sessionObj = await _deps.upsertSecuritySessionFromRequest({
       user: populatedUser,
       token: sessionToken,
       userAgent,
-      ipAddress: normalizedIp
+      ipAddress: normalizedIp,
+      req
     });
+
+    await logLoginAttempt(user._id, true, 'SSO Success', req, sessionObj ? sessionObj.sessionId : '');
 
     console.log('STEP 9: Setting cookie');
 
@@ -908,7 +1042,21 @@ export const logoutUser = async (req, res) => {
 
             // Terminate the active SecuritySession for this token suffix
             const suffix = token.slice(-12);
-            await SecuritySession.updateMany({ userId: user._id, tokenSuffix: suffix }, { $set: { status: 'terminated' } });
+            const session = await SecuritySession.findOne({ userId: user._id, tokenSuffix: suffix, status: 'active' });
+            if (session) {
+              const now = new Date();
+              session.status = 'terminated';
+              session.terminated = true;
+              session.terminatedAt = now;
+              session.terminatedBy = 'user';
+              session.logoutReason = 'Manual';
+              session.isOnline = false;
+              const loginTime = session.loginTime || session.createdAt || now;
+              session.sessionDuration = Math.round((now.getTime() - new Date(loginTime).getTime()) / 1000);
+              await session.save();
+            } else {
+              await SecuritySession.updateMany({ userId: user._id, tokenSuffix: suffix }, { $set: { status: 'terminated', terminated: true, isOnline: false } });
+            }
 
             // Create LOGOUT / logout audit log
             const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';

@@ -15,6 +15,7 @@ import ChangePasswordPage from './components/pages/ChangePasswordPage';
 import InstituteRegisterPage from './components/pages/InstituteRegisterPage';
 import SecurityLockPage from './components/pages/SecurityLockPage';
 import BrandingManager from './components/BrandingManager';
+import SupportedPlatformGuard from './components/SupportedPlatformGuard';
 import { apiFetch, decodeShortId } from './utils/api';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router';
 import { initializePushNotifications } from './utils/pushManager';
@@ -85,19 +86,19 @@ export default function App() {
           <div className="size-full bg-background text-foreground">
             <Routes>
               <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/login" element={<SupportedPlatformGuard><LoginPage /></SupportedPlatformGuard>} />
+              <Route path="/signup" element={<SupportedPlatformGuard><SignupPage /></SupportedPlatformGuard>} />
               <Route path="/register-institute" element={<InstituteRegisterPage />} />
               <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route path="/security-lock" element={<SecurityLockPage />} />
-              <Route path="/student" element={<StudentDashboard />} />
-              <Route path="/student/courses" element={<CoursesPage />} />
-              <Route path="/course/:courseSlug" element={<VideoPlayer />} />
-              <Route path="/course/:courseSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
-              <Route path="/program/:programSlug" element={<VideoPlayer />} />
-              <Route path="/program/:programSlug/lesson/:lessonSlug" element={<VideoPlayer />} />
-              <Route path="/student/video/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
-              <Route path="/watch/v/:courseId/:lessonIndex?" element={<LegacyWatchRedirect />} />
+              <Route path="/student" element={<SupportedPlatformGuard><StudentDashboard /></SupportedPlatformGuard>} />
+              <Route path="/student/courses" element={<SupportedPlatformGuard><CoursesPage /></SupportedPlatformGuard>} />
+              <Route path="/course/:courseSlug" element={<SupportedPlatformGuard><VideoPlayer /></SupportedPlatformGuard>} />
+              <Route path="/course/:courseSlug/lesson/:lessonSlug" element={<SupportedPlatformGuard><VideoPlayer /></SupportedPlatformGuard>} />
+              <Route path="/program/:programSlug" element={<SupportedPlatformGuard><VideoPlayer /></SupportedPlatformGuard>} />
+              <Route path="/program/:programSlug/lesson/:lessonSlug" element={<SupportedPlatformGuard><VideoPlayer /></SupportedPlatformGuard>} />
+              <Route path="/student/video/:courseId/:lessonIndex?" element={<SupportedPlatformGuard><LegacyWatchRedirect /></SupportedPlatformGuard>} />
+              <Route path="/watch/v/:courseId/:lessonIndex?" element={<SupportedPlatformGuard><LegacyWatchRedirect /></SupportedPlatformGuard>} />
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/owner" element={<OwnerPanel />} />
               <Route path="/admin/institutes" element={<InstitutesManagementPage />} />

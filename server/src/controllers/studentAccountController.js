@@ -10,6 +10,8 @@ import { Course } from '../models/Course.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Program } from '../models/Program.js';
 import { isR2Configured, uploadToR2, getSignedR2Url, parseR2Key } from '../utils/r2Service.js';
+import { LoginHistory } from '../models/LoginHistory.js';
+import { Notification } from '../models/Notification.js';
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -248,9 +250,101 @@ export const resetPasswordWithToken = async (req, res) => {
 export const getStudentSessions = async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
-    const sessions = await SecuritySession.find({ userId: req.user._id }).sort({ lastSeenAt: -1 });
+    const sessions = await SecuritySession.find({ userId: req.user._id }).sort({ lastSeen: -1 });
     const logs = await AuditLog.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(100);
-    res.json({ sessions, logs });
+    const loginHistory = await LoginHistory.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(100);
+    res.json({ sessions, logs, loginHistory });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const renameStudentSession = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
+    const { nickname } = req.body;
+    if (!nickname) return res.status(400).json({ message: 'Nickname is required' });
+    
+    const session = await SecuritySession.findOne({ _id: req.params.sessionId, userId: req.user._id });
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    
+    session.nickname = nickname;
+    await session.save();
+    
+    res.json({ message: 'Device nickname updated successfully', session });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const trustStudentSession = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
+    const { isTrusted } = req.body;
+    
+    const session = await SecuritySession.findOne({ _id: req.params.sessionId, userId: req.user._id });
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    
+    session.isTrusted = !!isTrusted;
+    if (isTrusted) {
+      session.trustedAt = new Date();
+      session.trustedByUser = req.user.name || req.user.email;
+      session.lastVerified = new Date();
+    } else {
+      session.trustedAt = null;
+      session.trustedByUser = '';
+      session.lastVerified = null;
+    }
+    await session.save();
+    
+    // Log AuditLog
+    await AuditLog.create({
+      userId: req.user._id,
+      institute: req.user.institute || null,
+      eventType: isTrusted ? 'DEVICE_REGISTERED' : 'DEVICE_UNBLOCKED',
+      details: `Student marked device as ${isTrusted ? 'trusted' : 'untrusted'}: ${session.device}`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+      deviceFingerprint: session.deviceFingerprint
+    });
+
+    res.json({ message: `Device marked as ${isTrusted ? 'trusted' : 'untrusted'}`, session });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const reportUnknownSession = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ message: 'Forbidden: student access required' });
+    const session = await SecuritySession.findOne({ _id: req.params.sessionId, userId: req.user._id });
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    
+    await AuditLog.create({
+      userId: req.user._id,
+      institute: req.user.institute || null,
+      eventType: 'user_report',
+      details: `Student reported unknown device session: ${session.device} (IP: ${session.ipAddress})`,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+      deviceFingerprint: session.deviceFingerprint
+    });
+
+    // Create Notification for Admins
+    try {
+      await Notification.create({
+        institute: req.user.institute || null,
+        title: '🚨 Security Report: Unknown Device',
+        message: `Student ${req.user.name} reported an unrecognized device login: ${session.device} from IP ${session.ipAddress}.`,
+        type: 'security_alert',
+        recipientRole: 'admin',
+        read: false
+      });
+    } catch (e) {
+      console.error('Notification creation failed', e);
+    }
+
+    res.json({ message: 'Device reported successfully. Security administrators have been notified.' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

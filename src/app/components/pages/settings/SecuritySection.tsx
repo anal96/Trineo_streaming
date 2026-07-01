@@ -59,6 +59,50 @@ export default function SecuritySection({
   navigate
 }: SecuritySectionProps) {
 
+  const [editingSessionId, setEditingSessionId] = React.useState<string | null>(null);
+  const [tempNickname, setTempNickname] = React.useState<string>('');
+
+  const handleRenameSession = async (sessionId: string) => {
+    try {
+      if (!tempNickname.trim()) return;
+      await apiFetch(`/student-account/sessions/${sessionId}/rename`, {
+        method: 'PUT',
+        body: JSON.stringify({ nickname: tempNickname.trim() })
+      });
+      toast.success('Device nickname updated successfully!');
+      setEditingSessionId(null);
+      const data = await apiFetch('/auth/security-logs');
+      setSecurityLogs(data);
+    } catch (err: any) {
+      toast.error('Failed to update nickname', { description: err.message });
+    }
+  };
+
+  const handleToggleTrust = async (sessionId: string, currentTrust: boolean) => {
+    try {
+      await apiFetch(`/student-account/sessions/${sessionId}/trust`, {
+        method: 'POST',
+        body: JSON.stringify({ isTrusted: !currentTrust })
+      });
+      toast.success(`Device marked as ${!currentTrust ? 'trusted' : 'untrusted'}`);
+      const data = await apiFetch('/auth/security-logs');
+      setSecurityLogs(data);
+    } catch (err: any) {
+      toast.error('Failed to update trust status', { description: err.message });
+    }
+  };
+
+  const handleReportSession = async (sessionId: string) => {
+    try {
+      await apiFetch(`/student-account/sessions/${sessionId}/report`, { method: 'POST' });
+      toast.success('Security alert reported to administrator.');
+      const data = await apiFetch('/auth/security-logs');
+      setSecurityLogs(data);
+    } catch (err: any) {
+      toast.error('Failed to report device', { description: err.message });
+    }
+  };
+
   const handlePasswordChange = async () => {
     try {
       const resp = await apiFetch('/student-account/password/change', { method: 'POST', body: JSON.stringify(passwordForm) });
@@ -311,31 +355,104 @@ export default function SecuritySection({
                 {securityLogs.activeSessions?.map((session: any) => {
                   const { os, browser } = parseUserAgentDetails(session.userAgent);
                   const isCurrent = session.tokenSuffix && user?.activeSessionToken?.endsWith(session.tokenSuffix);
+                  const displayName = session.nickname || `${session.manufacturer || ''} ${session.deviceModel || ''}`.trim() || os;
+                  const displayDetails = `${browser} ${session.osVersion ? `· OS: ${session.osVersion}` : ''} ${session.appVersion ? `· App: v${session.appVersion}` : ''}`;
                   
                   return (
-                    <div key={session._id} className="py-3.5 flex items-center justify-between gap-4 first:pt-0 last:pb-0">
+                    <div key={session._id} className="py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4 first:pt-0 last:pb-0 border-b border-border/30 last:border-b-0">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-muted border flex items-center justify-center text-muted-foreground shrink-0 shadow-inner">
-                          {os.includes('iPhone') || os.includes('Android') ? <Smartphone className="w-5 h-5 text-indigo-500" /> : <Laptop className="w-5 h-5 text-purple-500" />}
+                        <div className="w-11 h-11 rounded-xl bg-muted border flex items-center justify-center text-muted-foreground shrink-0 shadow-inner">
+                          {session.appType === 'Android App' || session.appType === 'iOS App' || os.toLowerCase().includes('iphone') || os.toLowerCase().includes('android') ? (
+                            <Smartphone className="w-5.5 h-5.5 text-indigo-500" />
+                          ) : (
+                            <Laptop className="w-5.5 h-5.5 text-purple-500" />
+                          )}
                         </div>
                         <div className="min-w-0 leading-tight">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-xs text-foreground">{os}</span>
-                            <span className="text-[10px] text-muted-foreground">({browser})</span>
-                            {isCurrent && <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[9px] uppercase font-bold py-0">Current</Badge>}
+                            {editingSessionId === session._id ? (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <Input
+                                  value={tempNickname}
+                                  onChange={(e) => setTempNickname(e.target.value)}
+                                  className="h-8 py-1 text-xs max-w-[180px] rounded-lg"
+                                  placeholder="Nickname e.g. Home PC"
+                                />
+                                <Button size="sm" className="h-7 text-[10px] rounded-lg bg-emerald-600 hover:bg-emerald-700" onClick={() => handleRenameSession(session._id)}>Save</Button>
+                                <Button size="sm" variant="ghost" className="h-7 text-[10px] rounded-lg" onClick={() => setEditingSessionId(null)}>Cancel</Button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="font-extrabold text-xs text-foreground">{displayName}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="w-5 h-5 text-muted-foreground hover:text-foreground"
+                                  onClick={() => {
+                                    setEditingSessionId(session._id);
+                                    setTempNickname(session.nickname || '');
+                                  }}
+                                >
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                  </svg>
+                                </Button>
+                              </>
+                            )}
+                            
+                            <Badge variant="outline" className={`text-[8px] font-extrabold ${session.isTrusted ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'bg-amber-500/10 text-amber-600 border-amber-500/20'}`}>
+                              {session.isTrusted ? 'Trusted' : 'Untrusted'}
+                            </Badge>
+
+                            {isCurrent && (
+                              <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[9px] uppercase font-bold py-0">Current</Badge>
+                            )}
                           </div>
-                          <div className="text-[10px] text-muted-foreground/80 mt-1">IP: {session.ipAddress} · {formatLastActive(session.lastSeenAt, isCurrent)}</div>
+                          
+                          <div className="text-[10px] text-muted-foreground/80 mt-1">
+                            {displayDetails} · IP: {session.ipAddress} · Last Active: {formatLastActive(session.lastSeen || session.lastSeenAt, isCurrent)}
+                          </div>
+                          {session.isTrusted && session.trustedAt && (
+                            <div className="text-[9px] text-emerald-600/70 mt-0.5 font-medium">
+                              Trusted by user on {new Date(session.trustedAt).toLocaleDateString()}
+                            </div>
+                          )}
                         </div>
                       </div>
-                      {!isCurrent && (
-                        <Button 
-                          variant="ghost" 
-                          className="text-destructive hover:bg-destructive/10 text-[10px] h-8 rounded-xl font-bold"
-                          onClick={() => handleDisconnectSession(session._id)}
+
+                      <div className="flex items-center gap-1.5 self-end md:self-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[9px] rounded-lg font-extrabold px-2"
+                          onClick={() => handleToggleTrust(session._id, session.isTrusted)}
                         >
-                          Disconnect
+                          {session.isTrusted ? 'Untrust' : 'Trust Device'}
                         </Button>
-                      )}
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[9px] text-amber-600 hover:text-amber-700 border-amber-500/20 hover:bg-amber-500/5 rounded-lg font-extrabold px-2"
+                          onClick={() => {
+                            if (window.confirm('Are you sure you want to report this device as unrecognized? This will alert system security administrators.')) {
+                              handleReportSession(session._id);
+                            }
+                          }}
+                        >
+                          Report Unknown
+                        </Button>
+
+                        {!isCurrent && (
+                          <Button 
+                            variant="ghost" 
+                            className="text-destructive hover:bg-destructive/10 text-[9px] h-7 rounded-lg font-extrabold px-2"
+                            onClick={() => handleDisconnectSession(session._id)}
+                          >
+                            Disconnect
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

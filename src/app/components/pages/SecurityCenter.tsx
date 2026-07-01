@@ -41,6 +41,7 @@ import {
   DialogDescription 
 } from '../ui/dialog';
 import { toast } from 'sonner';
+import ActiveSessionsDashboard from './ActiveSessionsDashboard';
 
 export default function SecurityCenter() {
   const queryClient = useQueryClient();
@@ -49,6 +50,7 @@ export default function SecurityCenter() {
   
   // Session filter state (default to active only)
   const [sessionFilter, setSessionFilter] = useState<'active' | 'suspended' | 'violations' | 'all'>('active');
+  const [subTab, setSubTab] = useState<'overview' | 'sessions' | 'blocked'>('overview');
 
   // Pagination states
   const [alertsPage, setAlertsPage] = useState(1);
@@ -306,8 +308,40 @@ export default function SecurityCenter() {
 
   return (
     <div className="space-y-6 min-w-0">
-      {/* Overview Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Tab selectors */}
+      <div className="flex border-b border-border/30 gap-6 text-xs font-black uppercase tracking-wider pb-1">
+        <button 
+          className={`pb-2 border-b-2 transition-colors ${subTab === 'overview' ? 'border-primary text-primary font-black' : 'border-transparent text-muted-foreground hover:text-foreground font-semibold'}`}
+          onClick={() => setSubTab('overview')}
+        >
+          Overview & Alerts
+        </button>
+        <button 
+          className={`pb-2 border-b-2 transition-colors ${subTab === 'sessions' ? 'border-primary text-primary font-black' : 'border-transparent text-muted-foreground hover:text-foreground font-semibold'}`}
+          onClick={() => setSubTab('sessions')}
+        >
+          Active Sessions Directory
+        </button>
+        <button 
+          className={`pb-2 border-b-2 transition-colors ${subTab === 'blocked' ? 'border-primary text-primary font-black' : 'border-transparent text-muted-foreground hover:text-foreground font-semibold'}`}
+          onClick={() => setSubTab('blocked')}
+        >
+          Blocked Devices List
+        </button>
+      </div>
+
+      {subTab === 'sessions' && (
+        <ActiveSessionsDashboard />
+      )}
+
+      {subTab === 'blocked' && (
+        <BlockedDevicesView />
+      )}
+
+      {subTab === 'overview' && (
+        <>
+          {/* Overview Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {overviewCards.map((card) => (
           <Card key={card.label} className="border-border/50 bg-card hover:shadow-md transition-all group relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -1158,6 +1192,102 @@ export default function SecurityCenter() {
           )}
         </DialogContent>
       </Dialog>
+      </>
+      )}
     </div>
+  );
+}
+
+function BlockedDevicesView() {
+  const { data: list = [], isLoading, refetch } = useQuery({
+    queryKey: ['security-center', 'blocked-devices-list'],
+    queryFn: () => apiFetch('/security-center/devices/blocked'),
+  });
+
+  const handleUnblock = async (fingerprint: string) => {
+    if (!window.confirm('Are you sure you want to unblock this device fingerprint?')) return;
+    try {
+      await apiFetch('/security-center/devices/unblock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceFingerprint: fingerprint })
+      });
+      toast.success('Device fingerprint unblocked successfully!');
+      refetch();
+    } catch (e: any) {
+      toast.error('Failed to unblock: ' + e.message);
+    }
+  };
+
+  return (
+    <Card className="border-border/50 bg-card">
+      <CardHeader>
+        <CardTitle className="text-base font-bold flex items-center gap-2">
+          <Ban className="w-5 h-5 text-rose-500" />
+          <span>Blocked Devices Fingerprints</span>
+        </CardTitle>
+        <CardDescription>Review and manage device fingerprints blacklisted from logging into the platform.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider pl-6">Device Name</TableHead>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider">Fingerprint Hash</TableHead>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider">Blocked User</TableHead>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider">Duration Type</TableHead>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider">Expiry / Status</TableHead>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider">Reason</TableHead>
+              <TableHead className="font-extrabold text-[10px] uppercase text-muted-foreground tracking-wider pr-6 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground animate-pulse font-bold">
+                  Retrieving blocked endpoints list...
+                </TableCell>
+              </TableRow>
+            ) : list.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
+                  No devices currently blocked.
+                </TableCell>
+              </TableRow>
+            ) : list.map((item: any) => {
+              const remains = item.blockType === 'temporary' && item.blockedUntil
+                ? new Date(item.blockedUntil).getTime() > Date.now()
+                  ? Math.max(0, Math.ceil((new Date(item.blockedUntil).getTime() - Date.now()) / (1000 * 60 * 60))) + ' hours left'
+                  : 'Expired'
+                : 'Permanent';
+              return (
+                <TableRow key={item._id} className="text-xs">
+                  <TableCell className="pl-6 font-bold">{item.nickname || item.deviceName || 'Blocked Endpoint'}</TableCell>
+                  <TableCell className="font-mono text-[10px] break-all max-w-[150px]">{item.deviceFingerprint}</TableCell>
+                  <TableCell>{item.userId ? `${item.userId.name} (${item.userId.email})` : 'System / Any'}</TableCell>
+                  <TableCell className="capitalize font-semibold">{item.blockType}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={item.blockType === 'permanent' ? 'bg-rose-500/10 text-rose-600 border-rose-500/20' : 'bg-amber-500/10 text-amber-600 border-amber-500/20'}>
+                      {remains}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-[150px] truncate" title={item.reason}>{item.reason || 'None provided'}</TableCell>
+                  <TableCell className="pr-6 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-[10px] font-bold text-primary"
+                      onClick={() => handleUnblock(item.deviceFingerprint)}
+                    >
+                      Unblock
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

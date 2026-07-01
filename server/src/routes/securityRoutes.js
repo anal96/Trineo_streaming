@@ -330,8 +330,56 @@ router.get('/status', protect, async (req, res) => {
       serverTime: now
     });
   } catch (error) {
-    console.error('[SECURITY STATUS ERROR]', error);
-    return res.status(500).json({ message: 'Failed to fetch security status' });
+    return res.status(500).json({ message: 'Failed to fetch status' });
+  }
+});
+
+router.post('/heartbeat', protect, async (req, res) => {
+  try {
+    const { page, contentId, action, network } = req.body;
+    const suffix = req.token ? req.token.slice(-12) : '';
+    const session = await SecuritySession.findOne({ userId: req.user._id, tokenSuffix: suffix, status: 'active' });
+    const now = new Date();
+    
+    if (session) {
+      const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+      const ipAddress = rawIp === '::1' ? '127.0.0.1' : rawIp;
+      if (session.ipAddress && session.ipAddress !== ipAddress) {
+        session.previousIpAddress = session.ipAddress;
+        session.ipAddress = ipAddress;
+      }
+      
+      session.lastSeen = now;
+      session.lastSeenAt = now;
+      session.heartbeatAt = now;
+      session.isOnline = true;
+      session.currentPage = page || session.currentPage || '';
+      session.currentAction = action || session.currentAction || '';
+      if (contentId) session.currentContentId = contentId;
+      if (network) session.networkType = network;
+      
+      const loginTime = session.loginTime || session.createdAt || now;
+      session.sessionDuration = Math.round((now.getTime() - new Date(loginTime).getTime()) / 1000);
+      
+      await session.save();
+      
+      const securityState = await SecurityState.findOne({ userId: req.user._id });
+      const forceLogout = securityState ? securityState.forceLogout : false;
+      const accountLocked = securityState ? securityState.accountLocked : false;
+      
+      return res.json({
+        success: true,
+        isOnline: true,
+        sessionDuration: session.sessionDuration,
+        forceLogout,
+        accountLocked
+      });
+    } else {
+      return res.status(404).json({ message: 'Active session not found' });
+    }
+  } catch (error) {
+    console.error('[HEARTBEAT ERROR]', error);
+    return res.status(500).json({ message: 'Heartbeat update failed' });
   }
 });
 

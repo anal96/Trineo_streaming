@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import fs from 'fs';
 import { User } from '../models/User.js';
 import { SecuritySession } from '../models/SecuritySession.js';
+import { getPlatformInfo, isPlatformAllowed } from '../utils/platformHelper.js';
 
 // Clear previous logs on module load
 try {
@@ -67,6 +68,24 @@ export const protect = async (req, res, next) => {
       if (user.status !== 'active') {
         logToFileAndConsole("RETURNING: Forbidden - User account deactivated");
         return res.status(403).json({ message: 'User account is deactivated' });
+      }
+
+      // Check platform access restriction
+      const platformInfo = getPlatformInfo(req.headers['user-agent'] || '', req.headers);
+      const isAllowed = isPlatformAllowed(user.role, platformInfo);
+      if (!isAllowed) {
+        logToFileAndConsole("RETURNING: Forbidden - Unsupported Platform", platformInfo.platform);
+        return res.status(403).json({
+          success: false,
+          error: "UNSUPPORTED_PLATFORM",
+          platform: platformInfo.platform,
+          supportedPlatforms: user.role === 'student' 
+            ? ["Windows", "Official Trineo Android App"] 
+            : ["Windows", "macOS", "Linux", "Android"],
+          message: user.role === 'student'
+            ? "Trineo Stream currently supports Windows PCs and the Official Trineo Android App only."
+            : "Trineo Stream currently supports Windows, macOS, Linux and Android for administrators."
+        });
       }
 
       // Check if password change is forced

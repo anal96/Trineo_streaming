@@ -9,6 +9,7 @@ import {
   DollarSign,
   Users,
   Radio,
+  Shield,
   ShieldAlert,
   LogOut,
   Plus,
@@ -77,6 +78,7 @@ import { ThemeToggleButton } from '../ThemeToggle';
 import { PanelDrawerNav } from '../responsive/PanelDrawerNav';
 import { MobileRecordCard } from '../responsive/ResponsiveDataView';
 import trineoLogo from '@/images/trineoStream-1.png';
+import OwnerSecurityPanel from './OwnerSecurityPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Institute {
@@ -508,6 +510,7 @@ export default function OwnerPanel() {
           case 'users':        await loadUsers(activeSubTab || ''); break;
           case 'streaming':    await loadStreaming(); break;
           case 'security':     await Promise.all([loadSecurity(securityFilter), loadOwnerActions()]); break;
+          case 'platformSecurity': break;
           case 'usage':        await loadInstitutes(); break;
           case 'backups':      await loadBackups(); break;
           case 'health':       await loadHealth(); break;
@@ -755,6 +758,7 @@ export default function OwnerPanel() {
     { id: 'users',      icon: Users,            label: 'User Management',           badge: null },
     { id: 'streaming',  icon: Radio,            label: 'Streaming Infrastructure',  badge: stats?.processingJobs ?? null },
     { id: 'security',   icon: ShieldAlert,      label: 'Security Center',           badge: security?.logs?.length ?? null },
+    { id: 'platformSecurity', icon: Shield,         label: 'Platform Security Overrides', badge: null },
     { id: 'backups',    icon: HardDrive,        label: 'Backup Center',             badge: backups?.history?.length ?? null },
     { id: 'health',     icon: Activity,         label: 'Platform Health',           badge: null }
   ];
@@ -2895,6 +2899,10 @@ export default function OwnerPanel() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {activeSection === 'platformSecurity' && (
+                <OwnerSecurityPanel />
               )}
 
             </motion.div>

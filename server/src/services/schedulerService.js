@@ -12,6 +12,7 @@ import { SubscriptionInvoice } from '../models/SubscriptionInvoice.js';
 import { InvoiceAudit } from '../models/InvoiceAudit.js';
 import { downloadFromR2, parseR2Key, isR2Configured } from '../utils/r2Service.js';
 import { sendGracePeriodEmail, sendSuspensionEmail, sendBillingInvoiceEmail } from './emailService.js';
+import { SecuritySession } from '../models/SecuritySession.js';
 
 export const startBackgroundScheduler = () => {
   console.log('Background Notification Scheduler Initialized (interval: 60s)');
@@ -19,6 +20,21 @@ export const startBackgroundScheduler = () => {
   setInterval(async () => {
     try {
       const now = new Date();
+
+      // Heartbeat Expiration Job (Mark sessions offline if heartbeat > 120s old)
+      const heartbeatThreshold = new Date(now.getTime() - 120 * 1000);
+      await SecuritySession.updateMany(
+        {
+          status: 'active',
+          isOnline: true,
+          heartbeatAt: { $lt: heartbeatThreshold }
+        },
+        {
+          $set: {
+            isOnline: false
+          }
+        }
+      );
 
       // 0. SaaS Subscription Lifecycle Jobs
 

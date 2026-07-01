@@ -176,7 +176,7 @@ export const getAdminOverview = async (req, res) => {
         eventType: 'download_attempt',
         createdAt: { $gte: fromDate, $lte: toDate }
       }).select('createdAt').lean()),
-      timedQuery('allStudents', User.find(userQuery).select('_id name email batchName createdAt enrollmentDate packageExpiryDate joined phone courseName status branchName').lean()),
+      timedQuery('allStudents', User.find(userQuery).select('_id user_id name email batchName createdAt enrollmentDate packageExpiryDate joined phone courseName status branchName').lean()),
       timedQuery('watchHistoriesWithLesson', WatchHistory.find({
         ...instQuery
       }).populate({

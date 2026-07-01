@@ -668,15 +668,52 @@ export default function VideoPlayer() {
 
   // Watermark is static — no movement effect needed
 
-  // 2. Active Session Heartbeat (shortened to 5 seconds) and user fetch
+  // 2. Active Session Heartbeat (optimized for security tracking) and user fetch
+  const lastHeartbeatTimeRef = useRef<number>(0);
+
   useEffect(() => {
     initializePushNotifications().catch(err => console.error('Push init failed:', err));
 
     const runHeartbeat = async () => {
       try {
-        const res = await apiFetch('/auth/heartbeat');
-        if (res.ipAddress) setIpAddress(res.ipAddress);
-        if (res.sessionId) setSessionId(res.sessionId);
+        const now = Date.now();
+        lastHeartbeatTimeRef.current = now;
+
+        const conn = (navigator as any).connection;
+        let network = 'unknown';
+        if (conn) {
+          const type = conn.type || conn.effectiveType || '';
+          if (type.includes('wifi')) network = 'wifi';
+          else if (type.includes('cellular') || type.includes('mobile') || type.includes('2g') || type.includes('3g') || type.includes('4g')) network = 'mobile';
+          else if (type.includes('ethernet')) network = 'ethernet';
+        }
+
+        const payload = {
+          page: window.location.pathname,
+          contentId: lesson?._id || null,
+          action: lesson ? `Watching Video: ${lesson.title || lesson.name || 'Lesson'}` : 'Watching Video Player',
+          network
+        };
+
+        const res = await apiFetch('/security/heartbeat', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          ignoreAuthError: true
+        });
+
+        if (res) {
+          if (res.forceLogout) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            toast.error("Session Terminated", {
+              description: "Your session has been terminated by your administrator. Redirecting...",
+              duration: 5000
+            });
+            setTimeout(() => {
+              window.location.href = `/security-lock?reason=admin_terminated`;
+            }, 3000);
+          }
+        }
       } catch (err: any) {
         if (err.message && err.message.includes('Session invalidated')) {
           localStorage.removeItem('token');
@@ -685,13 +722,20 @@ export default function VideoPlayer() {
         }
       }
     };
+
     runHeartbeat();
-    const heartbeat = setInterval(runHeartbeat, 5000);
+
+    const now = Date.now();
+    if (now - lastHeartbeatTimeRef.current > 2000) {
+      runHeartbeat();
+    }
+
+    const heartbeat = setInterval(runHeartbeat, 60000);
 
     return () => {
       clearInterval(heartbeat);
     };
-  }, [navigate]);
+  }, [lesson?._id, navigate]);
 
 
   // Load YouTube Player API script dynamically if not present

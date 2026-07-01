@@ -11,7 +11,10 @@ import {
   terminateStudentSession,
   terminateOtherStudentSessions,
   uploadStudentAvatar,
-  deleteStudentAvatar
+  deleteStudentAvatar,
+  renameStudentSession,
+  trustStudentSession,
+  reportUnknownSession
 } from '../controllers/studentAccountController.js';
 
 const router = express.Router();
@@ -29,5 +32,8 @@ router.post('/password/change', protect, changeStudentPassword);
 router.get('/sessions', protect, getStudentSessions);
 router.post('/sessions/:sessionId/terminate', protect, terminateStudentSession);
 router.post('/sessions/terminate-others', protect, terminateOtherStudentSessions);
+router.put('/sessions/:sessionId/rename', protect, renameStudentSession);
+router.post('/sessions/:sessionId/trust', protect, trustStudentSession);
+router.post('/sessions/:sessionId/report', protect, reportUnknownSession);
 
 export default router;

@@ -825,6 +825,74 @@ export default function StudentDashboard() {
   const [accountLocked, setAccountLocked] = useState(false);
   const [securityStatus, setSecurityStatus] = useState<any>(null);
 
+  const lastHeartbeatTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const sendHeartbeat = async (actionStr?: string) => {
+      try {
+        const now = Date.now();
+        lastHeartbeatTimeRef.current = now;
+        
+        let action = actionStr || 'Browsing Dashboard';
+        if (activeTab === 'materials') action = 'Viewing Study Materials';
+        else if (activeTab === 'live') action = 'Browsing Live Lectures';
+        else if (activeTab === 'settings') action = 'Managing Security & Profile';
+        
+        const conn = (navigator as any).connection;
+        let network = 'unknown';
+        if (conn) {
+          const type = conn.type || conn.effectiveType || '';
+          if (type.includes('wifi')) network = 'wifi';
+          else if (type.includes('cellular') || type.includes('mobile') || type.includes('2g') || type.includes('3g') || type.includes('4g')) network = 'mobile';
+          else if (type.includes('ethernet')) network = 'ethernet';
+        }
+
+        const payload = {
+          page: `/student?tab=${activeTab}`,
+          contentId: null,
+          action,
+          network
+        };
+
+        const res = await apiFetch('/security/heartbeat', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          ignoreAuthError: true
+        });
+        
+        if (res && res.forceLogout) {
+          setForceLogout(true);
+          toast.error("Session Terminated", {
+            description: "Your session has been terminated by your administrator. Logging out in 5 seconds...",
+            duration: 5000
+          });
+          setTimeout(() => {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = `/security-lock?reason=admin_terminated`;
+          }, 5000);
+        }
+      } catch (err) {
+        console.error('Heartbeat failed:', err);
+      }
+    };
+
+    sendHeartbeat();
+
+    const now = Date.now();
+    if (now - lastHeartbeatTimeRef.current > 2000) {
+      sendHeartbeat();
+    }
+
+    const timer = setInterval(() => {
+      sendHeartbeat();
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, [activeTab, userId]);
+
   const diagToken = localStorage.getItem('token');
   const diagUserStr = localStorage.getItem('user');
   let diagCurrentUser = null;
@@ -848,13 +916,22 @@ export default function StudentDashboard() {
         localStorage.setItem('trineo_security_lock_until', penaltyMs.toString());
         localStorage.setItem('trineo_lock_requires_manual_resume', 'true');
       }
-      setForceLogout(!!securityStatusRes.forceLogout);
-      setAccountLocked(!!securityStatusRes.accountLocked);
-      if (securityStatusRes.forceLogout || securityStatusRes.accountLocked) {
+      if (securityStatusRes.forceLogout && !forceLogout) {
+        setForceLogout(true);
+        toast.error("Session Terminated", {
+          description: "Your session has been terminated by your administrator. Logging out in 5 seconds...",
+          duration: 5000
+        });
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = `/security-lock?reason=admin_terminated`;
+        }, 5000);
+      } else if (securityStatusRes.accountLocked && !securityStatusRes.forceLogout) {
+        setAccountLocked(true);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        const reason = securityStatusRes.accountLocked ? 'locked' : 'exceeded';
-        window.location.href = `/security-lock?reason=${reason}`;
+        window.location.href = `/security-lock?reason=locked`;
       }
     }
   }, [securityStatusRes]);
