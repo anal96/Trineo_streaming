@@ -162,7 +162,7 @@ export const getSecurityEvents = async (req, res) => {
     const filter = instituteFilter(req);
     
     const events = await SecurityEvent.find(filter)
-      .populate('studentId', 'name email status user_id branchName enrollmentDate')
+      .populate('studentId', 'name email status user_id branchName enrollmentDate program batchName')
       .populate('batchId', 'title')
       .populate('subjectId', 'subjectName')
       .populate('topicId', 'title')
@@ -170,11 +170,79 @@ export const getSecurityEvents = async (req, res) => {
       .limit(500);
 
     const blockedAttempts = await AuditLog.find({ ...filter, eventType: 'UNSUPPORTED_PLATFORM_LOGIN' })
-      .populate('userId', 'name email status user_id branchName' )
+      .populate('userId', 'name email status user_id branchName program batchName')
       .sort({ createdAt: -1 })
       .limit(100);
 
-    const formattedAttempts = blockedAttempts.map(log => {
+    // Extract all unique student/user IDs from events and blocked attempts
+    const userIds = [
+      ...new Set([
+        ...events.map(e => e.studentId?._id || e.studentId || e.userId),
+        ...blockedAttempts.map(b => b.userId?._id || b.userId)
+      ].filter(Boolean).map(id => id.toString()))
+    ];
+
+    // Query the latest SecuritySessions (active or historical) for each user
+    const latestSessions = await SecuritySession.find({
+      userId: { $in: userIds }
+    }).sort({ lastSeenAt: -1 });
+
+    const userSessionMap = {};
+    latestSessions.forEach(s => {
+      const uId = s.userId.toString();
+      if (!userSessionMap[uId]) {
+        userSessionMap[uId] = s;
+      }
+    });
+
+    // Query active enrollments for program/batch title resolution
+    const enrollments = await Enrollment.find({
+      studentId: { $in: userIds },
+      status: 'active'
+    }).populate('programId', 'title');
+
+    const userEnrollmentMap = {};
+    enrollments.forEach(e => {
+      userEnrollmentMap[e.studentId.toString()] = e;
+    });
+
+    // Enrich SecurityEvent results
+    const enrichedEvents = events.map(event => {
+      const obj = event.toObject ? event.toObject() : { ...event };
+      const uId = (obj.studentId?._id || obj.studentId || obj.userId)?.toString();
+
+      const session = uId ? userSessionMap[uId] : null;
+      const enrollment = uId ? userEnrollmentMap[uId] : null;
+
+      // 1. Resolve structural context (Batch/Program)
+      const resolvedBatchName = enrollment?.programId?.title || obj.studentId?.batchName || obj.studentId?.program || obj.batchName || obj.batchId?.title || '';
+      obj.batchName = resolvedBatchName;
+
+      // 2. Resolve device/browser/location from latest active session
+      if (session) {
+        obj.device = session.deviceName || session.device || obj.device;
+        obj.browser = session.browser || obj.browser;
+        obj.platform = session.platform || obj.platform;
+        obj.location = session.location || '';
+      }
+
+      // 3. Fallback location checker for localhost
+      if (!obj.location) {
+        const ip = obj.ipAddress || '';
+        const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip.includes('127.0.0.1') || ip.includes('::1') || ip.includes('::ffff:');
+        obj.location = isLocalhost ? 'Development Environment' : 'Unknown Location';
+      }
+
+      return obj;
+    });
+
+    // Enrich formatted platform-blocked log entries
+    const enrichedAttempts = blockedAttempts.map(log => {
+      const uId = (log.userId?._id || log.userId)?.toString();
+      const session = uId ? userSessionMap[uId] : null;
+      const enrollment = uId ? userEnrollmentMap[uId] : null;
+
+      // Base parsing of user agent
       const ua = (log.userAgent || '').toLowerCase();
       let device = 'Unsupported Device';
       if (ua.includes('iphone')) device = 'iPhone';
@@ -190,6 +258,23 @@ export const getSecurityEvents = async (req, res) => {
       else if (ua.includes('firefox')) browser = 'Firefox';
       else if (ua.includes('safari')) browser = 'Safari';
 
+      // Resolve batch
+      const resolvedBatchName = enrollment?.programId?.title || log.userId?.batchName || log.userId?.program || '';
+
+      // Enrich with session data
+      let location = '';
+      if (session) {
+        device = session.deviceName || session.device || device;
+        browser = session.browser || browser;
+        location = session.location || '';
+      }
+
+      if (!location) {
+        const ip = log.ipAddress || '';
+        const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip.includes('127.0.0.1') || ip.includes('::1') || ip.includes('::ffff:');
+        location = isLocalhost ? 'Development Environment' : 'Unknown Location';
+      }
+
       return {
         _id: log._id,
         studentId: log.userId || { name: 'Anonymous / Guest', email: 'N/A', user_id: 'N/A' },
@@ -199,13 +284,15 @@ export const getSecurityEvents = async (req, res) => {
         userAgent: log.userAgent,
         device,
         browser,
+        location,
+        batchName: resolvedBatchName,
         riskLevel: 'critical',
         status: 'active_alert',
         createdAt: log.createdAt
       };
     });
 
-    const combined = [...events, ...formattedAttempts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const combined = [...enrichedEvents, ...enrichedAttempts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.json(combined.slice(0, 500));
   } catch (error) {
     res.status(500).json({ message: error.message });
