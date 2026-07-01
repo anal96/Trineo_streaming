@@ -195,10 +195,9 @@ export const getSecurityEvents = async (req, res) => {
       }
     });
 
-    // Query active enrollments for program/batch title resolution
+    // Query enrollments for program/batch title resolution
     const enrollments = await Enrollment.find({
-      studentId: { $in: userIds },
-      status: 'active'
+      studentId: { $in: userIds }
     }).populate('programId', 'title');
 
     const userEnrollmentMap = {};
@@ -299,6 +298,41 @@ export const getSecurityEvents = async (req, res) => {
   }
 };
 
+const lookupGeoIP = async (ipAddress) => {
+  const isLocalhost = 
+    ipAddress === '127.0.0.1' || 
+    ipAddress === '::1' || 
+    ipAddress === '::ffff:127.0.0.1';
+
+  if (isLocalhost) {
+    return {
+      country: 'Development Environment',
+      state: 'Localhost',
+      city: '',
+      timezone: 'Asia/Kolkata'
+    };
+  }
+
+  try {
+    const res = await fetch(`http://ip-api.com/json/${ipAddress}?fields=status,country,regionName,city,timezone`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.status === 'success') {
+        return {
+          country: data.country || '',
+          state: data.regionName || '',
+          city: data.city || '',
+          timezone: data.timezone || ''
+        };
+      }
+    }
+  } catch (err) {
+    console.error('[GEOIP LOOKUP ERROR]', err.message);
+  }
+  
+  return { country: '', state: '', city: '', timezone: '' };
+};
+
 export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent, ipAddress, req }) => {
   const body = req?.body || {};
   const headers = req?.headers || {};
@@ -307,30 +341,48 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
   const parsed = parseAgent(userAgent || '');
   const suffix = token ? token.slice(-12) : '';
 
+  // Extract real client IP
+  let finalIp = ipAddress;
+  if (headers['cf-connecting-ip']) {
+    finalIp = headers['cf-connecting-ip'];
+  } else if (headers['x-real-ip']) {
+    finalIp = headers['x-real-ip'];
+  } else if (headers['x-forwarded-for']) {
+    const list = headers['x-forwarded-for'].split(',');
+    finalIp = list[0].trim();
+  }
+
+  const isLocalhost = 
+    finalIp === '127.0.0.1' || 
+    finalIp === '::1' || 
+    finalIp === '::ffff:127.0.0.1';
+
   let country = body.country || headers['x-vercel-ip-country'] || '';
   let state = body.state || headers['x-vercel-ip-country-region'] || '';
   let city = body.city || headers['x-vercel-ip-city'] || '';
   let timezone = body.timezone || headers['x-vercel-ip-timezone'] || '';
-
-  const isLocalhost = 
-    !ipAddress ||
-    ipAddress === '127.0.0.1' || 
-    ipAddress === '::1' || 
-    ipAddress.includes('127.0.0.1') || 
-    ipAddress.includes('::1') ||
-    ipAddress.includes('::ffff:');
 
   if (isLocalhost) {
     country = 'Development Environment';
     state = 'Localhost';
     city = '';
     timezone = 'Asia/Kolkata';
+  } else if (!country && !city) {
+    const geo = await lookupGeoIP(finalIp);
+    country = geo.country || '';
+    state = geo.state || '';
+    city = geo.city || '';
+    timezone = geo.timezone || '';
+  }
+
+  // Build the formatted City, State, Country location string
+  let locationString = 'Unknown Location';
+  if (isLocalhost) {
+    locationString = 'Development Environment';
   } else {
-    if (ipAddress === '127.0.0.1' || ipAddress === '::1') {
-      country = country || 'India';
-      state = state || 'Kerala';
-      city = city || 'Kochi';
-      timezone = timezone || 'Asia/Kolkata';
+    const parts = [city, state, country].filter(Boolean);
+    if (parts.length > 0) {
+      locationString = parts.join(', ');
     }
   }
 
@@ -341,20 +393,29 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
   let existing = await SecuritySession.findOne({ userId: user._id, tokenSuffix: suffix, status: 'active' });
 
   if (existing) {
-    if (existing.ipAddress && existing.ipAddress !== ipAddress) {
+    if (existing.ipAddress && existing.ipAddress !== finalIp) {
       existing.previousIpAddress = existing.ipAddress;
     }
     existing.lastSeenAt = now;
     existing.lastSeen = now;
     existing.lastActivity = now;
-    existing.ipAddress = ipAddress || existing.ipAddress;
+    existing.ipAddress = finalIp || existing.ipAddress;
     existing.isOnline = true;
     existing.browser = isAndroid ? 'Official Trineo Android App' : parsed.browser;
     existing.os = isAndroid ? 'Android' : parsed.os;
     existing.platform = isAndroid ? 'Android' : parsed.platform;
     existing.appType = isAndroid ? 'Android App' : existing.appType;
     existing.userAgent = userAgent || existing.userAgent;
+
+    // Update location details
+    existing.country = country;
+    existing.state = state;
+    existing.city = city;
+    existing.timezone = timezone;
+    existing.location = locationString;
+
     await existing.save();
+
     return existing;
   }
 
@@ -368,7 +429,7 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     appType = 'Android App';
   }
 
-  return SecuritySession.create({
+  const session = await SecuritySession.create({
     institute: user.institute || null,
     userId: user._id,
     sessionId: crypto.randomUUID(),
@@ -383,13 +444,13 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     browser: isAndroid ? 'Official Trineo Android App' : parsed.browser,
     appType,
     appVersion: body.appVersion || '',
-    ipAddress: ipAddress || '',
+    ipAddress: finalIp || '',
     previousIpAddress: '',
     country,
     state,
     city,
     timezone,
-    location: city && country ? `${city}, ${country}` : (country || ''),
+    location: locationString,
     language: body.language || headers['accept-language']?.split(',')[0] || '',
     networkType: body.networkType || 'unknown',
     userAgent: userAgent || '',
@@ -406,6 +467,8 @@ export const upsertSecuritySessionFromRequest = async ({ user, token, userAgent,
     heartbeatAt: now,
     sessionDuration: 0
   });
+
+  return session;
 };
 
 export const forceLogoutSession = async (req, res) => {
@@ -537,7 +600,7 @@ export const getStudentSecurityState = async (req, res) => {
     }
 
     // Fetch the student's enrolled program (batch) name
-    const enrollment = await Enrollment.findOne({ studentId: student._id, status: 'active' })
+    const enrollment = await Enrollment.findOne({ studentId: student._id })
       .populate('programId', 'title');
     const batchName = enrollment?.programId?.title || null;
 
