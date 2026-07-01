@@ -18,7 +18,11 @@ export default function SupportedPlatformGuard({ children }: { children: React.R
     const isStudent = user && user.role === 'student';
     if (!isStudent) return;
 
-    // 1. Detect keyboard shortcuts (F12, Ctrl+Shift+I/J/C)
+    // Detect if running inside the official Android App
+    const freshUa = navigator.userAgent.toLowerCase();
+    const isAndroidApp = freshUa.includes('trineoandroid') || freshUa.includes('trineostreamandroid') || (window as any).AndroidApp;
+
+    // 1. Detect keyboard shortcuts (F12, Ctrl+Shift+I/J/C) - Desktop browsers only
     const handleDevToolsKeys = (e: KeyboardEvent) => {
       const isF12 = e.key === 'F12' || e.code === 'F12';
       const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c');
@@ -43,49 +47,57 @@ export default function SupportedPlatformGuard({ children }: { children: React.R
         SessionTerminationService.terminate('devtools_open');
       }
     };
-    window.addEventListener('keydown', handleDevToolsKeys, true);
 
-    // 2. Periodically monitor layout bounds and console print checks
+    if (!isAndroidApp) {
+      window.addEventListener('keydown', handleDevToolsKeys, true);
+    }
+
+    // 2. Periodically monitor layout bounds and console print checks - Desktop browsers only
     const threshold = 160;
-    const interval = setInterval(() => {
-      // Bounds check: detects docked DevTools and Chrome device emulation toolbar
-      const widthDiff = window.outerWidth - window.innerWidth;
-      const heightDiff = window.outerHeight - window.innerHeight;
-      if (widthDiff > threshold || heightDiff > threshold) {
-        console.warn("[SECURITY] DevTools or Device Emulation viewport violation.");
-        SessionTerminationService.terminate('devtools_open');
-        return;
-      }
+    let interval: any = null;
+    if (!isAndroidApp) {
+      interval = setInterval(() => {
+        // Bounds check: detects docked DevTools and Chrome device emulation toolbar
+        const widthDiff = window.outerWidth - window.innerWidth;
+        const heightDiff = window.outerHeight - window.innerHeight;
+        if (widthDiff > threshold || heightDiff > threshold) {
+          console.warn("[SECURITY] DevTools or Device Emulation viewport violation.");
+          SessionTerminationService.terminate('devtools_open');
+          return;
+        }
 
-      // toString console check: detects undocked/separate window DevTools
-      let devtoolsOpen = false;
-      const devObject = /./;
-      devObject.toString = function() {
-        devtoolsOpen = true;
-        return '';
-      };
-      console.log(devObject);
+        // toString console check: detects undocked/separate window DevTools
+        let devtoolsOpen = false;
+        const devObject = /./;
+        devObject.toString = function() {
+          devtoolsOpen = true;
+          return '';
+        };
+        console.log(devObject);
 
-      if (devtoolsOpen) {
-        console.warn("[SECURITY] DevTools window active via console check.");
-        SessionTerminationService.terminate('devtools_open');
-      }
-    }, 1000);
+        if (devtoolsOpen) {
+          console.warn("[SECURITY] DevTools window active via console check.");
+          SessionTerminationService.terminate('devtools_open');
+        }
+      }, 1000);
+    }
 
     // 3. Dynamic Platform & Viewport Emulation change detector
     const handlePlatformOrDevToolsChange = () => {
-      // Bounds check on resize (catches toggling Device Toolbar emulation)
-      const wDiff = window.outerWidth - window.innerWidth;
-      const hDiff = window.outerHeight - window.innerHeight;
-      if (wDiff > threshold || hDiff > threshold) {
-        console.warn("[SECURITY] DevTools or Device Emulation bounds violation on viewport change.");
-        SessionTerminationService.terminate('devtools_open');
-        return;
+      // Dimension/bounds checks are only run on desktop to prevent false positives inside WebView (soft keyboard, rotation)
+      if (!isAndroidApp) {
+        const wDiff = window.outerWidth - window.innerWidth;
+        const hDiff = window.outerHeight - window.innerHeight;
+        if (wDiff > threshold || hDiff > threshold) {
+          console.warn("[SECURITY] DevTools or Device Emulation bounds violation on viewport change.");
+          SessionTerminationService.terminate('devtools_open');
+          return;
+        }
       }
 
       // Read fresh user agent and app state
       const freshUa = navigator.userAgent.toLowerCase();
-      const freshIsApp = freshUa.includes('trineoandroid') || (window as any).AndroidApp;
+      const freshIsApp = freshUa.includes('trineoandroid') || freshUa.includes('trineostreamandroid') || (window as any).AndroidApp;
       const freshIsWindows = freshUa.includes('windows');
       const freshIsSupportedStudent = freshIsWindows || freshIsApp;
 
@@ -95,12 +107,14 @@ export default function SupportedPlatformGuard({ children }: { children: React.R
       }
     };
 
-    window.addEventListener('resize', handlePlatformOrDevToolsChange);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handlePlatformOrDevToolsChange);
+    if (!isAndroidApp) {
+      window.addEventListener('resize', handlePlatformOrDevToolsChange);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', handlePlatformOrDevToolsChange);
+      }
     }
 
-    // Call once initially to catch any pre-existing emulation right on mount
+    // Call once initially to validate platform on mount
     handlePlatformOrDevToolsChange();
 
     return () => {
@@ -109,12 +123,14 @@ export default function SupportedPlatformGuard({ children }: { children: React.R
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handlePlatformOrDevToolsChange);
       }
-      clearInterval(interval);
+      if (interval) {
+        clearInterval(interval);
+      }
     };
   }, []);
   
   // 1. Android WebView App detection
-  const isApp = ua.includes('trineoandroid') || (window as any).AndroidApp;
+  const isApp = ua.includes('trineoandroid') || ua.includes('trineostreamandroid') || (window as any).AndroidApp;
   
   // 2. Platform OS checks
   const isWindows = ua.includes('windows');
