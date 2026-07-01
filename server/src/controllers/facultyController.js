@@ -1,5 +1,42 @@
 import { Faculty } from '../models/Faculty.js';
 import { LiveClass } from '../models/LiveClass.js';
+import fs from 'fs';
+import path from 'path';
+import { isR2Configured, uploadToR2 } from '../utils/r2Service.js';
+
+const processFacultyAvatar = async (avatarBase64) => {
+  if (!avatarBase64 || !avatarBase64.startsWith('data:image/')) {
+    return avatarBase64;
+  }
+  
+  const base64Data = avatarBase64.replace(/^data:image\/\w+;base64,/, "");
+  const buffer = Buffer.from(base64Data, 'base64');
+
+  const filename = `faculty_${Date.now()}_${Math.floor(Math.random() * 1000)}.webp`;
+  const relativePath = `/uploads/avatars/${filename}`;
+  const filePath = path.join(path.resolve(), 'uploads', 'avatars', filename);
+
+  // Ensure uploads/avatars exists
+  const avatarsDir = path.join(path.resolve(), 'uploads', 'avatars');
+  if (!fs.existsSync(avatarsDir)) {
+    fs.mkdirSync(avatarsDir, { recursive: true });
+  }
+
+  let avatarUrl = relativePath;
+  if (isR2Configured()) {
+    try {
+      const r2Key = `avatars/${filename}`;
+      avatarUrl = await uploadToR2(buffer, r2Key, 'image/webp');
+    } catch (r2Err) {
+      console.error("R2 Faculty Avatar upload failed, falling back to local file:", r2Err);
+      fs.writeFileSync(filePath, buffer);
+    }
+  } else {
+    fs.writeFileSync(filePath, buffer);
+  }
+
+  return avatarUrl;
+};
 
 // GET /api/faculty — List all faculty for the admin's institute
 export const getFacultyList = async (req, res) => {
@@ -43,6 +80,8 @@ export const createFaculty = async (req, res) => {
       return res.status(400).json({ message: 'Faculty name is required' });
     }
 
+    const processedAvatar = avatar ? await processFacultyAvatar(avatar) : null;
+
     const faculty = await Faculty.create({
       name: name.trim(),
       role: (role || 'Lecturer').trim(),
@@ -50,7 +89,7 @@ export const createFaculty = async (req, res) => {
       email: (email || '').trim(),
       officeHours: (officeHours || '').trim(),
       bio: (bio || '').trim(),
-      avatar: avatar || null,
+      avatar: processedAvatar,
       courses: courses || [],
       institute: req.user.institute
     });
@@ -101,7 +140,9 @@ export const updateFaculty = async (req, res) => {
     if (email !== undefined) faculty.email = email.trim();
     if (officeHours !== undefined) faculty.officeHours = officeHours.trim();
     if (bio !== undefined) faculty.bio = bio.trim();
-    if (avatar !== undefined) faculty.avatar = avatar;
+    if (avatar !== undefined) {
+      faculty.avatar = avatar ? await processFacultyAvatar(avatar) : null;
+    }
     if (courses !== undefined) faculty.courses = courses;
 
     await faculty.save();

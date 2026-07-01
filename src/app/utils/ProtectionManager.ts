@@ -1,4 +1,5 @@
 import { apiFetch } from './api';
+import { SessionTerminationService } from './SessionTerminationService';
 
 export type ProtectionType = 'focus_lost' | 'visibility_hidden' | 'fullscreen_interruption' | 'screen_recording' | 'devtools_open' | 'none';
 
@@ -228,8 +229,8 @@ export class ProtectionManager {
       const res = await this.options.reportViolation('screenshot', details);
       if (res) {
         console.log("[SECURITY] Backend response received:", res);
-        if (res.action === 'session_terminated') {
-          this.terminateSession();
+        if (res.action === 'session_terminated' || res.action === 'account_locked') {
+          SessionTerminationService.terminate(res.action === 'account_locked' ? 'account_locked' : 'exceeded');
         } else if (res.action === 'warning_shown' || res.action === 'warning_shown_level2' || res.action === 'alert_logged') {
           if ((res as any).serverTime) {
             this.serverTimeOffset = new Date((res as any).serverTime).getTime() - Date.now();
@@ -325,7 +326,7 @@ export class ProtectionManager {
           const res = await self.options.reportViolation('screen_recording', 'Unauthorized display sharing API block.');
           if (res) {
             if (res.action === 'session_terminated' || res.action === 'account_locked') {
-              self.terminateSession();
+              SessionTerminationService.terminate(res.action === 'account_locked' ? 'account_locked' : 'exceeded');
             } else {
               self.options.onStateChange(true, 'screen_recording', res.message || 'Screen recording blocked.');
               const serverPenaltyUntil = (res as any).penaltyUntil ? new Date((res as any).penaltyUntil).getTime() : (self.getAdjustedNow() + 60000);

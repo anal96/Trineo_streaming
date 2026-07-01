@@ -27,7 +27,9 @@ export default function SecurityLockPage() {
     requestAnimationFrame(() => setAnimateIn(true));
   }, []);
 
-  const isAccountLocked = reason === 'locked';
+  const isAccountLocked = reason === 'locked' || reason === 'account_locked';
+  const isDevToolsOpen = reason === 'devtools_open';
+  const isPlatformChanged = reason === 'platform_changed';
 
   return (
     <div
@@ -145,7 +147,13 @@ export default function SecurityLockPage() {
           letterSpacing: '-0.02em',
           lineHeight: 1.2,
         }}>
-          {isAccountLocked ? '🔒 Account Security Lock' : '🚫 Session Terminated'}
+          {isAccountLocked
+            ? '🔒 Account Security Lock'
+            : isDevToolsOpen
+              ? '🛠️ Developer Tools Detected'
+              : isPlatformChanged
+                ? '📱 Restricted Platform'
+                : '🚫 Session Terminated'}
         </h1>
 
         <p style={{
@@ -156,7 +164,11 @@ export default function SecurityLockPage() {
         }}>
           {isAccountLocked
             ? 'Your account has been locked due to repeated content protection violations.'
-            : 'Repeated screen-capture violations detected. Your session has been terminated.'}
+            : isDevToolsOpen
+              ? 'Opening browser Developer Tools is strictly prohibited. Your session has been terminated.'
+              : isPlatformChanged
+                ? 'Students are only permitted to access Trineo Stream from a Windows PC or the Official Android App.'
+                : 'Repeated screen-capture violations detected. Your session has been terminated.'}
         </p>
 
         {/* Violation Badge */}
@@ -178,7 +190,13 @@ export default function SecurityLockPage() {
             textTransform: 'uppercase',
             letterSpacing: '0.08em',
           }}>
-            {isAccountLocked ? 'Account Permanently Locked' : 'Violation Count: 3 of 3'}
+            {isAccountLocked
+              ? 'Account Permanently Locked'
+              : isDevToolsOpen
+                ? 'DevTools Block Active'
+                : isPlatformChanged
+                  ? 'Unsupported Device'
+                  : 'Violation Count: 3 of 3'}
           </span>
         </div>
 

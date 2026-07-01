@@ -73,7 +73,7 @@ import {
   Cell,
   Legend
 } from 'recharts';
-import { apiFetch, getApiUrl } from '../../utils/api';
+import { apiFetch, getApiUrl, clearLocalStorageKeepingTheme } from '../../utils/api';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { PanelDrawerNav } from '../responsive/PanelDrawerNav';
 import { MobileRecordCard } from '../responsive/ResponsiveDataView';
@@ -551,7 +551,7 @@ export default function OwnerPanel() {
       console.error('Logout error:', err);
     }
     queryClient.clear();
-    localStorage.clear();
+    clearLocalStorageKeepingTheme();
     sessionStorage.clear();
     navigate('/login', { replace: true });
   };

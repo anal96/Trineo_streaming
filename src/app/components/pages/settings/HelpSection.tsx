@@ -11,6 +11,8 @@ interface HelpSectionProps {
 }
 
 export default function HelpSection({ isMobile = false }: HelpSectionProps) {
+  const [subject, setSubject] = React.useState('');
+  const [description, setDescription] = React.useState('');
 
   if (isMobile) {
     return (
@@ -35,16 +37,30 @@ export default function HelpSection({ isMobile = false }: HelpSectionProps) {
           <h4 className="font-extrabold text-[10px] text-muted-foreground uppercase tracking-wider">Submit support ticket</h4>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Subject</label>
-            <Input className="rounded-xl bg-background/50 border-border/50 text-xs" placeholder="e.g., video loader error" />
+            <Input 
+              className="rounded-xl bg-background/50 border-border/50 text-xs" 
+              placeholder="e.g., video loader error" 
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Description</label>
-            <textarea className="w-full min-h-20 p-2 text-xs bg-background/50 border border-border/50 rounded-xl focus:border-purple-500 outline-none" placeholder="Provide details..." />
+            <textarea 
+              className="w-full min-h-20 p-2 text-xs bg-background/50 border border-border/50 rounded-xl focus:border-purple-500 outline-none" 
+              placeholder="Provide details..." 
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </div>
           <div className="flex justify-end pt-1">
             <Button 
               className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs touch-btn"
-              onClick={() => { toast.success('Ticket submitted successfully!'); }}
+              onClick={() => { 
+                toast.success('Ticket submitted successfully!'); 
+                setSubject('');
+                setDescription('');
+              }}
             >
               Submit Ticket
             </Button>
@@ -94,13 +110,20 @@ export default function HelpSection({ isMobile = false }: HelpSectionProps) {
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Subject</label>
-              <Input className="rounded-xl bg-background/50 border-border/50 text-xs" placeholder="e.g. Video loading issues, payment discrepancy" />
+              <Input 
+                className="rounded-xl bg-background/50 border-border/50 text-xs" 
+                placeholder="e.g. Video loading issues, payment discrepancy" 
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Description of the Issue</label>
               <textarea 
                 className="w-full min-h-24 p-3 text-xs bg-background/50 border border-border/50 rounded-xl focus:border-purple-500 outline-none" 
                 placeholder="Provide as much detail as possible to help our team resolve your query..." 
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
               />
             </div>
           </div>
@@ -109,6 +132,8 @@ export default function HelpSection({ isMobile = false }: HelpSectionProps) {
               className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold px-6 py-2.5 rounded-xl hover:opacity-95 shadow-md shadow-purple-500/10 text-xs"
               onClick={() => {
                 toast.success('Support ticket submitted successfully!', { description: 'Our support team will follow up via email.' });
+                setSubject('');
+                setDescription('');
               }}
             >
               Submit Request

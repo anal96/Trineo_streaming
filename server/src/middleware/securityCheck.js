@@ -46,6 +46,11 @@ export const checkSecurityPenalty = async (req, res, next) => {
     if (state) {
       if (state.accountLocked) {
         return res.status(403).json({
+          success: false,
+          code: "ACCOUNT_LOCKED",
+          logout: true,
+          redirect: "/security-lock",
+          reason: "security_violation",
           message: 'Account is locked due to security violations. Please contact your administrator.',
           accountLocked: true,
           violationCount: state.violationCount

@@ -259,6 +259,16 @@ router.post('/audit', protect, async (req, res) => {
       serverTime: new Date()
     };
 
+    if (responseAction === 'session_terminated') {
+      responsePayload.code = 'SESSION_TERMINATED';
+      responsePayload.logout = true;
+      responsePayload.redirect = '/security-lock';
+    } else if (responseAction === 'account_locked') {
+      responsePayload.code = 'ACCOUNT_LOCKED';
+      responsePayload.logout = true;
+      responsePayload.redirect = '/security-lock';
+    }
+
     console.log("[SECURITY SERVER POST /audit]", {
       userId: req.user._id,
       eventType,

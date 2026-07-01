@@ -67,6 +67,16 @@ export const protect = async (req, res, next) => {
       // Check if user is active
       if (user.status !== 'active') {
         logToFileAndConsole("RETURNING: Forbidden - User account deactivated");
+        if (user.role === 'student') {
+          return res.status(403).json({
+            success: false,
+            code: "ACCOUNT_LOCKED",
+            logout: true,
+            redirect: "/security-lock",
+            reason: "security_violation",
+            message: "Your account has been locked due to security violations."
+          });
+        }
         return res.status(403).json({ message: 'User account is deactivated' });
       }
 
@@ -142,8 +152,12 @@ export const protect = async (req, res, next) => {
         if (!isSameDevice) {
           logToFileAndConsole("RETURNING: OneDeviceViolation");
           return res.status(401).json({
-            message: 'Session expired. Logged in from another device.',
-            oneDeviceViolation: true
+            success: false,
+            code: "SESSION_TERMINATED",
+            logout: true,
+            redirect: "/security-lock",
+            reason: "one_device_violation",
+            message: "Session expired. Logged in from another device."
           });
         }
       }

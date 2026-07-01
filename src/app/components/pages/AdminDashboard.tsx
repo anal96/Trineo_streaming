@@ -60,7 +60,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
-import { apiFetch, getApiUrl, getUploadUrl } from '../../utils/api';
+import { apiFetch, getApiUrl, getUploadUrl, clearLocalStorageKeepingTheme } from '../../utils/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThemeToggleButton } from '../ThemeToggle';
 import { PanelDrawerNav } from '../responsive/PanelDrawerNav';
@@ -380,7 +380,7 @@ export default function AdminDashboard() {
       console.error('Logout error:', err);
     }
     queryClient.clear();
-    localStorage.clear();
+    clearLocalStorageKeepingTheme();
     sessionStorage.clear();
     navigate('/login', { replace: true });
   };

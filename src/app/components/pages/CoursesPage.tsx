@@ -41,7 +41,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { apiFetch, getUploadUrl } from '../../utils/api';
+import { apiFetch, getUploadUrl, clearLocalStorageKeepingTheme } from '../../utils/api';
 import { initializePushNotifications } from '../../utils/pushManager';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -184,7 +184,7 @@ export default function CoursesPage() {
       console.error('Logout error:', err);
     }
     queryClient.clear();
-    localStorage.clear();
+    clearLocalStorageKeepingTheme();
     sessionStorage.clear();
     setUser(null);
     navigate('/login', { replace: true });

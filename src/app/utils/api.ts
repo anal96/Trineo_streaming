@@ -23,6 +23,13 @@ export const getUploadUrl = (path: string) => {
   return `${cleanBase}${path.startsWith('/') ? path : '/' + path}`;
 };
 
+let activeAbortController = new AbortController();
+
+export const cancelAllPendingRequests = () => {
+  activeAbortController.abort();
+  activeAbortController = new AbortController();
+};
+
 export async function apiFetch(endpoint: string, options: RequestInit & { ignoreAuthError?: boolean } = {}) {
   const token = localStorage.getItem('token');
   const headers = {
@@ -45,7 +52,17 @@ export async function apiFetch(endpoint: string, options: RequestInit & { ignore
       ...options,
       headers,
       credentials: 'include',
+      signal: activeAbortController.signal,
     });
+
+    const clone = response.clone();
+    const data = await clone.json().catch(() => ({}));
+    if (data && data.logout === true) {
+      const reason = data.code === 'ACCOUNT_LOCKED' ? 'account_locked' : 'session_expired';
+      const { SessionTerminationService } = await import('./SessionTerminationService');
+      SessionTerminationService.terminate(reason);
+      throw new Error(data.message || 'Session ended');
+    }
 
     if (response.status === 401) {
       const data = await response.json().catch(() => ({}));
@@ -107,4 +124,12 @@ export async function getDownloadUrlWithToken(downloadUrl: string) {
     ? `${getApiUrl(downloadUrl)}?token=${encodeURIComponent(downloadToken)}`
     : getApiUrl(downloadUrl);
 }
+
+export const clearLocalStorageKeepingTheme = () => {
+  const theme = localStorage.getItem('theme');
+  localStorage.clear();
+  if (theme) {
+    localStorage.setItem('theme', theme);
+  }
+};
 

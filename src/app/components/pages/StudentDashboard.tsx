@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, lazy, Suspense, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
+import { SessionTerminationService } from '../../utils/SessionTerminationService';
 import { motion } from 'motion/react';
 import {
   Home,
@@ -74,7 +75,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { MobileNav, studentNavItems } from '../MobileNav';
 import { ThemeToggleButton } from '../ThemeToggle';
-import { apiFetch, getApiUrl, getUploadUrl, getDownloadUrlWithToken } from '../../utils/api';
+import { apiFetch, getApiUrl, getUploadUrl, getDownloadUrlWithToken, clearLocalStorageKeepingTheme } from '../../utils/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPushSubscriptionState, subscribeToPush, unsubscribeFromPush, initializePushNotifications } from '../../utils/pushManager';
 import { toast } from 'sonner';
@@ -289,9 +290,17 @@ export default function StudentDashboard() {
     }
   });
   const queryClient = useQueryClient();
+  SessionTerminationService.registerQueryClient(queryClient);
 
   const userId = user?._id || user?.id || '';
   const instituteId = user?.institute?._id || user?.institute || '';
+
+  // Global Security Lock Overlay — syncs with ProtectionManager across tabs
+  const [securityLockActive, setSecurityLockActive] = useState(false);
+  const [securityLockRemaining, setSecurityLockRemaining] = useState(0);
+  const [forceLogout, setForceLogout] = useState(false);
+  const [accountLocked, setAccountLocked] = useState(false);
+  const [securityStatus, setSecurityStatus] = useState<any>(null);
 
   // Queries
   const { data: purchasedCourses = [] } = useQuery({
@@ -343,7 +352,7 @@ export default function StudentDashboard() {
     queryKey: ['status', userId],
     queryFn: () => apiFetch('/security/status', { ignoreAuthError: true }),
     refetchInterval: 5000,
-    enabled: !!userId,
+    enabled: !!userId && !accountLocked && !forceLogout,
   });
 
   const { data: profile } = useQuery({
@@ -459,6 +468,8 @@ export default function StudentDashboard() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rules, setRules] = useState<any[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
+  const [ticketSubject, setTicketSubject] = useState('');
+  const [ticketDescription, setTicketDescription] = useState('');
 
   const [notificationFilter, setNotificationFilter] = useState('all');
   const [notificationSort, setNotificationSort] = useState('newest');
@@ -818,13 +829,6 @@ export default function StudentDashboard() {
 
   const [serverTimeOffset, setServerTimeOffset] = useState(0);
 
-  // Global Security Lock Overlay — syncs with ProtectionManager across tabs
-  const [securityLockActive, setSecurityLockActive] = useState(false);
-  const [securityLockRemaining, setSecurityLockRemaining] = useState(0);
-  const [forceLogout, setForceLogout] = useState(false);
-  const [accountLocked, setAccountLocked] = useState(false);
-  const [securityStatus, setSecurityStatus] = useState<any>(null);
-
   const lastHeartbeatTimeRef = useRef<number>(0);
 
   useEffect(() => {
@@ -889,6 +893,8 @@ export default function StudentDashboard() {
     const timer = setInterval(() => {
       sendHeartbeat();
     }, 60000);
+
+    SessionTerminationService.registerCancelHeartbeat(() => clearInterval(timer));
 
     return () => clearInterval(timer);
   }, [activeTab, userId]);
@@ -1163,11 +1169,10 @@ export default function StudentDashboard() {
       { name: 'Full Name', done: !!user?.name },
       { name: 'Email Address', done: !!user?.email },
       { name: 'Mobile Phone', done: !!user?.phone },
-      { name: 'Profile Photo', done: !!user?.avatar },
-      { name: 'Recovery Email', done: !!user?.recoveryEmail }
+      { name: 'Profile Photo', done: !!user?.avatar }
     ];
     checklist.forEach(item => {
-      if (item.done) completed += 20;
+      if (item.done) completed += 25;
     });
     return { percent: completed, checklist };
   }, [user]);
@@ -1350,7 +1355,7 @@ export default function StudentDashboard() {
       console.error('Logout error:', err);
     }
     queryClient.clear();
-    localStorage.clear();
+    clearLocalStorageKeepingTheme();
     sessionStorage.clear();
     setUser(null);
     navigate('/login', { replace: true });
@@ -2873,7 +2878,7 @@ export default function StudentDashboard() {
                         <CardContent className="p-5">
                           <div className="flex items-start gap-4">
                             <Avatar className="w-14 h-14 border-2 border-border flex-shrink-0">
-                              <AvatarImage src={faculty.avatar} />
+                              <AvatarImage src={faculty.avatar ? (faculty.avatar.startsWith('/') ? getUploadUrl(faculty.avatar) : faculty.avatar) : `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(faculty.name)}`} />
                               <AvatarFallback className="text-lg font-bold bg-primary/10 text-primary">{faculty.name[0]}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
@@ -3413,23 +3418,7 @@ export default function StudentDashboard() {
                     <div className="flex items-center gap-2">
                       {selectedIds.length > 0 && (
                         <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-xs border-violet-200 text-violet-700 hover:bg-violet-50 dark:border-violet-900/40 dark:text-violet-400 flex items-center gap-1 px-3 rounded-full cursor-pointer transition-colors"
-                            onClick={async () => {
-                              await Promise.all(
-                                selectedIds.map(id => apiFetch(`/student-notifications/${id}/read`, { method: 'POST' }))
-                              );
-                              setSelectedIds([]);
-                              setIsSelectionMode(false);
-                              loadNotifications();
-                              toast.success('Selected notifications marked as read');
-                            }}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Mark Read</span>
-                          </Button>
+
                           <Button
                             size="sm"
                             variant="destructive"
@@ -4048,58 +4037,11 @@ export default function StudentDashboard() {
                                     localStorage.setItem('user', JSON.stringify(updated));
                                     setUser(updated);
                                     toast.success('Profile details saved!');
+                                    setMobileSettingsExpanded(null);
                                   } catch (e: any) { toast.error(e.message || 'Failed to update profile'); }
                                 }}
                               >
                                 Save Details
-                              </Button>
-                            </div>
-                          </div>
-
-                          {/* Account Recovery */}
-                          <div className="pt-4 border-t border-border/40 space-y-4">
-                            <h4 className="font-extrabold text-xs text-foreground flex items-center gap-1.5">
-                              <Mail className="w-4 h-4 text-purple-650" />
-                              <span>Account Recovery</span>
-                            </h4>
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Recovery Email</label>
-                              <Input 
-                                type="email" 
-                                className="rounded-xl bg-background/50 border-border/50 text-xs" 
-                                value={profileForm.recoveryEmail} 
-                                onChange={(e) => setProfileForm((f) => ({ ...f, recoveryEmail: e.target.value }))} 
-                              />
-                            </div>
-                            <div className="flex justify-end gap-2">
-                              <Button 
-                                variant="outline"
-                                className="rounded-xl text-xs h-9 touch-btn"
-                                onClick={async () => {
-                                  if (!profileForm.recoveryEmail) {
-                                    toast.error('Specify a recovery email first.');
-                                    return;
-                                  }
-                                  try {
-                                    const resp = await apiFetch('/student-account/password/request-reset', { method: 'POST', body: JSON.stringify({ email: profileForm.recoveryEmail }) });
-                                    toast.success('Reset link dispatched!', { description: `Token (dev): ${resp.resetToken}` });
-                                  } catch (e: any) { toast.error(e.message || 'Failed to dispatch reset link'); }
-                                }}
-                              >
-                                Send Reset Link
-                              </Button>
-                              <Button 
-                                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs h-9 touch-btn"
-                                onClick={async () => {
-                                  try {
-                                    const updated = await apiFetch('/student-account/profile', { method: 'PUT', body: JSON.stringify({ recoveryEmail: profileForm.recoveryEmail }) });
-                                    localStorage.setItem('user', JSON.stringify(updated));
-                                    setUser(updated);
-                                    toast.success('Recovery settings saved.');
-                                  } catch (e: any) { toast.error(e.message || 'Failed to update recovery email'); }
-                                }}
-                              >
-                                Save Recovery
                               </Button>
                             </div>
                           </div>
@@ -4607,62 +4549,6 @@ export default function StudentDashboard() {
                           </CardContent>
                         </Card>
 
-                        {/* Account Recovery Email */}
-                        <Card className="border-border/40 shadow-sm rounded-[24px] bg-card overflow-hidden">
-                          <CardHeader className="border-b border-border/40 pb-4">
-                            <CardTitle className="text-sm font-bold flex items-center gap-2">
-                              <Mail className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                              <span>Account Recovery Configuration</span>
-                            </CardTitle>
-                            <CardDescription>Enter a secondary recovery email address to securely reset credentials.</CardDescription>
-                          </CardHeader>
-                          <CardContent className="pt-5 space-y-4">
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Recovery Email</label>
-                              <div className="relative">
-                                <Mail className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-                                <Input 
-                                  type="email" 
-                                  placeholder="recovery@email.com" 
-                                  className="pl-10 rounded-xl bg-background/50 border-border/50 focus:border-purple-500 text-xs" 
-                                  value={profileForm.recoveryEmail} 
-                                  onChange={(e) => setProfileForm((f) => ({ ...f, recoveryEmail: e.target.value }))} 
-                                />
-                              </div>
-                            </div>
-                            <div className="flex justify-end gap-3 pt-2">
-                              <Button 
-                                variant="outline" 
-                                className="rounded-xl text-xs" 
-                                onClick={async () => {
-                                  if (!profileForm.recoveryEmail) {
-                                    toast.error('Please specify a recovery email address first.');
-                                    return;
-                                  }
-                                  try {
-                                    const resp = await apiFetch('/student-account/password/request-reset', { method: 'POST', body: JSON.stringify({ email: profileForm.recoveryEmail }) });
-                                    toast.success('Reset link dispatched!', { description: `Token (dev): ${resp.resetToken}` });
-                                  } catch (e: any) { toast.error(e.message || 'Failed to dispatch reset link'); }
-                                }}
-                              >
-                                Send Reset Link
-                              </Button>
-                              <Button 
-                                className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs" 
-                                onClick={async () => {
-                                  try {
-                                    const updated = await apiFetch('/student-account/profile', { method: 'PUT', body: JSON.stringify({ recoveryEmail: profileForm.recoveryEmail }) });
-                                    localStorage.setItem('user', JSON.stringify(updated));
-                                    setUser(updated);
-                                    toast.success('Recovery settings saved.');
-                                  } catch (e: any) { toast.error(e.message || 'Failed to update recovery email'); }
-                                }}
-                              >
-                                Save Recovery Settings
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
 
                       </motion.div>
                     )}
@@ -5064,13 +4950,20 @@ export default function StudentDashboard() {
                             <div className="grid grid-cols-1 gap-4">
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Subject</label>
-                                <Input className="rounded-xl bg-background/50 border-border/50 text-xs" placeholder="e.g. Video loading issues, payment discrepancy" />
+                                <Input 
+                                  className="rounded-xl bg-background/50 border-border/50 text-xs" 
+                                  placeholder="e.g. Video loading issues, payment discrepancy" 
+                                  value={ticketSubject}
+                                  onChange={(e) => setTicketSubject(e.target.value)}
+                                />
                               </div>
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Description of the Issue</label>
                                 <textarea 
                                   className="w-full min-h-24 p-3 text-xs bg-background/50 border border-border/50 rounded-xl focus:border-purple-500 outline-none" 
                                   placeholder="Provide as much detail as possible to help our team resolve your query..." 
+                                  value={ticketDescription}
+                                  onChange={(e) => setTicketDescription(e.target.value)}
                                 />
                               </div>
                             </div>
@@ -5079,6 +4972,8 @@ export default function StudentDashboard() {
                                 className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold px-6 py-2.5 rounded-xl hover:opacity-95 shadow-md shadow-purple-500/10 text-xs"
                                 onClick={() => {
                                   toast.success('Support ticket submitted successfully!', { description: 'Our support team will follow up via email.' });
+                                  setTicketSubject('');
+                                  setTicketDescription('');
                                 }}
                               >
                                 Submit Request
@@ -5211,29 +5106,15 @@ export default function StudentDashboard() {
                         )}
 
                         {/* Actions */}
-                        <div className="flex justify-between items-center gap-3 pt-4 border-t border-border/40">
-                          <div className="flex gap-2">
-                            {user?.avatar && (
-                              <Button variant="ghost" className="text-destructive hover:bg-destructive/10 text-xs px-3" onClick={handleRemoveAvatar}>
-                                <Trash2 className="w-4 h-4 mr-1.5" /> Remove
-                              </Button>
-                            )}
-                            {selectedAvatarFile && (
-                              <Button variant="ghost" className="text-xs px-3" onClick={() => setSelectedAvatarFile(null)}>
-                                Clear
-                              </Button>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => { setAvatarModalOpen(false); setSelectedAvatarFile(null); }}>
-                              Cancel
+                        <div className="flex justify-end items-center gap-2 pt-4 border-t border-border/40">
+                          <Button variant="outline" size="sm" className="text-xs rounded-xl" onClick={() => { setAvatarModalOpen(false); setSelectedAvatarFile(null); }}>
+                            Cancel
+                          </Button>
+                          {selectedAvatarFile && (
+                            <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white text-xs rounded-xl" size="sm" onClick={handleSaveAvatar} disabled={isSavingAvatar}>
+                              {isSavingAvatar ? 'Saving...' : 'Save Photo'}
                             </Button>
-                            {selectedAvatarFile && (
-                              <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-95 text-white text-xs" size="sm" onClick={handleSaveAvatar} disabled={isSavingAvatar}>
-                                {isSavingAvatar ? 'Saving...' : 'Save Photo'}
-                              </Button>
-                            )}
-                          </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>

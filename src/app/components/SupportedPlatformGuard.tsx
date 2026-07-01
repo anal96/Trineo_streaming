@@ -1,8 +1,117 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Button } from './ui/button';
+import { SessionTerminationService } from '../utils/SessionTerminationService';
+import { apiFetch, clearLocalStorageKeepingTheme } from '../utils/api';
 
 export default function SupportedPlatformGuard({ children }: { children: React.ReactNode }) {
   const ua = navigator.userAgent.toLowerCase();
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return;
+    let user: any = null;
+    try {
+      user = JSON.parse(userStr);
+    } catch (_) {
+      return;
+    }
+    const isStudent = user && user.role === 'student';
+    if (!isStudent) return;
+
+    // 1. Detect keyboard shortcuts (F12, Ctrl+Shift+I/J/C)
+    const handleDevToolsKeys = (e: KeyboardEvent) => {
+      const isF12 = e.key === 'F12' || e.code === 'F12';
+      const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c');
+      if (isF12 || isInspect) {
+        e.preventDefault();
+        
+        console.log("[SECURITY] F12 pressed");
+        console.log("[SECURITY] Reporting DevTools violation");
+        console.log("[SECURITY] Terminating session");
+
+        // Log violation on backend
+        apiFetch('/security/audit', {
+          method: 'POST',
+          body: JSON.stringify({
+            eventType: 'devtools',
+            details: `DevTools hotkey (${e.key}) pressed.`
+          }),
+          ignoreAuthError: true
+        }).catch(() => {});
+
+        // Terminate session instantly
+        SessionTerminationService.terminate('devtools_open');
+      }
+    };
+    window.addEventListener('keydown', handleDevToolsKeys, true);
+
+    // 2. Periodically monitor layout bounds and console print checks
+    const threshold = 160;
+    const interval = setInterval(() => {
+      // Bounds check: detects docked DevTools and Chrome device emulation toolbar
+      const widthDiff = window.outerWidth - window.innerWidth;
+      const heightDiff = window.outerHeight - window.innerHeight;
+      if (widthDiff > threshold || heightDiff > threshold) {
+        console.warn("[SECURITY] DevTools or Device Emulation viewport violation.");
+        SessionTerminationService.terminate('devtools_open');
+        return;
+      }
+
+      // toString console check: detects undocked/separate window DevTools
+      let devtoolsOpen = false;
+      const devObject = /./;
+      devObject.toString = function() {
+        devtoolsOpen = true;
+        return '';
+      };
+      console.log(devObject);
+
+      if (devtoolsOpen) {
+        console.warn("[SECURITY] DevTools window active via console check.");
+        SessionTerminationService.terminate('devtools_open');
+      }
+    }, 1000);
+
+    // 3. Dynamic Platform & Viewport Emulation change detector
+    const handlePlatformOrDevToolsChange = () => {
+      // Bounds check on resize (catches toggling Device Toolbar emulation)
+      const wDiff = window.outerWidth - window.innerWidth;
+      const hDiff = window.outerHeight - window.innerHeight;
+      if (wDiff > threshold || hDiff > threshold) {
+        console.warn("[SECURITY] DevTools or Device Emulation bounds violation on viewport change.");
+        SessionTerminationService.terminate('devtools_open');
+        return;
+      }
+
+      // Read fresh user agent and app state
+      const freshUa = navigator.userAgent.toLowerCase();
+      const freshIsApp = freshUa.includes('trineoandroid') || (window as any).AndroidApp;
+      const freshIsWindows = freshUa.includes('windows');
+      const freshIsSupportedStudent = freshIsWindows || freshIsApp;
+
+      if (!freshIsSupportedStudent) {
+        console.warn("[SECURITY] Platform changed dynamically to an unsupported state. Terminating session...");
+        SessionTerminationService.terminate('platform_changed');
+      }
+    };
+
+    window.addEventListener('resize', handlePlatformOrDevToolsChange);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handlePlatformOrDevToolsChange);
+    }
+
+    // Call once initially to catch any pre-existing emulation right on mount
+    handlePlatformOrDevToolsChange();
+
+    return () => {
+      window.removeEventListener('keydown', handleDevToolsKeys, true);
+      window.removeEventListener('resize', handlePlatformOrDevToolsChange);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handlePlatformOrDevToolsChange);
+      }
+      clearInterval(interval);
+    };
+  }, []);
   
   // 1. Android WebView App detection
   const isApp = ua.includes('trineoandroid') || (window as any).AndroidApp;
@@ -114,7 +223,7 @@ export default function SupportedPlatformGuard({ children }: { children: React.R
             <Button 
               variant="outline" 
               onClick={() => {
-                localStorage.clear();
+                clearLocalStorageKeepingTheme();
                 window.location.href = '/login';
               }}
               className="w-full border-white/[0.08] hover:bg-white/[0.04] text-xs font-bold h-11 rounded-xl"

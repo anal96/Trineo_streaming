@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { motion } from 'motion/react';
 import Hls from 'hls.js';
 import { ProtectionManager } from '../../utils/ProtectionManager';
+import { SessionTerminationService } from '../../utils/SessionTerminationService';
 import {
   Play,
   Pause,
@@ -320,17 +321,32 @@ export default function VideoPlayer() {
     setExpandedUnits(newUnits);
   };
 
-  const currentIndex = lessons.findIndex((l: any) => l._id === currentLesson?._id);
-  const nextContent = currentIndex !== -1 && currentIndex < lessons.length - 1 ? lessons[currentIndex + 1] : null;
+  const flatContents = useMemo(() => {
+    const flat: any[] = [];
+    lessons.forEach((l: any) => {
+      const contents = l.videos || l.contents?.filter((c: any) => c.type === 'video' || c.type === 'pdf') || [];
+      contents.forEach((c: any) => {
+        flat.push({
+          ...c,
+          lessonId: l._id,
+          lessonTitle: l.title
+        });
+      });
+    });
+    return flat;
+  }, [lessons]);
+
+  const currentIndex = flatContents.findIndex((c: any) => c._id === currentLesson?._id);
+  const nextContent = currentIndex !== -1 && currentIndex < flatContents.length - 1 ? flatContents[currentIndex + 1] : null;
 
   const remainingTimeText = useMemo(() => {
     if (currentIndex === -1) return 'N/A';
-    const remainingLessonsCount = lessons.length - currentIndex;
-    const minutes = remainingLessonsCount * 10;
+    const remainingContentsCount = flatContents.length - currentIndex;
+    const minutes = remainingContentsCount * 10;
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
-  }, [lessons, currentIndex]);
+  }, [flatContents, currentIndex]);
 
   const activeHierarchy = useMemo(() => {
     if (!currentLesson?._id || !subjects) return null;
@@ -601,6 +617,7 @@ export default function VideoPlayer() {
       onTerminateSession: (reason) => {
         console.log("[SECURITY] onTerminateSession callback:", reason);
         setIsPlaying(false);
+        SessionTerminationService.terminate('exceeded');
       },
       reportViolation: async (type, details) => {
         console.log("[SECURITY] options.reportViolation callback triggered with type:", type);
@@ -612,6 +629,7 @@ export default function VideoPlayer() {
     });
 
     protectionManagerRef.current = manager;
+    SessionTerminationService.registerProtectionManager(manager);
     manager.start();
 
     // [TEMP DISABLED] Right-Click Context Menu block — re-enable for production
@@ -629,6 +647,7 @@ export default function VideoPlayer() {
     return () => {
       manager.stop();
       protectionManagerRef.current = null;
+      SessionTerminationService.registerProtectionManager(null);
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('dragstart', handleDragStart);
     };
@@ -638,6 +657,15 @@ export default function VideoPlayer() {
   useEffect(() => {
     if (!securityStatusRes || !protectionManagerRef.current) return;
     const manager = protectionManagerRef.current;
+    
+    if (securityStatusRes.accountLocked) {
+      SessionTerminationService.terminate('account_locked');
+      return;
+    }
+    if (securityStatusRes.forceLogout) {
+      SessionTerminationService.terminate('admin_terminated');
+      return;
+    }
     
     if (securityStatusRes.penaltyActive && securityStatusRes.penaltyUntil) {
       manager.syncSecurityStatus(
@@ -1040,12 +1068,12 @@ export default function VideoPlayer() {
               }
               // Auto-Next Lesson Trigger
               if (autoNext) {
-                const currentIndex = lessons.findIndex(l => l._id === currentLesson._id);
-                if (currentIndex !== -1 && currentIndex < lessons.length - 1) {
-                  const nextLesson = lessons[currentIndex + 1];
-                  if (!nextLesson.isLocked) {
-                    setCurrentLesson(nextLesson);
-                    toast.success(`Playing next: ${nextLesson.title}`);
+                const cIndex = flatContents.findIndex(c => c._id === currentLesson?._id);
+                if (cIndex !== -1 && cIndex < flatContents.length - 1) {
+                  const nextContentItem = flatContents[cIndex + 1];
+                  if (!nextContentItem.isLocked) {
+                    setCurrentLesson(nextContentItem);
+                    toast.success(`Playing next: ${nextContentItem.title}`);
                   }
                 }
               } else {
@@ -1139,6 +1167,8 @@ export default function VideoPlayer() {
         maxMaxBufferLength: 10,
       });
       hlsRef.current = hls;
+      SessionTerminationService.registerHls(hls);
+      SessionTerminationService.registerVideoElement(video);
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
 
@@ -1212,14 +1242,13 @@ export default function VideoPlayer() {
       if (currentLesson?._id) {
         localStorage.setItem(`completed_${userId}_${currentLesson._id}`, 'true');
       }
-      // Auto-Next Lesson Trigger
       if (autoNext) {
-        const currentIndex = lessons.findIndex(l => l._id === currentLesson._id);
-        if (currentIndex !== -1 && currentIndex < lessons.length - 1) {
-          const nextLesson = lessons[currentIndex + 1];
-          if (!nextLesson.isLocked) {
-            setCurrentLesson(nextLesson);
-            toast.success(`Playing next: ${nextLesson.title}`);
+        const cIndex = flatContents.findIndex(c => c._id === currentLesson?._id);
+        if (cIndex !== -1 && cIndex < flatContents.length - 1) {
+          const nextContentItem = flatContents[cIndex + 1];
+          if (!nextContentItem.isLocked) {
+            setCurrentLesson(nextContentItem);
+            toast.success(`Playing next: ${nextContentItem.title}`);
           }
         }
       } else {
@@ -1249,6 +1278,8 @@ export default function VideoPlayer() {
         hls.destroy();
       }
       hlsRef.current = null;
+      SessionTerminationService.registerHls(null);
+      SessionTerminationService.registerVideoElement(null);
     };
   }, [activeVideoId, provider, currentLesson, autoNext, lessons, userId]);
 
@@ -2013,7 +2044,11 @@ export default function VideoPlayer() {
                     </div>
                     <div 
                       className="absolute inset-0 z-10 cursor-pointer"
-                      onClick={togglePlay}
+                      onClick={() => {
+                        if (window.innerWidth >= 1024) {
+                          togglePlay();
+                        }
+                      }}
                     />
                   </div>
                 )}
@@ -2033,7 +2068,11 @@ export default function VideoPlayer() {
                       ref={videoRef}
                       className="absolute inset-0 w-full h-full object-cover cursor-pointer"
                       playsInline
-                      onClick={togglePlay}
+                      onClick={() => {
+                        if (window.innerWidth >= 1024) {
+                          togglePlay();
+                        }
+                      }}
                     />
                   </div>
                 )}
@@ -2187,13 +2226,12 @@ export default function VideoPlayer() {
                           variant="ghost"
                           className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                           onClick={() => {
-                            const currentIndex = lessons.findIndex(l => l._id === currentLesson?._id);
                             if (currentIndex > 0) {
-                              const prevLesson = lessons[currentIndex - 1];
-                              setCurrentLesson(prevLesson);
+                              const prevContent = flatContents[currentIndex - 1];
+                              setCurrentLesson(prevContent);
                             }
                           }}
-                          disabled={lessons.findIndex(l => l._id === currentLesson?._id) <= 0}
+                          disabled={currentIndex <= 0}
                         >
                           <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 rotate-180 fill-white" />
                         </Button>
@@ -2212,13 +2250,12 @@ export default function VideoPlayer() {
                           variant="ghost"
                           className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                           onClick={() => {
-                            const currentIndex = lessons.findIndex(l => l._id === currentLesson._id);
-                            if (currentIndex !== -1 && currentIndex < lessons.length - 1) {
-                              const nextLesson = lessons[currentIndex + 1];
-                              if (!nextLesson.isLocked) setCurrentLesson(nextLesson);
+                            if (currentIndex !== -1 && currentIndex < flatContents.length - 1) {
+                              const nextContentItem = flatContents[currentIndex + 1];
+                              if (!nextContentItem.isLocked) setCurrentLesson(nextContentItem);
                             }
                           }}
-                          disabled={lessons.findIndex(l => l._id === currentLesson?._id) === lessons.length - 1}
+                          disabled={currentIndex === -1 || currentIndex >= flatContents.length - 1}
                         >
                           <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 fill-white" />
                         </Button>
@@ -2474,7 +2511,7 @@ export default function VideoPlayer() {
                       {currentContent?.title || 'Select a Lesson'}
                     </h4>
                     <p className="text-[11px] text-muted-foreground font-semibold mt-0.5">
-                      {currentContent?.youtubeDuration || currentContent?.duration || '10:00'} • Topic {currentIndex !== -1 ? currentIndex + 1 : 1} of {lessons.length}
+                      {currentContent?.youtubeDuration || currentContent?.duration || '10:00'} • Topic {currentIndex !== -1 ? currentIndex + 1 : 1} of {flatContents.length}
                     </p>
                   </div>
                 </div>
@@ -2768,46 +2805,6 @@ export default function VideoPlayer() {
                     </AccordionContent>
                   </AccordionItem>
 
-                  {/* Batch Resources Accordion Item */}
-                  <AccordionItem value="batch-resources" className="border border-border/40 bg-card rounded-2xl px-4 overflow-hidden shadow-sm">
-                    <AccordionTrigger className="hover:no-underline py-3.5">
-                      <div className="flex items-center gap-2">
-                        <BookOpen className="w-4 h-4 text-indigo-500" />
-                        <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">Batch Resources & Study Materials</span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="pb-4 pt-1 space-y-3">
-                      {courseMaterials.map((material) => (
-                        <Card key={material._id} className="border border-border/40 bg-card rounded-2xl shadow-sm overflow-hidden">
-                          <CardContent className="p-3.5 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3.5 min-w-0">
-                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 flex items-center justify-center shrink-0">
-                                <FileText className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="font-black text-xs text-slate-700 dark:text-zinc-200 truncate">{material.title || material.originalName}</h4>
-                                <p className="text-[10px] text-muted-foreground font-semibold truncate">{material.description || 'PDF Document'}</p>
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-9 text-[11px] font-bold flex items-center gap-1.5 shrink-0 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 border-indigo-200 text-indigo-650 dark:border-indigo-900/60 dark:text-indigo-400 dark:hover:bg-zinc-800 px-3 shadow-none"
-                              onClick={() => openDownload(material.downloadUrl, material.title || material.originalName, material._id)}
-                            >
-                              <Download className="w-3.5 h-3.5" /> Download
-                            </Button>
-                          </CardContent>
-                        </Card>
-                      ))}
-
-                      {courseMaterials.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-muted-foreground font-semibold italic">
-                          No batch resources available.
-                        </div>
-                      ) : null}
-                    </AccordionContent>
-                  </AccordionItem>
                 </Accordion>
 
                 {/* Streaming Protection Badge */}
@@ -3310,14 +3307,13 @@ export default function VideoPlayer() {
           size="sm"
           className="flex-1 rounded-2xl border border-slate-200 dark:border-zinc-800 text-xs font-bold h-11 flex items-center justify-center gap-1.5 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 bg-white"
           onClick={() => {
-            const currentIndex = lessons.findIndex(l => l._id === currentLesson?._id);
             if (currentIndex > 0) {
-              const prevLesson = lessons[currentIndex - 1];
-              setCurrentLesson(prevLesson);
-              toast.success(`Playing previous: ${prevLesson.title}`);
+              const prevContent = flatContents[currentIndex - 1];
+              setCurrentLesson(prevContent);
+              toast.success(`Playing previous: ${prevContent.title}`);
             }
           }}
-          disabled={lessons.findIndex(l => l._id === currentLesson?._id) <= 0}
+          disabled={currentIndex <= 0}
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Previous Lesson</span>
@@ -3326,16 +3322,15 @@ export default function VideoPlayer() {
           size="sm"
           className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold h-11 flex items-center justify-center gap-1.5 shadow-md shadow-indigo-500/10 border-0"
           onClick={() => {
-            const currentIndex = lessons.findIndex(l => l._id === currentLesson?._id);
-            if (currentIndex !== -1 && currentIndex < lessons.length - 1) {
-              const nextLesson = lessons[currentIndex + 1];
-              if (!nextLesson.isLocked) {
-                setCurrentLesson(nextLesson);
-                toast.success(`Playing next: ${nextLesson.title}`);
+            if (currentIndex !== -1 && currentIndex < flatContents.length - 1) {
+              const nextContentItem = flatContents[currentIndex + 1];
+              if (!nextContentItem.isLocked) {
+                setCurrentLesson(nextContentItem);
+                toast.success(`Playing next: ${nextContentItem.title}`);
               }
             }
           }}
-          disabled={lessons.findIndex(l => l._id === currentLesson?._id) === lessons.length - 1}
+          disabled={currentIndex === -1 || currentIndex >= flatContents.length - 1}
         >
           <span>Next Lesson</span>
           <ArrowRight className="w-3.5 h-3.5" />

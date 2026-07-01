@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Plus, PencilLine, Trash2, Search, Users, Mail, Clock, BookOpen, Loader2 } from 'lucide-react';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, getUploadUrl } from '../../utils/api';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -23,6 +23,7 @@ export default function FacultyManagement() {
   const [email, setEmail] = useState('');
   const [officeHours, setOfficeHours] = useState('');
   const [bio, setBio] = useState('');
+  const [avatar, setAvatar] = useState<string | null>(null);
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -66,6 +67,7 @@ export default function FacultyManagement() {
     setEmail('');
     setOfficeHours('');
     setBio('');
+    setAvatar(null);
     setSelectedCourses([]);
     setShowModal(true);
   };
@@ -78,6 +80,7 @@ export default function FacultyManagement() {
     setEmail(faculty.email || '');
     setOfficeHours(faculty.officeHours || '');
     setBio(faculty.bio || '');
+    setAvatar(faculty.avatar || null);
     setSelectedCourses((faculty.courses || []).map((c: any) => c._id));
     setShowModal(true);
   };
@@ -98,6 +101,7 @@ export default function FacultyManagement() {
       email,
       officeHours,
       bio,
+      avatar,
       courses: selectedCourses
     };
 
@@ -217,7 +221,7 @@ export default function FacultyManagement() {
                 {/* Top: Avatar + Identity */}
                 <div className="flex items-start gap-4 mb-4">
                   <Avatar className="h-14 w-14 ring-2 ring-primary/20">
-                    <AvatarImage src={faculty.avatar} />
+                    <AvatarImage src={faculty.avatar ? (faculty.avatar.startsWith('/') ? getUploadUrl(faculty.avatar) : faculty.avatar) : `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(faculty.name)}`} />
                     <AvatarFallback className="text-lg font-bold bg-primary/10 text-primary">{faculty.name?.[0]}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
@@ -308,6 +312,47 @@ export default function FacultyManagement() {
           </DialogHeader>
 
           <form onSubmit={handleSave} className="space-y-4 mt-2">
+            {/* Profile Photo */}
+            <div className="space-y-2 pb-1.5 border-b border-border/40">
+              <Label>Profile Photo</Label>
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16 border">
+                  <AvatarImage src={avatar ? (avatar.startsWith('data:') ? avatar : getUploadUrl(avatar)) : ''} />
+                  <AvatarFallback className="text-lg font-bold bg-primary/10 text-primary">
+                    {name ? name[0] : '?'}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col gap-1.5">
+                  <Input
+                    id="faculty-avatar-file"
+                    type="file"
+                    accept="image/*"
+                    className="max-w-[220px] text-xs h-9 cursor-pointer"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setAvatar(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                  {avatar && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-destructive text-xs hover:bg-destructive/5 self-start h-7 px-2"
+                      onClick={() => setAvatar(null)}
+                    >
+                      Remove Photo
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Name */}
             <div className="space-y-1.5">
               <Label htmlFor="faculty-name">Full Name *</Label>
