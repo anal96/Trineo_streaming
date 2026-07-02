@@ -1686,29 +1686,20 @@ export default function StudentDashboard() {
                   <p className="text-xs text-muted-foreground">New lessons and recent learning activity</p>
                   <div className="max-h-60 overflow-y-auto space-y-2">
                     {notifications.slice(0, 5).map((n) => (
-                      <button
+                      <div
                         key={n._id}
                         className="w-full text-left text-xs border-b border-border/40 pb-2"
-                        onClick={async () => {
-                          try {
-                            if (n.userId) await apiFetch(`/student-notifications/${n._id}/read`, { method: 'POST' });
-                            loadNotifications();
-                          } catch (_e) { }
-                        }}
                       >
                         <span className="text-primary font-medium">{n.type}: </span>
                         {n.message}
-                      </button>
+                      </div>
                     ))}
                     {notifications.length === 0 && (
                       <p className="text-xs text-muted-foreground text-center">You're all caught up.</p>
                     )}
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button size="sm" variant="outline" onClick={async () => { await apiFetch('/student-notifications/mark-all-read', { method: 'POST' }); loadNotifications(); }}>
-                      Mark all read
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => { setActiveTab('notifications'); navigate('/student?tab=notifications'); }}>
+                    <Button size="sm" variant="outline" onClick={() => { setActiveTab('notifications'); navigate('/student?tab=notifications'); }} className="w-full justify-center">
                       Open Center
                     </Button>
                   </div>
@@ -2542,78 +2533,7 @@ export default function StudentDashboard() {
                         </div>
                       </div>
 
-                      {/* 5️⃣ LEARNING PATH FLOW */}
-                      <div className="space-y-4">
-                        <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
-                          <TrendingUp className="w-5 h-5 text-primary" />
-                          Your Learning Path
-                        </h3>
 
-                        <Card className="border border-border/60 bg-card p-6 shadow-sm overflow-hidden">
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 md:gap-4 relative">
-                            {/* Connector line for desktop */}
-                            <div className="hidden md:block absolute top-6 left-16 right-16 h-0.5 bg-border z-0" />
-
-                            {/* Step 1: Batch */}
-                            <div className="flex-1 flex flex-row md:flex-col items-center md:text-center gap-4 md:gap-3 relative z-10">
-                              <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center border-4 border-emerald-100 dark:border-emerald-950/60 shadow-md">
-                                <Check className="w-5 h-5" />
-                              </div>
-                              <div className="space-y-0.5">
-                                <div className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Step 1: Batch</div>
-                                <div className="text-sm font-bold text-foreground">BCA Batch</div>
-                                <div className="text-xs text-muted-foreground">Enrollment Active</div>
-                              </div>
-                            </div>
-
-                            {/* Step 2: Subject */}
-                            <div className="flex-1 flex flex-row md:flex-col items-center md:text-center gap-4 md:gap-3 relative z-10">
-                              <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center border-4 border-emerald-100 dark:border-emerald-950/60 shadow-md">
-                                <Check className="w-5 h-5" />
-                              </div>
-                              <div className="space-y-0.5">
-                                <div className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Step 2: Subject</div>
-                                <div className="text-sm font-bold text-foreground">C Programming</div>
-                                <div className="text-xs text-muted-foreground">MCS011 Subject</div>
-                              </div>
-                            </div>
-
-                            {/* Step 3: Unit */}
-                            <div className="flex-1 flex flex-row md:flex-col items-center md:text-center gap-4 md:gap-3 relative z-10">
-                              <div className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center border-4 border-indigo-100 dark:border-indigo-950/60 shadow-md relative animate-pulse">
-                                <span className="text-xs font-bold">3/5</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <div className="text-xs text-indigo-500 dark:text-indigo-400 uppercase font-bold tracking-wider">Step 3: Unit</div>
-                                <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400">Pointers</div>
-                                <div className="text-xs text-muted-foreground">3 of 5 topics done</div>
-                              </div>
-                            </div>
-
-                            {/* Step 4: Next Topic */}
-                            <div
-                              className="flex-1 flex flex-row md:flex-col items-center md:text-center gap-4 md:gap-3 relative z-10 group cursor-pointer"
-                              onClick={() => {
-                                if (purchasedCourses.length > 0) {
-                                  handleVideoClick(purchasedCourses[0]._id);
-                                } else {
-                                  navigate('/student/courses');
-                                }
-                              }}
-                            >
-                              <div className="w-12 h-12 rounded-full bg-muted text-muted-foreground group-hover:bg-primary group-hover:text-white flex items-center justify-center border-4 border-border group-hover:border-primary/20 transition-all duration-300 shadow-sm shadow-black/5">
-                                <Play className="w-4 h-4 fill-current ml-0.5" />
-                              </div>
-                              <div className="space-y-0.5">
-                                <div className="text-xs text-muted-foreground uppercase font-bold tracking-wider group-hover:text-primary transition-colors">Step 4: Next Topic</div>
-                                <div className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">Pointer Arithmetic</div>
-                                <div className="text-xs text-muted-foreground">Click to start learning</div>
-                              </div>
-                            </div>
-
-                          </div>
-                        </Card>
-                      </div>
                       </div>
                     </div>
                   );
@@ -3380,18 +3300,6 @@ export default function StudentDashboard() {
                         <span>Select</span>
                       </Button>
                     )}
-                    <Button 
-                      variant="outline" 
-                      className="border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800 dark:border-violet-900/40 dark:text-violet-400 dark:hover:bg-violet-950/20 flex items-center gap-1.5 px-4 h-9 rounded-full cursor-pointer transition-colors"
-                      onClick={async () => { 
-                        await apiFetch('/student-notifications/mark-all-read', { method: 'POST' }); 
-                        loadNotifications(); 
-                        toast.success('All notifications marked as read');
-                      }}
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>Mark All As Read</span>
-                    </Button>
                   </div>
                 </div>
 
@@ -3579,33 +3487,6 @@ export default function StudentDashboard() {
                             </span>
                             
                             <div className="flex items-center gap-2">
-                              <div className="w-[84px] flex justify-end">
-                                {!n.read ? (
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline" 
-                                    className="h-8 text-xs border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800 dark:border-violet-900/40 dark:text-violet-400 flex items-center gap-1 px-3 rounded-full cursor-pointer transition-colors shadow-none"
-                                    onClick={async (e) => { 
-                                      e.stopPropagation();
-                                      await apiFetch(`/student-notifications/${n._id}/read`, { method: 'POST' }); 
-                                      loadNotifications(); 
-                                    }}
-                                  >
-                                    <Eye className="w-3.5 h-3.5" />
-                                    <span>Read</span>
-                                  </Button>
-                                ) : (
-                                  <Button 
-                                    size="sm" 
-                                    variant="ghost" 
-                                    className="h-8 text-xs text-muted-foreground/50 font-semibold hover:bg-transparent cursor-default select-none pr-3"
-                                    disabled
-                                  >
-                                    Read
-                                  </Button>
-                                )}
-                              </div>
-
                               <Button 
                                 size="icon" 
                                 variant="ghost" 
