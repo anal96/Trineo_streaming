@@ -139,12 +139,20 @@ export default function LoginPage() {
     if (!container) return;
     const emailInput = container.querySelector('#exampleInputEmail1') as HTMLInputElement | null;
     const rememberCheckbox = container.querySelector('#rememberMeCheckbox') as HTMLInputElement | null;
+    const emailTick = container.querySelector('#email-tick-icon') as HTMLElement | null;
     if (emailInput) {
       const remembered = localStorage.getItem('trineo_remembered_email');
       if (remembered) {
         emailInput.value = remembered;
         if (rememberCheckbox) {
           rememberCheckbox.checked = true;
+        }
+        if (emailTick) {
+          emailTick.style.display = 'block';
+        }
+      } else {
+        if (emailTick) {
+          emailTick.style.display = 'none';
         }
       }
     }
@@ -464,12 +472,28 @@ export default function LoginPage() {
       }
     };
 
+    const handleInput = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      if (target.id === 'exampleInputEmail1') {
+        const tick = container.querySelector('#email-tick-icon') as HTMLElement | null;
+        if (tick) {
+          if (target.value.trim().length > 0) {
+            tick.style.display = 'block';
+          } else {
+            tick.style.display = 'none';
+          }
+        }
+      }
+    };
+
     container.addEventListener('submit', handleSubmit);
     container.addEventListener('click', handleClick);
+    container.addEventListener('input', handleInput);
 
     return () => {
       container.removeEventListener('submit', handleSubmit);
       container.removeEventListener('click', handleClick);
+      container.removeEventListener('input', handleInput);
     };
   }, [navigate, resetToken, error, securityAlert]);
 
@@ -737,8 +761,8 @@ export default function LoginPage() {
               <label for="exampleInputEmail1" class="auth-label">Email Address</label>
               <div style="position: relative; width: 100%;">
                 <iconify-icon icon="solar:letter-bold" class="auth-prefix-icon"></iconify-icon>
-                <input type="email" class="auth-input" id="exampleInputEmail1" placeholder="admin@institute.com" required autocomplete="email">
-                <iconify-icon icon="solar:check-circle-bold" class="position-absolute text-success" style="right: 1.15rem; top: 50%; transform: translateY(-50%); font-size: 1.25rem; pointer-events: none;"></iconify-icon>
+                <input type="email" class="auth-input" id="exampleInputEmail1" placeholder="" required autocomplete="email">
+                <iconify-icon id="email-tick-icon" icon="solar:check-circle-bold" class="position-absolute text-success" style="right: 1.15rem; top: 50%; transform: translateY(-50%); font-size: 1.25rem; pointer-events: none; display: none;"></iconify-icon>
               </div>
             </div>
             
@@ -746,7 +770,7 @@ export default function LoginPage() {
               <label for="inputPassword" class="auth-label">Password</label>
               <div style="position: relative; width: 100%;">
                 <iconify-icon icon="solar:lock-password-unlocked-bold" class="auth-prefix-icon"></iconify-icon>
-                <input type="password" class="auth-input" id="inputPassword" placeholder="••••••••" required autocomplete="current-password">
+                <input type="password" class="auth-input" id="inputPassword" placeholder="" required autocomplete="current-password">
                 <button type="button" class="auth-input-icon" id="password-toggle-btn" aria-label="Toggle password visibility">
                   <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
                 </button>
