@@ -2204,6 +2204,11 @@ export default function VideoPlayer() {
                 onTouchMove={handlePlayerTouchMove}
                 onTouchEnd={handlePlayerTouchEnd}
               >
+                {/* Mobile Aspect Ratio Spacer to prevent WebView container height collapse */}
+                {!learningModeFullscreen && (
+                  <div className="w-full pb-[56.25%] pointer-events-none block lg:hidden" />
+                )}
+
                 {/* Floating Lesson Title Overlay */}
                 {currentContent && (
                   <div className="absolute top-4 left-4 z-30 pointer-events-none transition-opacity duration-300 opacity-90 group-hover:opacity-100">
@@ -2848,167 +2853,6 @@ export default function VideoPlayer() {
                                 )}
                               </div>
                             )}
-
-                            {/* Mobile Settings Bottom Sheet */}
-                            {isTouchDevice && settingsOpen && (
-                              <>
-                                {/* Backdrop for mobile to close when tapping outside */}
-                                <div
-                                  className="fixed inset-0 z-[98] bg-black/60"
-                                  onClick={() => setSettingsOpen(false)}
-                                />
-                                
-                                {/* Bottom Sheet */}
-                                <div
-                                  className="fixed bottom-0 left-0 right-0 z-[99] bg-[#18181b] border-t border-zinc-800 rounded-t-[24px] px-4 pt-2 pb-6 flex flex-col h-[42vh] max-h-[45vh] min-h-[40vh] transition-transform duration-200 select-none"
-                                  style={{
-                                    transform: mobileTranslateY > 0 ? `translateY(${mobileTranslateY}px)` : 'none',
-                                    transition: mobileTranslateY === 0 ? 'transform 0.2s ease-out' : 'none',
-                                    touchAction: 'none'
-                                  }}
-                                  onTouchStart={handleMobileTouchStart}
-                                  onTouchMove={handleMobileTouchMove}
-                                  onTouchEnd={handleMobileTouchEnd}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {/* Drag Handle pill */}
-                                  <div className="w-12 h-1.5 bg-zinc-700 rounded-full mx-auto my-2 shrink-0" />
-
-                                  {settingsView === 'main' && (
-                                    <div className="flex flex-col h-full text-white">
-                                      <div className="flex items-center gap-2 py-3 border-b border-zinc-800 text-slate-300 font-extrabold text-sm uppercase tracking-wider shrink-0">
-                                        <Settings className="w-4 h-4 text-purple-500" />
-                                        <span>Video Settings</span>
-                                      </div>
-                                      
-                                      <div className="flex-1 overflow-y-auto py-2 space-y-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => setSettingsView('quality')}
-                                          className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
-                                          style={{ minHeight: '48px' }}
-                                        >
-                                          <div className="flex items-center gap-3">
-                                            <SlidersHorizontal className="w-5 h-5 text-zinc-400" />
-                                            <span className="text-sm font-bold">Quality</span>
-                                          </div>
-                                          <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
-                                            <span>{formatQualityLabel(selectedQuality)}</span>
-                                            <ChevronRight className="w-4 h-4 text-zinc-500" />
-                                          </div>
-                                        </button>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => setSettingsView('speed')}
-                                          className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
-                                          style={{ minHeight: '48px' }}
-                                        >
-                                          <div className="flex items-center gap-3">
-                                            <Clock className="w-5 h-5 text-zinc-400" />
-                                            <span className="text-sm font-bold">Playback Speed</span>
-                                          </div>
-                                          <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
-                                            <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
-                                            <ChevronRight className="w-4 h-4 text-zinc-500" />
-                                          </div>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {settingsView === 'quality' && (
-                                    <div className="flex flex-col h-full text-white">
-                                      <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => setSettingsView('main')}
-                                          className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
-                                        >
-                                          <ChevronLeft className="w-4 h-4 text-purple-500" />
-                                          <span>Back</span>
-                                        </button>
-                                        <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Quality</span>
-                                      </div>
-
-                                      <div className="flex-1 overflow-y-auto py-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleQualitySelect('default')}
-                                          className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
-                                          style={{ minHeight: '44px' }}
-                                        >
-                                          <span className="w-5 flex items-center justify-center">
-                                            {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-400" />}
-                                          </span>
-                                          <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
-                                            Auto
-                                          </span>
-                                        </button>
-                                        
-                                        {availableQualities.map((q) => {
-                                          const isSelected = selectedQuality === q;
-                                          return (
-                                            <button
-                                              key={q}
-                                              type="button"
-                                              onClick={() => handleQualitySelect(q)}
-                                              className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
-                                              style={{ minHeight: '44px' }}
-                                            >
-                                              <span className="w-5 flex items-center justify-center">
-                                                {isSelected && <Check className="w-4 h-4 text-purple-400" />}
-                                              </span>
-                                              <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
-                                                {formatQualityLabel(q)}
-                                              </span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {settingsView === 'speed' && (
-                                    <div className="flex flex-col h-full text-white">
-                                      <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => setSettingsView('main')}
-                                          className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
-                                        >
-                                          <ChevronLeft className="w-4 h-4 text-purple-500" />
-                                          <span>Back</span>
-                                        </button>
-                                        <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Playback Speed</span>
-                                      </div>
-
-                                      <div className="flex-1 overflow-y-auto py-2">
-                                        {[0.5, 1, 1.25, 1.5, 2].map((speed) => {
-                                          const isSelected = playbackSpeed === speed;
-                                          return (
-                                            <button
-                                              key={speed}
-                                              type="button"
-                                              onClick={() => handleSpeedSelect(speed)}
-                                              className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
-                                              style={{ minHeight: '44px' }}
-                                            >
-                                              <span className="w-5 flex items-center justify-center">
-                                                {isSelected && <Check className="w-4 h-4 text-purple-400" />}
-                                              </span>
-                                              <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
-                                                {speed === 1 ? 'Normal' : `${speed}x`}
-                                              </span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </>
-                            )}
                           </div>
 
                           {provider === 'hls' && document.pictureInPictureEnabled && (
@@ -3128,6 +2972,167 @@ export default function VideoPlayer() {
                     <Sparkles className="w-3.5 h-3.5 text-purple-400" />
                     <span>2x Speed Active</span>
                   </div>
+                )}
+
+                {/* Mobile Settings Bottom Sheet - Rendered relative to Player Container context */}
+                {isTouchDevice && settingsOpen && (
+                  <>
+                    {/* Backdrop for mobile to close when tapping outside */}
+                    <div
+                      className="absolute inset-0 z-[98] bg-black/60"
+                      onClick={() => setSettingsOpen(false)}
+                    />
+                    
+                    {/* Bottom Sheet */}
+                    <div
+                      className="absolute bottom-0 left-0 right-0 z-[99] bg-[#18181b] border-t border-zinc-800 rounded-t-[24px] px-4 pt-2 pb-6 flex flex-col h-[42vh] max-h-[45vh] min-h-[40vh] transition-transform duration-200 select-none"
+                      style={{
+                        transform: mobileTranslateY > 0 ? `translateY(${mobileTranslateY}px)` : 'none',
+                        transition: mobileTranslateY === 0 ? 'transform 0.2s ease-out' : 'none',
+                        touchAction: 'none'
+                      }}
+                      onTouchStart={handleMobileTouchStart}
+                      onTouchMove={handleMobileTouchMove}
+                      onTouchEnd={handleMobileTouchEnd}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Drag Handle pill */}
+                      <div className="w-12 h-1.5 bg-zinc-700 rounded-full mx-auto my-2 shrink-0" />
+
+                      {settingsView === 'main' && (
+                        <div className="flex flex-col h-full text-white">
+                          <div className="flex items-center gap-2 py-3 border-b border-zinc-800 text-slate-300 font-extrabold text-sm uppercase tracking-wider shrink-0">
+                            <Settings className="w-4 h-4 text-purple-500" />
+                            <span>Video Settings</span>
+                          </div>
+                          
+                          <div className="flex-1 overflow-y-auto py-2 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => setSettingsView('quality')}
+                              className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
+                              style={{ minHeight: '48px' }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <SlidersHorizontal className="w-5 h-5 text-zinc-400" />
+                                <span className="text-sm font-bold">Quality</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                                <span>{formatQualityLabel(selectedQuality)}</span>
+                                <ChevronRight className="w-4 h-4 text-zinc-500" />
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSettingsView('speed')}
+                              className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
+                              style={{ minHeight: '48px' }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Clock className="w-5 h-5 text-zinc-400" />
+                                <span className="text-sm font-bold">Playback Speed</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                                <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
+                                <ChevronRight className="w-4 h-4 text-zinc-500" />
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {settingsView === 'quality' && (
+                        <div className="flex flex-col h-full text-white">
+                          <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setSettingsView('main')}
+                              className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
+                            >
+                              <ChevronLeft className="w-4 h-4 text-purple-500" />
+                              <span>Back</span>
+                            </button>
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Quality</span>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto py-2">
+                            <button
+                              type="button"
+                              onClick={() => handleQualitySelect('default')}
+                              className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                              style={{ minHeight: '44px' }}
+                            >
+                              <span className="w-5 flex items-center justify-center">
+                                {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-400" />}
+                              </span>
+                              <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                                Auto
+                              </span>
+                            </button>
+                            
+                            {availableQualities.map((q) => {
+                              const isSelected = selectedQuality === q;
+                              return (
+                                <button
+                                  key={q}
+                                  type="button"
+                                  onClick={() => handleQualitySelect(q)}
+                                  className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                                  style={{ minHeight: '44px' }}
+                                >
+                                  <span className="w-5 flex items-center justify-center">
+                                    {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                                  </span>
+                                  <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                                    {formatQualityLabel(q)}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {settingsView === 'speed' && (
+                        <div className="flex flex-col h-full text-white">
+                          <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setSettingsView('main')}
+                              className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
+                            >
+                              <ChevronLeft className="w-4 h-4 text-purple-500" />
+                              <span>Back</span>
+                            </button>
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Playback Speed</span>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto py-2">
+                            {[0.5, 1, 1.25, 1.5, 2].map((speed) => {
+                              const isSelected = playbackSpeed === speed;
+                              return (
+                                <button
+                                  key={speed}
+                                  type="button"
+                                  onClick={() => handleSpeedSelect(speed)}
+                                  className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                                  style={{ minHeight: '44px' }}
+                                >
+                                  <span className="w-5 flex items-center justify-center">
+                                    {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                                  </span>
+                                  <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                                    {speed === 1 ? 'Normal' : `${speed}x`}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
 
