@@ -325,7 +325,6 @@ export default function VideoPlayer() {
   }, [currentLesson?._id, subjects]);
 
   const [lessonCompletedModalOpen, setLessonCompletedModalOpen] = useState(false);
-  const [learningModeFullscreen, setLearningModeFullscreen] = useState(false);
   const [isAllExpanded, setIsAllExpanded] = useState(true);
 
   const handleToggleExpandAll = () => {
@@ -411,8 +410,52 @@ export default function VideoPlayer() {
     setActiveTab('materials');
   }, []);
 
-  // Static watermark — centered, higher opacity for visibility
-  const watermarkStyle = { opacity: 0.25, rotate: '-8deg' };
+  // Dynamic watermark — fades in at one spot, vanishes, reappears elsewhere
+  const watermarkOpacity = 0.65;
+  const [watermarkPos, setWatermarkPos] = useState({ top: '15%', left: '20%', rotate: '-8deg' });
+  const [watermarkVisible, setWatermarkVisible] = useState(true);
+
+  useEffect(() => {
+    const positions = [
+      { top: '10%', left: '10%', rotate: '-6deg' },
+      { top: '12%', left: '70%', rotate: '4deg' },
+      { top: '50%', left: '15%', rotate: '-10deg' },
+      { top: '45%', left: '65%', rotate: '6deg' },
+      { top: '75%', left: '12%', rotate: '-4deg' },
+      { top: '70%', left: '72%', rotate: '8deg' },
+      { top: '30%', left: '45%', rotate: '-5deg' },
+      { top: '60%', left: '35%', rotate: '3deg' },
+      { top: '20%', left: '55%', rotate: '-7deg' },
+      { top: '80%', left: '50%', rotate: '5deg' },
+    ];
+    let lastIndex = -1;
+
+    const cycle = () => {
+      // Fade out
+      setWatermarkVisible(false);
+
+      // After fade-out completes (800ms), teleport and fade back in
+      setTimeout(() => {
+        let idx;
+        do {
+          idx = Math.floor(Math.random() * positions.length);
+        } while (idx === lastIndex);
+        lastIndex = idx;
+        setWatermarkPos(positions[idx]);
+        setWatermarkVisible(true);
+      }, 800);
+    };
+
+    // Initial appear
+    const firstIdx = Math.floor(Math.random() * positions.length);
+    lastIndex = firstIdx;
+    setWatermarkPos(positions[firstIdx]);
+    setWatermarkVisible(true);
+
+    // Cycle: visible 3s → fade out 0.8s → teleport → fade in 0.8s → visible 3s...
+    const interval = setInterval(cycle, 4600);
+    return () => clearInterval(interval);
+  }, []);
 
   // Advanced Anti-Piracy DRM States
   const [isBlackedOut, setIsBlackedOut] = useState(false);
@@ -520,7 +563,7 @@ export default function VideoPlayer() {
   }, [isTouchDevice]);
 
   useEffect(() => {
-    if (!settingsOpen) return;
+    if (!settingsOpen || isMobile) return;
     const handleOutsideClick = (e: PointerEvent) => {
       if (
         settingsContainerRef.current &&
@@ -531,7 +574,7 @@ export default function VideoPlayer() {
     };
     document.addEventListener('pointerdown', handleOutsideClick);
     return () => document.removeEventListener('pointerdown', handleOutsideClick);
-  }, [settingsOpen]);
+  }, [settingsOpen, isMobile]);
 
   useEffect(() => {
     if (!isMobile || !settingsOpen) return;
@@ -2022,83 +2065,16 @@ export default function VideoPlayer() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-zinc-950 flex flex-col text-slate-900 dark:text-slate-100 select-none font-sans transition-colors duration-200">
-      {/* Fullscreen Mode Exit Banner */}
-      {learningModeFullscreen && (
-        <div className="fixed top-4 right-4 z-[60] animate-in fade-in duration-300">
-          <Button
-            onClick={() => setLearningModeFullscreen(false)}
-            className="bg-slate-900/75 dark:bg-black/70 backdrop-blur-md text-white border border-white/10 hover:bg-slate-800 rounded-full font-bold px-4 py-2 text-xs flex items-center gap-1.5 touch-btn shadow-lg"
-          >
-            <Tv className="w-3.5 h-3.5" />
-            <span>Exit Fullscreen Mode</span>
-          </Button>
-        </div>
-      )}
-
       {/* Top Header */}
-      {!learningModeFullscreen && (
-        <header className="min-h-16 h-16 border-b border-slate-200/60 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md flex items-center justify-between gap-4 px-6 flex-shrink-0 z-40 shadow-sm">
-          {/* Desktop Header Content (>=1024px) */}
-          <div className="hidden lg:flex items-center justify-between w-full">
-            {/* Back button & Logo / Brand */}
-            <div className="flex items-center gap-3.5">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-zinc-800/50 rounded-full cursor-pointer pr-4 transition-colors"
-                onClick={() => {
-                  if (window.history.state && window.history.state.idx > 0) {
-                    navigate(-1);
-                  } else {
-                    navigate('/student');
-                  }
-                }}
-              >
-                <ChevronLeft className="w-4.5 h-4.5" />
-                <span className="font-semibold text-xs">Back</span>
-              </Button>
-              <div className="h-5 w-px bg-slate-200 dark:bg-zinc-800 mx-1" />
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/student')}>
-                <div className="w-9 h-9 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-purple-600/20">
-                  <GraduationCap className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-bold text-sm tracking-tight leading-none bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-700 bg-clip-text text-transparent">Trineo Stream</span>
-                  <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">LMS Student Panel</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Action icons & user profile */}
-            <div className="flex items-center gap-4">
-              <ThemeToggleButton />
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="relative h-10 w-10 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
-                onClick={() => navigate('/student')}
-              >
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-purple-600 rounded-full ring-2 ring-white dark:ring-zinc-900 animate-pulse"></span>
-              </Button>
-
-              <div className="flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-zinc-800">
-                <Avatar className="w-9 h-9 border border-purple-100 dark:border-zinc-800 shadow-sm">
-                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
-                  <AvatarFallback className="bg-purple-100 text-purple-700">ST</AvatarFallback>
-                </Avatar>
-                <div className="hidden sm:flex flex-col text-left">
-                  <div className="text-sm font-semibold leading-none text-slate-900 dark:text-zinc-100">{user?.name || 'Student'}</div>
-                  <div className="text-[10px] text-slate-400 font-medium mt-0.5">Active Student</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Mobile/Tablet Header Content (<1024px) */}
-          <div className="flex lg:hidden items-center justify-between w-full px-2 h-full">
-            <button
+      <header className="min-h-16 h-16 border-b border-slate-200/60 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md flex items-center justify-between gap-4 px-6 flex-shrink-0 z-40 shadow-sm">
+        {/* Desktop Header Content (>=1024px) */}
+        <div className="hidden lg:flex items-center justify-between w-full">
+          {/* Back button & Logo / Brand */}
+          <div className="flex items-center gap-3.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50 dark:text-zinc-300 dark:border-zinc-800 dark:hover:bg-zinc-800/50 rounded-full cursor-pointer pr-4 transition-colors"
               onClick={() => {
                 if (window.history.state && window.history.state.idx > 0) {
                   navigate(-1);
@@ -2106,29 +2082,81 @@ export default function VideoPlayer() {
                   navigate('/student');
                 }
               }}
-              className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-200 active:opacity-70 h-10 px-2 rounded-lg"
             >
-              <ChevronLeft className="w-5 h-5 text-slate-500" />
-              <span>Back</span>
-            </button>
-
-            <div className="flex-1 text-center px-2 min-w-0">
-              <h1 className="text-xs font-black text-slate-800 dark:text-zinc-100 truncate leading-snug">
-                {currentContent?.title || 'Select a Lesson'}
-              </h1>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                {course?.title || 'BCA'}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[10px] font-black text-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/30 dark:text-indigo-400 px-3 py-1.5 rounded-full">
-                {overallProgress}% Progress
-              </span>
+              <ChevronLeft className="w-4.5 h-4.5" />
+              <span className="font-semibold text-xs">Back</span>
+            </Button>
+            <div className="h-5 w-px bg-slate-200 dark:bg-zinc-800 mx-1" />
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/student')}>
+              <div className="w-9 h-9 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-purple-600/20">
+                <GraduationCap className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold text-sm tracking-tight leading-none bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-700 bg-clip-text text-transparent">Trineo Stream</span>
+                <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">LMS Student Panel</span>
+              </div>
             </div>
           </div>
-        </header>
-      )}
+
+          {/* Action icons & user profile */}
+          <div className="flex items-center gap-4">
+            <ThemeToggleButton />
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative h-10 w-10 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
+              onClick={() => navigate('/student')}
+            >
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-purple-600 rounded-full ring-2 ring-white dark:ring-zinc-900 animate-pulse"></span>
+            </Button>
+
+            <div className="flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-zinc-800">
+              <Avatar className="w-9 h-9 border border-purple-100 dark:border-zinc-800 shadow-sm">
+                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'student'}`} />
+                <AvatarFallback className="bg-purple-100 text-purple-700">ST</AvatarFallback>
+              </Avatar>
+              <div className="hidden sm:flex flex-col text-left">
+                <div className="text-sm font-semibold leading-none text-slate-900 dark:text-zinc-100">{user?.name || 'Student'}</div>
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">Active Student</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile/Tablet Header Content (<1024px) */}
+        <div className="flex lg:hidden items-center justify-between w-full px-2 h-full">
+          <button
+            onClick={() => {
+              if (window.history.state && window.history.state.idx > 0) {
+                navigate(-1);
+              } else {
+                navigate('/student');
+              }
+            }}
+            className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-200 active:opacity-70 h-10 px-2 rounded-lg"
+          >
+            <ChevronLeft className="w-5 h-5 text-slate-500" />
+            <span>Back</span>
+          </button>
+
+          <div className="flex-1 text-center px-2 min-w-0">
+            <h1 className="text-xs font-black text-slate-800 dark:text-zinc-100 truncate leading-snug">
+              {currentContent?.title || 'Select a Lesson'}
+            </h1>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+              {course?.title || 'BCA'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-black text-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/30 dark:text-indigo-400 px-3 py-1.5 rounded-full">
+              {overallProgress}% Progress
+            </span>
+          </div>
+        </div>
+      </header>
 
       {/* Main Learning Experience Content */}
       <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50/50 dark:bg-zinc-950/40">
@@ -2194,14 +2222,8 @@ export default function VideoPlayer() {
               {/* Video Player Card */}
               <div
                 ref={playerContainerRef}
-                className={learningModeFullscreen
-                  ? "fixed inset-0 bg-black z-50 w-screen h-screen select-none"
-                  : "sticky top-0 lg:relative z-30 bg-background lg:bg-black w-full aspect-video lg:rounded-[24px] border-b lg:border border-slate-200/80 dark:border-zinc-800 shadow-lg overflow-hidden group cursor-none transition-all duration-300"
-                }
-                style={learningModeFullscreen
-                  ? { cursor: controlsVisible ? 'default' : 'none' }
-                  : { cursor: controlsVisible ? 'default' : 'none', aspectRatio: '16 / 9' }
-                }
+                className="sticky top-0 lg:relative z-30 bg-background lg:bg-black w-full aspect-video lg:rounded-[24px] border-b lg:border border-slate-200/80 dark:border-zinc-800 shadow-lg overflow-hidden group cursor-none transition-all duration-300"
+                style={{ cursor: controlsVisible ? 'default' : 'none', aspectRatio: '16 / 9' }}
                 onContextMenu={(e) => e.preventDefault()}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={() => isPlaying && setControlsVisible(false)}
@@ -2210,19 +2232,10 @@ export default function VideoPlayer() {
                 onTouchEnd={handlePlayerTouchEnd}
               >
                 {/* Mobile Aspect Ratio Spacer to prevent WebView container height collapse */}
-                {!learningModeFullscreen && (
-                  <div className="w-full pb-[56.25%] pointer-events-none block lg:hidden" />
-                )}
+                <div className="w-full pb-[56.25%] pointer-events-none block lg:hidden" />
 
-                {/* Floating Lesson Title Overlay */}
-                {currentContent && (
-                  <div className="absolute top-4 left-4 z-30 pointer-events-none transition-opacity duration-300 opacity-90 group-hover:opacity-100">
-                    <div className="bg-slate-900/75 dark:bg-black/70 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 text-white text-[11px] font-semibold tracking-wide shadow-md flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-purple-500 animate-ping"></span>
-                      <span>{currentContent.title}</span>
-                    </div>
-                  </div>
-                )}
+
+
 
                 {error && (course?.isLocked || currentLesson?.isLocked || playAttempted) ? (
                   <>
@@ -2271,18 +2284,21 @@ export default function VideoPlayer() {
                   </>
                 ) : null}
 
-                {/* Static Centered Watermark Overlay */}
+                {/* Dynamic Fade-In/Out Watermark Overlay */}
                 {user && !error && (
-                  <div className="absolute inset-0 pointer-events-none select-none z-20 flex items-center justify-center">
+                  <div className="absolute inset-0 pointer-events-none select-none z-20">
                     <div
-                      className="text-xs flex flex-col font-medium tracking-wide pointer-events-none leading-tight text-center max-w-[90%] break-words"
+                      className="absolute text-xs font-semibold tracking-wide pointer-events-none"
                       style={{
-                        rotate: watermarkStyle.rotate,
-                        color: `rgba(255, 255, 255, ${watermarkStyle.opacity})`,
+                        top: watermarkPos.top,
+                        left: watermarkPos.left,
+                        rotate: watermarkPos.rotate,
+                        color: `rgba(255, 255, 255, ${watermarkOpacity})`,
+                        opacity: watermarkVisible ? 1 : 0,
+                        transition: 'opacity 0.8s ease-in-out',
                       }}
                     >
-                      <span className="font-semibold">{user.name} · {user.email}</span>
-                      <span className="text-xs opacity-90">ID: {userId} · IP: {ipAddress}</span>
+                      UID: {user.user_id || userId}
                     </div>
                   </div>
                 )}
@@ -2477,9 +2493,9 @@ export default function VideoPlayer() {
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10 transition-opacity">
                     <button
                       onClick={togglePlay}
-                      className="w-16 h-16 rounded-full bg-purple-600 flex items-center justify-center hover:scale-110 transition-transform shadow-2xl animate-pulse cursor-pointer"
+                      className="w-12 h-12 rounded-full bg-purple-600 flex items-center justify-center hover:scale-110 transition-transform shadow-2xl animate-pulse cursor-pointer"
                     >
-                      <Play className="w-8 h-8 text-white fill-white ml-1" />
+                      <Play className="w-6 h-6 text-white fill-white ml-0.5" />
                     </button>
                   </div>
                 )}
@@ -2499,10 +2515,10 @@ export default function VideoPlayer() {
                         e.stopPropagation();
                         seekOffset(-10);
                       }}
-                      className="w-14 h-14 rounded-full bg-black/50 border border-white/10 flex items-center justify-center text-white active:scale-90 transition-transform cursor-pointer animate-fade-in"
+                      className="w-10 h-10 rounded-full bg-black/50 border border-white/10 flex items-center justify-center text-white active:scale-90 transition-transform cursor-pointer animate-fade-in"
                       title="Seek Backward 10s"
                     >
-                      <RotateCcw className="w-6 h-6" />
+                      <RotateCcw className="w-5 h-5" />
                     </button>
 
                     <button
@@ -2510,13 +2526,13 @@ export default function VideoPlayer() {
                         e.stopPropagation();
                         togglePlay();
                       }}
-                      className="w-18 h-18 rounded-full bg-purple-600 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg cursor-pointer animate-fade-in"
+                      className="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg cursor-pointer animate-fade-in"
                       title={isPlaying ? "Pause" : "Play"}
                     >
                       {isPlaying ? (
-                        <Pause className="w-8 h-8 fill-white" />
+                        <Pause className="w-6 h-6 fill-white" />
                       ) : (
-                        <Play className="w-8 h-8 fill-white ml-1" />
+                        <Play className="w-6 h-6 fill-white ml-0.5" />
                       )}
                     </button>
 
@@ -2525,10 +2541,10 @@ export default function VideoPlayer() {
                         e.stopPropagation();
                         seekOffset(10);
                       }}
-                      className="w-14 h-14 rounded-full bg-black/50 border border-white/10 flex items-center justify-center text-white active:scale-90 transition-transform cursor-pointer animate-fade-in"
+                      className="w-10 h-10 rounded-full bg-black/50 border border-white/10 flex items-center justify-center text-white active:scale-90 transition-transform cursor-pointer animate-fade-in"
                       title="Seek Forward 10s"
                     >
-                      <RotateCw className="w-6 h-6" />
+                      <RotateCw className="w-5 h-5" />
                     </button>
                   </div>
                 )}
@@ -2536,8 +2552,8 @@ export default function VideoPlayer() {
                 {!error && (
                   <div
                     className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 sm:p-4 transition-opacity duration-300 z-20 ${controlsVisible && !isBlackedOut
-                        ? 'opacity-100 pointer-events-auto'
-                        : 'opacity-0 pointer-events-none'
+                      ? 'opacity-100 pointer-events-auto'
+                      : 'opacity-0 pointer-events-none'
                       }`}
                     style={{
                       pointerEvents: isBlackedOut ? 'none' : undefined,
@@ -2589,11 +2605,11 @@ export default function VideoPlayer() {
 
                         {/* Hover/Scrub Thumb (sibling, positioned absolute relative to displayedProgress) */}
                         <div
-                          className="absolute top-1/2 bg-white rounded-full shadow-lg scale-150 transition-all select-none pointer-events-none"
+                          className="absolute top-1/2 bg-white rounded-full shadow-lg transition-all select-none pointer-events-none"
                           style={{
                             left: `${displayProgress}%`,
-                            width: isTouchDevice ? '16px' : '10px',
-                            height: isTouchDevice ? '16px' : '10px',
+                            width: isTouchDevice ? '12px' : '8px',
+                            height: isTouchDevice ? '12px' : '8px',
                             transform: 'translate(-50%, -50%)',
                             opacity: isTouchDevice ? 1 : undefined,
                           }}
@@ -2725,74 +2741,74 @@ export default function VideoPlayer() {
                             {/* Desktop Settings Popover */}
                             {!isMobile && settingsOpen && (
                               <div
-                                className="absolute bottom-full right-0 mb-3 w-[290px] z-[99] bg-[#18181b] border border-zinc-800 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
+                                className="absolute bottom-full right-0 mb-3 w-[290px] z-[99] bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 {settingsView === 'main' && (
-                                  <div className="flex flex-col py-1 text-white">
-                                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800/85 text-zinc-400 font-bold text-xs uppercase tracking-wider">
+                                  <div className="flex flex-col py-1 text-slate-800 dark:text-zinc-100">
+                                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 dark:border-zinc-800/85 text-slate-400 dark:text-zinc-500 font-bold text-xs uppercase tracking-wider">
                                       <Settings className="w-3.5 h-3.5 text-purple-500" />
                                       <span>Video Settings</span>
                                     </div>
-                                    
+
                                     <button
                                       type="button"
                                       onClick={() => setSettingsView('quality')}
-                                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/60 text-white transition-colors text-left"
+                                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-slate-800 dark:text-zinc-100 transition-colors text-left cursor-pointer"
                                     >
                                       <div className="flex items-center gap-3">
-                                        <SlidersHorizontal className="w-4 h-4 text-zinc-400" />
+                                        <SlidersHorizontal className="w-4 h-4 text-slate-400 dark:text-zinc-400" />
                                         <span className="text-sm font-semibold">Quality</span>
                                       </div>
-                                      <div className="flex items-center gap-1 text-xs text-purple-400 font-semibold">
+                                      <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 font-semibold">
                                         <span>{formatQualityLabel(selectedQuality)}</span>
-                                        <ChevronRight className="w-4 h-4 text-zinc-500" />
+                                        <ChevronRight className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
                                       </div>
                                     </button>
 
                                     <button
                                       type="button"
                                       onClick={() => setSettingsView('speed')}
-                                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/60 text-white transition-colors text-left"
+                                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-slate-800 dark:text-zinc-100 transition-colors text-left cursor-pointer"
                                     >
                                       <div className="flex items-center gap-3">
-                                        <Clock className="w-4 h-4 text-zinc-400" />
+                                        <Clock className="w-4 h-4 text-slate-400 dark:text-zinc-400" />
                                         <span className="text-sm font-semibold">Playback Speed</span>
                                       </div>
-                                      <div className="flex items-center gap-1 text-xs text-purple-400 font-semibold">
+                                      <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 font-semibold">
                                         <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
-                                        <ChevronRight className="w-4 h-4 text-zinc-500" />
+                                        <ChevronRight className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
                                       </div>
                                     </button>
                                   </div>
                                 )}
 
                                 {settingsView === 'quality' && (
-                                  <div className="flex flex-col text-white">
-                                    <div className="px-4 py-2 border-b border-zinc-800/85 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                  <div className="flex flex-col text-slate-800 dark:text-zinc-100">
+                                    <div className="px-4 py-2 border-b border-slate-100 dark:border-zinc-800/85 text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
                                       Video Settings
                                     </div>
                                     <button
                                       type="button"
                                       onClick={() => setSettingsView('main')}
-                                      className="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800/60 text-left border-b border-zinc-800/85 text-zinc-300 font-semibold text-xs transition-colors"
+                                      className="flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-left border-b border-slate-100 dark:border-zinc-800/85 text-slate-650 dark:text-zinc-300 font-semibold text-xs transition-colors cursor-pointer"
                                     >
                                       <ChevronLeft className="w-4 h-4 text-purple-500" />
                                       <span>Back</span>
                                     </button>
-                                    <div className="px-4 py-2 text-xs font-semibold text-purple-400 bg-purple-500/5">
+                                    <div className="px-4 py-2 text-xs font-semibold text-purple-600 dark:text-purple-400 bg-purple-500/5">
                                       Quality
                                     </div>
                                     <div className="max-h-[220px] overflow-y-auto py-1">
                                       <button
                                         type="button"
                                         onClick={() => handleQualitySelect('default')}
-                                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/60 text-left text-sm transition-colors"
+                                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-left text-sm transition-colors cursor-pointer"
                                       >
                                         <span className="w-4 flex items-center justify-center">
-                                          {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-400" />}
+                                          {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
                                         </span>
-                                        <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-400 font-bold' : 'text-zinc-300'}>
+                                        <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-600 dark:text-purple-400 font-bold' : 'text-slate-700 dark:text-zinc-300'}>
                                           Auto
                                         </span>
                                       </button>
@@ -2803,12 +2819,12 @@ export default function VideoPlayer() {
                                             key={q}
                                             type="button"
                                             onClick={() => handleQualitySelect(q)}
-                                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/60 text-left text-sm transition-colors"
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-left text-sm transition-colors cursor-pointer"
                                           >
                                             <span className="w-4 flex items-center justify-center">
-                                              {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                                              {isSelected && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
                                             </span>
-                                            <span className={isSelected ? 'text-purple-400 font-bold' : 'text-zinc-300'}>
+                                            <span className={isSelected ? 'text-purple-600 dark:text-purple-400 font-bold' : 'text-slate-700 dark:text-zinc-300'}>
                                               {formatQualityLabel(q)}
                                             </span>
                                           </button>
@@ -2819,19 +2835,19 @@ export default function VideoPlayer() {
                                 )}
 
                                 {settingsView === 'speed' && (
-                                  <div className="flex flex-col text-white">
-                                    <div className="px-4 py-2 border-b border-zinc-800/85 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                  <div className="flex flex-col text-slate-800 dark:text-zinc-100">
+                                    <div className="px-4 py-2 border-b border-slate-100 dark:border-zinc-800/85 text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
                                       Video Settings
                                     </div>
                                     <button
                                       type="button"
                                       onClick={() => setSettingsView('main')}
-                                      className="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800/60 text-left border-b border-zinc-800/85 text-zinc-300 font-semibold text-xs transition-colors"
+                                      className="flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-left border-b border-slate-100 dark:border-zinc-800/85 text-slate-650 dark:text-zinc-300 font-semibold text-xs transition-colors cursor-pointer"
                                     >
                                       <ChevronLeft className="w-4 h-4 text-purple-500" />
                                       <span>Back</span>
                                     </button>
-                                    <div className="px-4 py-2 text-xs font-semibold text-purple-400 bg-purple-500/5">
+                                    <div className="px-4 py-2 text-xs font-semibold text-purple-600 dark:text-purple-400 bg-purple-500/5">
                                       Playback Speed
                                     </div>
                                     <div className="py-1">
@@ -2842,12 +2858,12 @@ export default function VideoPlayer() {
                                             key={speed}
                                             type="button"
                                             onClick={() => handleSpeedSelect(speed)}
-                                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/60 text-left text-sm transition-colors"
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 text-left text-sm transition-colors cursor-pointer"
                                           >
                                             <span className="w-4 flex items-center justify-center">
-                                              {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                                              {isSelected && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
                                             </span>
-                                            <span className={isSelected ? 'text-purple-400 font-bold' : 'text-zinc-300'}>
+                                            <span className={isSelected ? 'text-purple-600 dark:text-purple-400 font-bold' : 'text-slate-700 dark:text-zinc-300'}>
                                               {speed === 1 ? 'Normal' : `${speed}x`}
                                             </span>
                                           </button>
@@ -2893,15 +2909,7 @@ export default function VideoPlayer() {
                             <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
                           </Button>
 
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className={`text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10 ${learningModeFullscreen ? 'text-purple-400 bg-purple-500/10' : ''}`}
-                            onClick={() => setLearningModeFullscreen(!learningModeFullscreen)}
-                            title="Fullscreen Learning Mode"
-                          >
-                            <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
-                          </Button>
+
 
                           <Button
                             size="icon"
@@ -3156,10 +3164,10 @@ export default function VideoPlayer() {
                                                           }
                                                         }}
                                                         className={`w-full p-3 rounded-xl cursor-pointer border transition-all flex items-center justify-between gap-3 shadow-sm ${isSelected
-                                                            ? 'bg-purple-50/10 dark:bg-purple-950/10 border-purple-200 dark:border-purple-900/60'
-                                                            : isLocked
-                                                              ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
-                                                              : 'bg-white dark:bg-zinc-900 border-border/40 hover:border-primary/20 text-slate-650 dark:text-zinc-400'
+                                                          ? 'bg-purple-50/10 dark:bg-purple-950/10 border-purple-200 dark:border-purple-900/60'
+                                                          : isLocked
+                                                            ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
+                                                            : 'bg-white dark:bg-zinc-900 border-border/40 hover:border-primary/20 text-slate-650 dark:text-zinc-400'
                                                           }`}
                                                       >
                                                         <div className="flex items-center gap-3.5 min-w-0 flex-1">
@@ -3191,10 +3199,10 @@ export default function VideoPlayer() {
                                                                 {content.youtubeDuration || content.duration || '10:00'}
                                                               </span>
                                                               <span className={`text-[8px] font-black uppercase rounded px-1.5 py-0.5 tracking-wider leading-none ${isCompleted
-                                                                  ? 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400'
-                                                                  : isSelected
-                                                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300'
-                                                                    : 'bg-indigo-50/70 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400'
+                                                                ? 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400'
+                                                                : isSelected
+                                                                  ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300'
+                                                                  : 'bg-indigo-50/70 text-indigo-650 dark:bg-indigo-950/20 dark:text-indigo-400'
                                                                 }`}>
                                                                 {isCompleted ? 'COMPLETED' : isSelected ? 'PLAYING' : 'UPCOMING'}
                                                               </span>
@@ -3351,8 +3359,8 @@ export default function VideoPlayer() {
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id as any)}
                       className={`pb-3 text-xs sm:text-sm font-semibold relative transition-colors cursor-pointer shrink-0 ${isActive
-                          ? 'text-purple-600 dark:text-purple-400 font-bold'
-                          : 'text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200'
+                        ? 'text-purple-600 dark:text-purple-400 font-bold'
+                        : 'text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200'
                         }`}
                     >
                       {tab.label}
@@ -3724,10 +3732,10 @@ export default function VideoPlayer() {
                                                         if (!isLocked) setCurrentContent(content);
                                                       }}
                                                       className={`w-full p-2.5 rounded-xl cursor-pointer border transition-all flex flex-col gap-1 text-[11px] ${isSelected
-                                                          ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/60 shadow-sm'
-                                                          : isLocked
-                                                            ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
-                                                            : 'bg-transparent border-transparent text-slate-650 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/40 hover:border-slate-200/50 dark:hover:border-zinc-800'
+                                                        ? 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/60 shadow-sm'
+                                                        : isLocked
+                                                          ? 'opacity-55 cursor-not-allowed border-transparent text-slate-400'
+                                                          : 'bg-transparent border-transparent text-slate-650 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/40 hover:border-slate-200/50 dark:hover:border-zinc-800'
                                                         }`}
                                                     >
                                                       <div className="flex items-start justify-between gap-3">
@@ -3852,8 +3860,8 @@ export default function VideoPlayer() {
                     type="button"
                     onClick={() => setReportType(type)}
                     className={`text-xs px-3 py-2 rounded-xl border text-left transition-all font-medium ${reportType === type
-                        ? 'border-purple-600 bg-purple-50 text-purple-700'
-                        : 'border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-800/40 text-slate-400 hover:border-slate-300'
+                      ? 'border-purple-600 bg-purple-50 text-purple-700'
+                      : 'border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-800/40 text-slate-400 hover:border-slate-300'
                       }`}
                   >
                     {type}
@@ -4039,10 +4047,10 @@ export default function VideoPlayer() {
             className="fixed inset-0 z-[9998] bg-black/60"
             onClick={() => setSettingsOpen(false)}
           />
-          
+
           {/* Bottom Sheet */}
           <div
-            className="fixed bottom-0 left-0 right-0 z-[9999] bg-[#18181b] border-t border-zinc-800 rounded-t-[24px] px-4 pt-2 flex flex-col h-[42vh] max-h-[45vh] min-h-[40vh] transition-transform duration-200 select-none animate-in slide-in-from-bottom duration-200"
+            className="fixed bottom-0 left-0 right-0 z-[9999] bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 rounded-t-[24px] px-4 pt-2 flex flex-col h-[42vh] max-h-[45vh] min-h-[40vh] transition-transform duration-200 select-none animate-in slide-in-from-bottom duration-200"
             style={{
               transform: mobileTranslateY > 0 ? `translateY(${mobileTranslateY}px)` : 'none',
               transition: mobileTranslateY === 0 ? 'transform 0.2s ease-out' : 'none',
@@ -4055,45 +4063,45 @@ export default function VideoPlayer() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drag Handle pill */}
-            <div className="w-12 h-1.5 bg-zinc-700 rounded-full mx-auto my-2 shrink-0" />
+            <div className="w-12 h-1.5 bg-slate-300 dark:bg-zinc-700 rounded-full mx-auto my-2 shrink-0" />
 
             {settingsView === 'main' && (
-              <div className="flex flex-col h-full text-white">
-                <div className="flex items-center gap-2 py-3 border-b border-zinc-800 text-slate-300 font-extrabold text-sm uppercase tracking-wider shrink-0">
+              <div className="flex flex-col h-full text-slate-800 dark:text-zinc-100">
+                <div className="flex items-center gap-2 py-3 border-b border-slate-100 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 font-extrabold text-sm uppercase tracking-wider shrink-0">
                   <Settings className="w-4 h-4 text-purple-500" />
                   <span>Video Settings</span>
                 </div>
-                
+
                 <div className="flex-1 overflow-y-auto py-2 space-y-1">
                   <button
                     type="button"
                     onClick={() => setSettingsView('quality')}
-                    className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
+                    className="w-full flex items-center justify-between py-4 px-2 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-xl text-slate-800 dark:text-zinc-100 transition-colors text-left"
                     style={{ minHeight: '48px' }}
                   >
                     <div className="flex items-center gap-3">
-                      <SlidersHorizontal className="w-5 h-5 text-zinc-400" />
+                      <SlidersHorizontal className="w-5 h-5 text-slate-400 dark:text-zinc-400" />
                       <span className="text-sm font-bold">Quality</span>
                     </div>
-                    <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                    <div className="flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 font-bold">
                       <span>{formatQualityLabel(selectedQuality)}</span>
-                      <ChevronRight className="w-4 h-4 text-zinc-500" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
                     </div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setSettingsView('speed')}
-                    className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
+                    className="w-full flex items-center justify-between py-4 px-2 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-xl text-slate-800 dark:text-zinc-100 transition-colors text-left"
                     style={{ minHeight: '48px' }}
                   >
                     <div className="flex items-center gap-3">
-                      <Clock className="w-5 h-5 text-zinc-400" />
+                      <Clock className="w-5 h-5 text-slate-400 dark:text-zinc-400" />
                       <span className="text-sm font-bold">Playback Speed</span>
                     </div>
-                    <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                    <div className="flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 font-bold">
                       <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
-                      <ChevronRight className="w-4 h-4 text-zinc-500" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
                     </div>
                   </button>
                 </div>
@@ -4101,34 +4109,34 @@ export default function VideoPlayer() {
             )}
 
             {settingsView === 'quality' && (
-              <div className="flex flex-col h-full text-white">
-                <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
+              <div className="flex flex-col h-full text-slate-800 dark:text-zinc-100">
+                <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-zinc-800 shrink-0">
                   <button
                     type="button"
                     onClick={() => setSettingsView('main')}
-                    className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
+                    className="flex items-center gap-1 py-1 px-2 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-lg text-slate-600 dark:text-zinc-300 font-bold text-xs transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4 text-purple-500" />
                     <span>Back</span>
                   </button>
-                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Quality</span>
+                  <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider pr-2">Quality</span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-2">
                   <button
                     type="button"
                     onClick={() => handleQualitySelect('default')}
-                    className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                    className="w-full flex items-center gap-3 py-3 px-3 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
                     style={{ minHeight: '44px' }}
                   >
                     <span className="w-5 flex items-center justify-center">
-                      {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-400" />}
+                      {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
                     </span>
-                    <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                    <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-600 dark:text-purple-400 font-extrabold' : 'text-slate-700 dark:text-zinc-300 font-semibold'}>
                       Auto
                     </span>
                   </button>
-                  
+
                   {availableQualities.map((q) => {
                     const isSelected = selectedQuality === q;
                     return (
@@ -4136,13 +4144,13 @@ export default function VideoPlayer() {
                         key={q}
                         type="button"
                         onClick={() => handleQualitySelect(q)}
-                        className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                        className="w-full flex items-center gap-3 py-3 px-3 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
                         style={{ minHeight: '44px' }}
                       >
                         <span className="w-5 flex items-center justify-center">
-                          {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                          {isSelected && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
                         </span>
-                        <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                        <span className={isSelected ? 'text-purple-600 dark:text-purple-400 font-extrabold' : 'text-slate-700 dark:text-zinc-300 font-semibold'}>
                           {formatQualityLabel(q)}
                         </span>
                       </button>
@@ -4153,17 +4161,17 @@ export default function VideoPlayer() {
             )}
 
             {settingsView === 'speed' && (
-              <div className="flex flex-col h-full text-white">
-                <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
+              <div className="flex flex-col h-full text-slate-800 dark:text-zinc-100">
+                <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-zinc-800 shrink-0">
                   <button
                     type="button"
                     onClick={() => setSettingsView('main')}
-                    className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
+                    className="flex items-center gap-1 py-1 px-2 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-lg text-slate-600 dark:text-zinc-300 font-bold text-xs transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4 text-purple-500" />
                     <span>Back</span>
                   </button>
-                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Playback Speed</span>
+                  <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider pr-2">Playback Speed</span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-2">
@@ -4174,13 +4182,13 @@ export default function VideoPlayer() {
                         key={speed}
                         type="button"
                         onClick={() => handleSpeedSelect(speed)}
-                        className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                        className="w-full flex items-center gap-3 py-3 px-3 hover:bg-slate-50 dark:hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
                         style={{ minHeight: '44px' }}
                       >
                         <span className="w-5 flex items-center justify-center">
-                          {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                          {isSelected && <Check className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
                         </span>
-                        <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                        <span className={isSelected ? 'text-purple-600 dark:text-purple-400 font-extrabold' : 'text-slate-700 dark:text-zinc-300 font-semibold'}>
                           {speed === 1 ? 'Normal' : `${speed}x`}
                         </span>
                       </button>
