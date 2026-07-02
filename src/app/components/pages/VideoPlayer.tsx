@@ -460,6 +460,7 @@ export default function VideoPlayer() {
   const isSwipingRef = useRef<boolean>(false);
 
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [isLongPressingSpeed, setIsLongPressingSpeed] = useState(false);
   const [scrubProgress, setScrubProgress] = useState<number | null>(null);
@@ -476,6 +477,10 @@ export default function VideoPlayer() {
 
   useEffect(() => {
     setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   useEffect(() => {
@@ -529,7 +534,7 @@ export default function VideoPlayer() {
   }, [settingsOpen]);
 
   useEffect(() => {
-    if (!isTouchDevice || !settingsOpen) return;
+    if (!isMobile || !settingsOpen) return;
 
     window.history.pushState({ settingsOpen: true }, '');
 
@@ -545,7 +550,7 @@ export default function VideoPlayer() {
         window.history.back();
       }
     };
-  }, [settingsOpen, isTouchDevice]);
+  }, [settingsOpen, isMobile]);
 
   useEffect(() => {
     if (!isPlaying || isSeeking || settingsOpen) {
@@ -2607,12 +2612,12 @@ export default function VideoPlayer() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-1 sm:gap-2 text-white text-xs sm:text-sm">
-                        <div className="flex flex-wrap items-center gap-0.5 sm:gap-3 min-w-0">
+                      <div className="flex items-center justify-between gap-1 sm:gap-2 text-white text-xs sm:text-sm">
+                        <div className="flex items-center gap-1 sm:gap-3 min-w-0">
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                            className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                             onClick={() => {
                               if (currentIndex > 0) {
                                 const prevContent = flatContents[currentIndex - 1];
@@ -2627,7 +2632,7 @@ export default function VideoPlayer() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                            className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                             onClick={togglePlay}
                           >
                             {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-white" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-white ml-0.5" />}
@@ -2636,7 +2641,7 @@ export default function VideoPlayer() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                            className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                             onClick={() => {
                               if (currentIndex !== -1 && currentIndex < flatContents.length - 1) {
                                 const nextContentItem = flatContents[currentIndex + 1];
@@ -2653,7 +2658,7 @@ export default function VideoPlayer() {
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                              className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                               onClick={handleVolumeToggle}
                             >
                               {isMuted ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -2703,7 +2708,7 @@ export default function VideoPlayer() {
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                              className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                               onClick={() => {
                                 setSettingsOpen(prev => {
                                   const next = !prev;
@@ -2718,7 +2723,7 @@ export default function VideoPlayer() {
                             </Button>
 
                             {/* Desktop Settings Popover */}
-                            {!isTouchDevice && settingsOpen && (
+                            {!isMobile && settingsOpen && (
                               <div
                                 className="absolute bottom-full right-0 mb-3 w-[290px] z-[99] bg-[#18181b] border border-zinc-800 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
                                 onClick={(e) => e.stopPropagation()}
@@ -2859,7 +2864,7 @@ export default function VideoPlayer() {
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                              className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                               onClick={async () => {
                                 if (!videoRef.current) return;
                                 try {
@@ -2881,7 +2886,7 @@ export default function VideoPlayer() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className={`hidden lg:inline-flex text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10 ${theaterMode ? 'text-purple-400 bg-purple-500/10' : ''}`}
+                            className={`hidden lg:inline-flex text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10 ${theaterMode ? 'text-purple-400 bg-purple-500/10' : ''}`}
                             onClick={() => setTheaterMode(!theaterMode)}
                             title="Theater Mode"
                           >
@@ -2891,7 +2896,7 @@ export default function VideoPlayer() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className={`text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10 ${learningModeFullscreen ? 'text-purple-400 bg-purple-500/10' : ''}`}
+                            className={`text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10 ${learningModeFullscreen ? 'text-purple-400 bg-purple-500/10' : ''}`}
                             onClick={() => setLearningModeFullscreen(!learningModeFullscreen)}
                             title="Fullscreen Learning Mode"
                           >
@@ -2901,7 +2906,7 @@ export default function VideoPlayer() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="text-white hover:bg-white/10 h-11 w-11 sm:h-10 sm:w-10"
+                            className="text-white hover:bg-white/10 h-8 w-8 sm:h-10 sm:w-10"
                             onClick={() => playerContainerRef.current?.requestFullscreen()}
                           >
                             <Maximize2 className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2974,166 +2979,6 @@ export default function VideoPlayer() {
                   </div>
                 )}
 
-                {/* Mobile Settings Bottom Sheet - Rendered relative to Player Container context */}
-                {isTouchDevice && settingsOpen && (
-                  <>
-                    {/* Backdrop for mobile to close when tapping outside */}
-                    <div
-                      className="absolute inset-0 z-[98] bg-black/60"
-                      onClick={() => setSettingsOpen(false)}
-                    />
-                    
-                    {/* Bottom Sheet */}
-                    <div
-                      className="absolute bottom-0 left-0 right-0 z-[99] bg-[#18181b] border-t border-zinc-800 rounded-t-[24px] px-4 pt-2 pb-6 flex flex-col h-[42vh] max-h-[45vh] min-h-[40vh] transition-transform duration-200 select-none"
-                      style={{
-                        transform: mobileTranslateY > 0 ? `translateY(${mobileTranslateY}px)` : 'none',
-                        transition: mobileTranslateY === 0 ? 'transform 0.2s ease-out' : 'none',
-                        touchAction: 'none'
-                      }}
-                      onTouchStart={handleMobileTouchStart}
-                      onTouchMove={handleMobileTouchMove}
-                      onTouchEnd={handleMobileTouchEnd}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* Drag Handle pill */}
-                      <div className="w-12 h-1.5 bg-zinc-700 rounded-full mx-auto my-2 shrink-0" />
-
-                      {settingsView === 'main' && (
-                        <div className="flex flex-col h-full text-white">
-                          <div className="flex items-center gap-2 py-3 border-b border-zinc-800 text-slate-300 font-extrabold text-sm uppercase tracking-wider shrink-0">
-                            <Settings className="w-4 h-4 text-purple-500" />
-                            <span>Video Settings</span>
-                          </div>
-                          
-                          <div className="flex-1 overflow-y-auto py-2 space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => setSettingsView('quality')}
-                              className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
-                              style={{ minHeight: '48px' }}
-                            >
-                              <div className="flex items-center gap-3">
-                                <SlidersHorizontal className="w-5 h-5 text-zinc-400" />
-                                <span className="text-sm font-bold">Quality</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
-                                <span>{formatQualityLabel(selectedQuality)}</span>
-                                <ChevronRight className="w-4 h-4 text-zinc-500" />
-                              </div>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setSettingsView('speed')}
-                              className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
-                              style={{ minHeight: '48px' }}
-                            >
-                              <div className="flex items-center gap-3">
-                                <Clock className="w-5 h-5 text-zinc-400" />
-                                <span className="text-sm font-bold">Playback Speed</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
-                                <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
-                                <ChevronRight className="w-4 h-4 text-zinc-500" />
-                              </div>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {settingsView === 'quality' && (
-                        <div className="flex flex-col h-full text-white">
-                          <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setSettingsView('main')}
-                              className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
-                            >
-                              <ChevronLeft className="w-4 h-4 text-purple-500" />
-                              <span>Back</span>
-                            </button>
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Quality</span>
-                          </div>
-
-                          <div className="flex-1 overflow-y-auto py-2">
-                            <button
-                              type="button"
-                              onClick={() => handleQualitySelect('default')}
-                              className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
-                              style={{ minHeight: '44px' }}
-                            >
-                              <span className="w-5 flex items-center justify-center">
-                                {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-400" />}
-                              </span>
-                              <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
-                                Auto
-                              </span>
-                            </button>
-                            
-                            {availableQualities.map((q) => {
-                              const isSelected = selectedQuality === q;
-                              return (
-                                <button
-                                  key={q}
-                                  type="button"
-                                  onClick={() => handleQualitySelect(q)}
-                                  className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
-                                  style={{ minHeight: '44px' }}
-                                >
-                                  <span className="w-5 flex items-center justify-center">
-                                    {isSelected && <Check className="w-4 h-4 text-purple-400" />}
-                                  </span>
-                                  <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
-                                    {formatQualityLabel(q)}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {settingsView === 'speed' && (
-                        <div className="flex flex-col h-full text-white">
-                          <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setSettingsView('main')}
-                              className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
-                            >
-                              <ChevronLeft className="w-4 h-4 text-purple-500" />
-                              <span>Back</span>
-                            </button>
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Playback Speed</span>
-                          </div>
-
-                          <div className="flex-1 overflow-y-auto py-2">
-                            {[0.5, 1, 1.25, 1.5, 2].map((speed) => {
-                              const isSelected = playbackSpeed === speed;
-                              return (
-                                <button
-                                  key={speed}
-                                  type="button"
-                                  onClick={() => handleSpeedSelect(speed)}
-                                  className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
-                                  style={{ minHeight: '44px' }}
-                                >
-                                  <span className="w-5 flex items-center justify-center">
-                                    {isSelected && <Check className="w-4 h-4 text-purple-400" />}
-                                  </span>
-                                  <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
-                                    {speed === 1 ? 'Normal' : `${speed}x`}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* Mobile Lesson Summary Card (<1024px) */}
@@ -4184,6 +4029,168 @@ export default function VideoPlayer() {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Mobile Settings Bottom Sheet - Viewport Relative */}
+      {isMobile && settingsOpen && (
+        <>
+          {/* Backdrop for mobile to close when tapping outside */}
+          <div
+            className="fixed inset-0 z-[9998] bg-black/60"
+            onClick={() => setSettingsOpen(false)}
+          />
+          
+          {/* Bottom Sheet */}
+          <div
+            className="fixed bottom-0 left-0 right-0 z-[9999] bg-[#18181b] border-t border-zinc-800 rounded-t-[24px] px-4 pt-2 flex flex-col h-[42vh] max-h-[45vh] min-h-[40vh] transition-transform duration-200 select-none animate-in slide-in-from-bottom duration-200"
+            style={{
+              transform: mobileTranslateY > 0 ? `translateY(${mobileTranslateY}px)` : 'none',
+              transition: mobileTranslateY === 0 ? 'transform 0.2s ease-out' : 'none',
+              touchAction: 'none',
+              paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))'
+            }}
+            onTouchStart={handleMobileTouchStart}
+            onTouchMove={handleMobileTouchMove}
+            onTouchEnd={handleMobileTouchEnd}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drag Handle pill */}
+            <div className="w-12 h-1.5 bg-zinc-700 rounded-full mx-auto my-2 shrink-0" />
+
+            {settingsView === 'main' && (
+              <div className="flex flex-col h-full text-white">
+                <div className="flex items-center gap-2 py-3 border-b border-zinc-800 text-slate-300 font-extrabold text-sm uppercase tracking-wider shrink-0">
+                  <Settings className="w-4 h-4 text-purple-500" />
+                  <span>Video Settings</span>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto py-2 space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView('quality')}
+                    className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
+                    style={{ minHeight: '48px' }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <SlidersHorizontal className="w-5 h-5 text-zinc-400" />
+                      <span className="text-sm font-bold">Quality</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                      <span>{formatQualityLabel(selectedQuality)}</span>
+                      <ChevronRight className="w-4 h-4 text-zinc-500" />
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView('speed')}
+                    className="w-full flex items-center justify-between py-4 px-2 hover:bg-zinc-800/50 rounded-xl text-white transition-colors text-left"
+                    style={{ minHeight: '48px' }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Clock className="w-5 h-5 text-zinc-400" />
+                      <span className="text-sm font-bold">Playback Speed</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                      <span>{playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}</span>
+                      <ChevronRight className="w-4 h-4 text-zinc-500" />
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {settingsView === 'quality' && (
+              <div className="flex flex-col h-full text-white">
+                <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView('main')}
+                    className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-purple-500" />
+                    <span>Back</span>
+                  </button>
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Quality</span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto py-2">
+                  <button
+                    type="button"
+                    onClick={() => handleQualitySelect('default')}
+                    className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                    style={{ minHeight: '44px' }}
+                  >
+                    <span className="w-5 flex items-center justify-center">
+                      {(selectedQuality === 'default' || selectedQuality === 'auto') && <Check className="w-4 h-4 text-purple-400" />}
+                    </span>
+                    <span className={selectedQuality === 'default' || selectedQuality === 'auto' ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                      Auto
+                    </span>
+                  </button>
+                  
+                  {availableQualities.map((q) => {
+                    const isSelected = selectedQuality === q;
+                    return (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => handleQualitySelect(q)}
+                        className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                        style={{ minHeight: '44px' }}
+                      >
+                        <span className="w-5 flex items-center justify-center">
+                          {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                        </span>
+                        <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                          {formatQualityLabel(q)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {settingsView === 'speed' && (
+              <div className="flex flex-col h-full text-white">
+                <div className="flex items-center justify-between py-2 border-b border-zinc-800 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView('main')}
+                    className="flex items-center gap-1 py-1 px-2 hover:bg-zinc-800/50 rounded-lg text-zinc-300 font-bold text-xs transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-purple-500" />
+                    <span>Back</span>
+                  </button>
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pr-2">Playback Speed</span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto py-2">
+                  {[0.5, 1, 1.25, 1.5, 2].map((speed) => {
+                    const isSelected = playbackSpeed === speed;
+                    return (
+                      <button
+                        key={speed}
+                        type="button"
+                        onClick={() => handleSpeedSelect(speed)}
+                        className="w-full flex items-center gap-3 py-3 px-3 hover:bg-zinc-800/50 rounded-xl text-left text-sm transition-colors"
+                        style={{ minHeight: '44px' }}
+                      >
+                        <span className="w-5 flex items-center justify-center">
+                          {isSelected && <Check className="w-4 h-4 text-purple-400" />}
+                        </span>
+                        <span className={isSelected ? 'text-purple-400 font-extrabold' : 'text-zinc-300 font-semibold'}>
+                          {speed === 1 ? 'Normal' : `${speed}x`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
