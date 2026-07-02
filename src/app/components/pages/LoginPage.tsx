@@ -477,36 +477,61 @@ export default function LoginPage() {
   const LOGIN_HTML = `
     <style>
       .auth-section {
-        background: radial-gradient(circle at top left, rgba(124, 58, 237, 0.08), transparent 35%),
-                    radial-gradient(circle at bottom right, rgba(99, 102, 241, 0.06), transparent 35%),
-                    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        background: radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.04), transparent 45%),
+                    radial-gradient(circle at 90% 80%, rgba(124, 58, 237, 0.04), transparent 45%),
+                    linear-gradient(135deg, #f5f7ff 0%, #fcfcff 100%);
         min-height: 100vh;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         padding: 2.5rem 1rem;
-        animation: authFadeIn 0.6s ease-out;
+        position: relative;
+        overflow: hidden;
+        font-family: 'Outfit', 'Inter', sans-serif;
+      }
+      .bg-blob {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        z-index: 0;
+        pointer-events: none;
+      }
+      .blob-1 {
+        width: 250px;
+        height: 250px;
+        background: rgba(99, 102, 241, 0.15);
+        top: 20%;
+        left: 5%;
+      }
+      .blob-2 {
+        width: 300px;
+        height: 300px;
+        background: rgba(124, 58, 237, 0.12);
+        bottom: 15%;
+        right: 5%;
       }
       .auth-card {
-        backdrop-filter: blur(16px);
-        background: rgba(255, 255, 255, 0.88);
-        border: 1px solid rgba(226, 232, 240, 0.85);
-        border-radius: 24px;
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.05);
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border: 1.5px solid rgba(226, 232, 240, 0.8);
+        border-radius: 32px;
+        box-shadow: 0 24px 64px rgba(99, 102, 241, 0.05), 0 8px 24px rgba(99, 102, 241, 0.01);
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        animation: authCardSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        max-width: 460px;
         width: 100%;
+        max-width: 440px;
+        z-index: 10;
+        overflow: hidden;
       }
       .auth-card:hover {
-        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.1);
-        transform: translateY(-2px);
+        transform: translateY(-4px);
+        box-shadow: 0 32px 80px rgba(99, 102, 241, 0.08);
       }
       .auth-label {
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: #1e293b;
-        margin-bottom: 0.5rem;
+        font-size: 0.825rem;
+        font-weight: 700;
+        color: #334155;
+        margin-bottom: 0.4rem;
         display: block;
       }
       .auth-input-container {
@@ -516,47 +541,61 @@ export default function LoginPage() {
       .auth-input {
         width: 100%;
         height: 3.25rem;
-        padding: 0 1.25rem;
-        padding-right: 3.25rem;
-        border-radius: 12px;
-        border: 1.5px solid #e2e8f0;
-        background-color: #f8fafc;
+        padding-left: 3rem;
+        padding-right: 3rem;
+        border-radius: 16px;
+        border: 1.5px solid #eef0f6;
+        background-color: #f4f5fc;
         color: #0f172a;
         font-size: 0.95rem;
-        font-weight: 500;
-        transition: all 0.2s ease-in-out;
+        font-weight: 600;
+        transition: all 0.25s ease-in-out;
         outline: none;
       }
       .auth-input:focus {
         background-color: #ffffff;
-        border-color: #7c3aed;
-        box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.15);
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+      }
+      .auth-input::placeholder {
+        color: #94a3b8;
+        font-weight: 500;
+      }
+      .auth-prefix-icon {
+        position: absolute;
+        left: 1.15rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        font-size: 1.2rem;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
       }
       .auth-input-icon {
         position: absolute;
-        right: 1.25rem;
+        right: 1.15rem;
         top: 50%;
         transform: translateY(-50%);
         color: #94a3b8;
         cursor: pointer;
-        font-size: 1.25rem;
+        font-size: 1.2rem;
         display: flex;
         align-items: center;
-        justify-content: center;
-        transition: color 0.15s;
         border: none;
         background: transparent;
         padding: 0;
+        transition: color 0.2s;
       }
       .auth-input-icon:hover {
-        color: #7c3aed;
+        color: #4f46e5;
       }
       .auth-submit-btn {
         width: 100%;
         height: 3.25rem;
-        border-radius: 9999px;
+        border-radius: 16px;
         border: none;
-        background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
         color: #ffffff;
         font-size: 1rem;
         font-weight: 700;
@@ -565,15 +604,15 @@ export default function LoginPage() {
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
-        box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);
+        box-shadow: 0 8px 24px rgba(99, 102, 241, 0.25);
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         margin-top: 1.5rem;
         margin-bottom: 1.25rem;
       }
       .auth-submit-btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
-        background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+        box-shadow: 0 12px 28px rgba(99, 102, 241, 0.35);
+        background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
       }
       .auth-submit-btn:active {
         transform: scale(0.98);
@@ -595,7 +634,7 @@ export default function LoginPage() {
         align-items: center;
         gap: 0.5rem;
         font-size: 0.85rem;
-        font-weight: 500;
+        font-weight: 600;
         color: #475569;
         cursor: pointer;
         user-select: none;
@@ -603,51 +642,92 @@ export default function LoginPage() {
       .auth-checkbox {
         width: 1rem;
         height: 1rem;
-        border-radius: 4px;
+        border-radius: 6px;
         border: 1.5px solid #cbd5e1;
-        accent-color: #7c3aed;
+        accent-color: #4f46e5;
         cursor: pointer;
       }
       .auth-link {
         font-size: 0.85rem;
-        font-weight: 600;
-        color: #7c3aed;
+        font-weight: 700;
+        color: #4f46e5;
         text-decoration: none;
-        transition: color 0.15s;
+        transition: color 0.2s;
       }
       .auth-link:hover {
-        color: #4f46e5;
+        color: #3730a3;
         text-decoration: underline;
+      }
+      .sso-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+      .sso-btn {
+        flex: 1;
+        height: 3.25rem;
+        border-radius: 16px;
+        border: 1.5px solid #eef0f6;
+        background: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .sso-btn:hover {
+        background: #f8fafc;
+        border-color: #cbd5e1;
+        transform: translateY(-1px);
+      }
+      .divider-container {
+        display: flex;
+        align-items: center;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin: 1.5rem 0;
+      }
+      .divider-line {
+        flex: 1;
+        height: 1px;
+        background: #e2e8f0;
+      }
+      .divider-text {
+        padding: 0 0.75rem;
+      }
+      .footer-info {
+        text-align: center;
+        margin-top: 2rem;
+        color: #94a3b8;
+        font-size: 0.75rem;
+        font-weight: 600;
+        z-index: 10;
       }
       @keyframes authFadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
       }
-      @keyframes authCardSlideUp {
-        from {
-          opacity: 0;
-          transform: translateY(24px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
     </style>
 
     <section class="auth-section">
+      <div class="bg-blob blob-1"></div>
+      <div class="bg-blob blob-2"></div>
+
       <div class="auth-card">
-        <div class="card-body p-5 p-sm-7">
-          <div class="text-center mb-6">
+        <div class="card-body p-5 p-sm-6">
+          <div class="text-center mb-5">
             <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none justify-content-center">
-              <img src="${trineoLogoImg}" alt="Trineo Logo" width="34" height="34" class="img-fluid rounded-circle" style="object-fit: contain;">
-              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">Trineo Stream</span>
+              <img src="${trineoLogoImg}" alt="Trineo Logo" width="36" height="36" class="img-fluid rounded-xl" style="object-fit: contain;">
+              <span class="mb-0 fw-bold" style="font-size: 28px; font-weight: 900; letter-spacing: -1px; font-family: 'Outfit', sans-serif; color: #0f172a;">Trineo<span style="color: #4f46e5;">Stream</span></span>
             </a>
-            <p class="text-muted mt-2 mb-1" style="font-size: 0.95rem; font-weight: 600; color: var(--primary, #7c3aed) !important;">Learning Platform by Trineo Stream</p>
-            <h2 class="text-dark fw-bold mt-3 mb-1" style="font-size: 1.25rem; letter-spacing: -0.5px; font-weight: 700;">
-              ${lastInstitute ? `Welcome to ${lastInstitute}` : 'Modern Learning Management Platform'}
+            <div style="display:inline-flex; align-items:center; background:#eef2ff; color:#4f46e5; border-radius:9999px; padding:6px 16px; font-size:11px; font-weight:750; margin-top:12px; font-family:'Manrope', sans-serif;">Learning Platform by Trineo Stream</div>
+            <h2 class="text-dark fw-bold mt-4 mb-1" style="font-size: 24px; font-weight: 800; letter-spacing: -0.75px; color: #0f172a;">
+              ${lastInstitute ? `Welcome back to ${lastInstitute}` : 'Welcome Back!'}
             </h2>
-            <p class="text-muted mt-1 mb-0" style="font-size: 0.85rem; font-weight: 500;">Please sign in to your account.</p>
+            <p class="text-muted mt-1 mb-0" style="font-size: 13px; font-weight: 500; color: #64748b;">Sign in to continue your learning journey</p>
           </div>
 
           <div id="alert-placeholder"></div>
@@ -655,15 +735,22 @@ export default function LoginPage() {
           <form id="login-form" onsubmit="event.preventDefault();">
             <div class="auth-input-container">
               <label for="exampleInputEmail1" class="auth-label">Email Address</label>
-              <input type="email" class="auth-input" id="exampleInputEmail1" placeholder="name@example.com" required>
+              <div style="position: relative; width: 100%;">
+                <iconify-icon icon="solar:letter-bold" class="auth-prefix-icon"></iconify-icon>
+                <input type="email" class="auth-input" id="exampleInputEmail1" placeholder="admin@institute.com" required autocomplete="email">
+                <iconify-icon icon="solar:check-circle-bold" class="position-absolute text-success" style="right: 1.15rem; top: 50%; transform: translateY(-50%); font-size: 1.25rem; pointer-events: none;"></iconify-icon>
+              </div>
             </div>
             
             <div class="auth-input-container">
               <label for="inputPassword" class="auth-label">Password</label>
-              <input type="password" class="auth-input" id="inputPassword" placeholder="••••••••" required>
-              <button type="button" class="auth-input-icon" id="password-toggle-btn" aria-label="Toggle password visibility">
-                <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
-              </button>
+              <div style="position: relative; width: 100%;">
+                <iconify-icon icon="solar:lock-password-unlocked-bold" class="auth-prefix-icon"></iconify-icon>
+                <input type="password" class="auth-input" id="inputPassword" placeholder="••••••••" required autocomplete="current-password">
+                <button type="button" class="auth-input-icon" id="password-toggle-btn" aria-label="Toggle password visibility">
+                  <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
+                </button>
+              </div>
             </div>
 
             <div class="auth-actions">
@@ -675,14 +762,24 @@ export default function LoginPage() {
             </div>
 
             <button type="submit" class="auth-submit-btn">
-              Sign In
+              <span>Sign In</span>
+              <iconify-icon icon="solar:arrow-right-bold" style="font-size: 1.15rem; margin-top: 1px;"></iconify-icon>
             </button>
           </form>
 
-          <p class="mb-0 text-center text-muted" style="font-size: 0.875rem; font-weight: 500;">
-            Not a member yet? <a class="auth-link fw-bold" href="/signup">Sign Up</a>
-          </p>
+
+
+
+
         </div>
+      </div>
+
+      <div class="footer-info">
+        <div style="display:flex; align-items:center; justify-content:center; gap:0.4rem; color: #475569; font-weight:700;">
+          <iconify-icon icon="solar:shield-check-bold" style="font-size: 1.15rem; color:#4f46e5;"></iconify-icon>
+          <span>Secure • Private • Trusted</span>
+        </div>
+        <p style="margin-top: 6px; margin-bottom: 0; color: #94a3b8; font-weight:550;">Your learning, our priority.</p>
       </div>
     </section>
   `;
@@ -690,15 +787,18 @@ export default function LoginPage() {
   // HTML content for password reset view
   const RESET_HTML = `
     <section class="auth-section">
+      <div class="bg-blob blob-1"></div>
+      <div class="bg-blob blob-2"></div>
+
       <div class="auth-card">
-        <div class="card-body p-5 p-sm-7">
-          <div class="text-center mb-6">
+        <div class="card-body p-5 p-sm-6">
+          <div class="text-center mb-5">
             <a href="/" class="d-inline-flex align-items-center gap-2.5 text-decoration-none justify-content-center">
-              <img src="${trineoLogoImg}" alt="Trineo Logo" width="34" height="34" class="img-fluid rounded-circle" style="object-fit: contain;">
-              <span class="mb-0 fw-bold" style="font-size: 32px; font-weight: 800; letter-spacing: -1.2px; font-family: 'Manrope', sans-serif; color: #0f172a;">Trineo Stream</span>
+              <img src="${trineoLogoImg}" alt="Trineo Logo" width="36" height="36" class="img-fluid rounded-xl" style="object-fit: contain;">
+              <span class="mb-0 fw-bold" style="font-size: 28px; font-weight: 900; letter-spacing: -1px; font-family: 'Outfit', sans-serif; color: #0f172a;">Trineo<span style="color: #4f46e5;">Stream</span></span>
             </a>
-            <h4 class="text-dark fw-bold mt-4 mb-1" style="letter-spacing: -0.5px;">Reset Password</h4>
-            <p class="text-muted" style="font-size: 0.9rem;">Please enter your new password below.</p>
+            <h4 class="text-dark fw-bold mt-4 mb-1" style="font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">Reset Password</h4>
+            <p class="text-muted" style="font-size: 0.9rem; font-weight: 500; color: #64748b;">Please enter your new password below.</p>
           </div>
 
           <div id="alert-placeholder"></div>
@@ -706,18 +806,24 @@ export default function LoginPage() {
           <form id="reset-password-form" onsubmit="event.preventDefault();">
             <div class="auth-input-container">
               <label for="newPasswordInput" class="auth-label">New Password</label>
-              <input type="password" class="auth-input" id="newPasswordInput" placeholder="••••••••" required>
-              <button type="button" class="auth-input-icon" id="toggle-new-password-btn" aria-label="Toggle password visibility">
-                <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
-              </button>
+              <div style="position: relative; width: 100%;">
+                <iconify-icon icon="solar:lock-password-unlocked-bold" class="auth-prefix-icon"></iconify-icon>
+                <input type="password" class="auth-input" id="newPasswordInput" placeholder="••••••••" required autocomplete="new-password">
+                <button type="button" class="auth-input-icon" id="toggle-new-password-btn" aria-label="Toggle password visibility">
+                  <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
+                </button>
+              </div>
             </div>
             
             <div class="auth-input-container">
               <label for="confirmPasswordInput" class="auth-label">Confirm Password</label>
-              <input type="password" class="auth-input" id="confirmPasswordInput" placeholder="••••••••" required>
-              <button type="button" class="auth-input-icon" id="toggle-confirm-password-btn" aria-label="Toggle password visibility">
-                <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
-              </button>
+              <div style="position: relative; width: 100%;">
+                <iconify-icon icon="solar:lock-password-unlocked-bold" class="auth-prefix-icon"></iconify-icon>
+                <input type="password" class="auth-input" id="confirmPasswordInput" placeholder="••••••••" required autocomplete="new-password">
+                <button type="button" class="auth-input-icon" id="toggle-confirm-password-btn" aria-label="Toggle password visibility">
+                  <iconify-icon icon="solar:eye-bold-duotone"></iconify-icon>
+                </button>
+              </div>
             </div>
 
             <button type="submit" class="auth-submit-btn">
@@ -725,7 +831,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p class="mb-0 text-center text-muted" style="font-size: 0.875rem; font-weight: 500;">
+          <p class="mb-0 text-center text-muted" style="font-size: 0.875rem; font-weight: 550;">
             <a class="auth-link fw-bold" href="/login">Back to Sign In</a>
           </p>
         </div>
